@@ -220,10 +220,14 @@ static void show(int x, int y, int w, int h) {
 /// What a click hits.
 enum { HIT_TAB = 1, HIT_ROW, HIT_STAR, HIT_STOP, HIT_PLAY, HIT_FAV, HIT_VOLUME, HIT_MUTE, HIT_SEARCH, HIT_URL, HIT_QUIT };
 
+/// A place to click.
 typedef struct {
-    ///@{
-    int16_t x, y, w, h, id, arg;
-    ///@}
+    int16_t x,  ///< left
+        y,      ///< top
+        w,      ///< width
+        h,      ///< height
+        id,     ///< HIT_*
+        arg;    ///< which
 } hit_t;
 static hit_t *hits;  ///< 64 of them, while the browser is open (PSRAM)
 /// Their count.

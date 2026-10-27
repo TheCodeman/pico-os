@@ -651,7 +651,7 @@ static void play(int how) {
         xm_play(S(), E.pos, E.row);
 }
 
-/// The tracker's commands (menus, buttons, keys) for an XM song. True if done.
+// The tracker's commands (menus, buttons, keys) for an XM song. True if done.
 bool xed_command(int id) {
     switch (id) {
     case HIT_PLAY_SONG: play(0); return true;
@@ -719,7 +719,7 @@ bool xed_command(int id) {
     return false;
 }
 
-/// Keys for an XM song; false if the tracker should take it (F-keys, Ctrl-S ...).
+// Keys for an XM song; false if the tracker should take it (F-keys, Ctrl-S ...).
 bool xed_key(int k) {
     if (k >= KEY_ALT) {
         static const struct {
@@ -1124,7 +1124,7 @@ static void pattern_click(int x, int y, bool drag) {
     E.marking = E.block = false;
 }
 
-/// A click (or wheel, or drag) on the XM screen; false if it isn't one of its places.
+// A click (or wheel, or drag) on the XM screen; false if it isn't one of its places.
 bool xed_click(const hit_t *h, const mouse_event_t *e) {
     if (!h)
         return false;

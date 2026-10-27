@@ -275,7 +275,7 @@ void as_cout(uint8_t c) {
     cout1(c);
 }
 
-/// OUTDO: what PRINT uses. SPEED= slows it down.
+// OUTDO: what PRINT uses. SPEED= slows it down.
 void as_outdo(uint8_t c) {
     c |= 0x80;
     if (c >= 0xa0)
@@ -453,7 +453,7 @@ static void wait_ctrl_s(void) {
     }
 }
 
-/// RDKEY: waits for a key with the cursor flashing.
+// RDKEY: waits for a key with the cursor flashing.
 uint8_t as_rdkey(void) {
     uint64_t start = asp_micros();
     for (;;) {

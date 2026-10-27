@@ -577,8 +577,8 @@ const char *port_serial_open(unsigned baud, int data_bits, char parity, int stop
     return NULL;
 }
 
-/// RTS/CTS flow control on the two pins after TX (TX+2 CTS in, TX+3 RTS out:
-/// GP6/7 for GP4/5, and so on). NULL if done, else why not.
+// RTS/CTS flow control on the two pins after TX (TX+2 CTS in, TX+3 RTS out:
+// GP6/7 for GP4/5, and so on). NULL if done, else why not.
 const char *port_serial_flow(bool on) {
     if (serial_tx < 0)
         return "COM1 isn't open";
@@ -608,7 +608,7 @@ const char *port_serial_flow(bool on) {
     return NULL;
 }
 
-/// Holds TX low (a BREAK) for `ms` milliseconds.
+// Holds TX low (a BREAK) for `ms` milliseconds.
 void port_serial_break(unsigned ms) {
     if (serial_tx < 0)
         return;
@@ -1022,8 +1022,8 @@ void port_i2c_close(void) {
     i2c_bus = NULL;
 }
 
-/// Bytes written, or -1 if no device answered (or it stopped answering), -2
-/// if I2C isn't open.
+// Bytes written, or -1 if no device answered (or it stopped answering), -2
+// if I2C isn't open.
 int port_i2c_write(int addr, const uint8_t *data, int n, bool nostop) {
     if (!i2c_bus)
         return -2;
@@ -1078,8 +1078,8 @@ void port_spi_close(void) {
     spi_bus = NULL;
 }
 
-/// Sends n bytes and keeps the n that came back (in may be NULL). False if
-/// SPI isn't open.
+// Sends n bytes and keeps the n that came back (in may be NULL). False if
+// SPI isn't open.
 bool port_spi_transfer(const uint8_t *out, uint8_t *in, int n) {
     if (!spi_bus)
         return false;

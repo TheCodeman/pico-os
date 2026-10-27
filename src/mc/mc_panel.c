@@ -295,7 +295,7 @@ void panel_quick_search(panel_t *p, const char *text) {
         }
 }
 
-/// An entry's size column: bytes, <DIR> or UP--DIR.
+/// An entry's size column: bytes, \<DIR\> or UP--DIR.
 /// @param out the text
 /// @param width its width
 /// @param e the entry

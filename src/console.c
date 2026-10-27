@@ -74,9 +74,8 @@ static struct {
     uint8_t fg, bg;
     ///@}
     int fg_idx;
-    ///@{
-    bool bold, reverse;
-    ///@}
+    bool bold,     ///< bold
+        reverse;   ///< reverse video
 } saved;  ///< ESC 7 / ESC [ s's saved cursor and attributes
 
 /// Escape sequence parser.

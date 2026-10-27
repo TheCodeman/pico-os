@@ -113,6 +113,10 @@ static void on_dns(const char *name, const ip_addr_t *addr, void *arg) {
 
 // ---- Commands' side ---------------------------------------------------------
 
+/// Looks a host name up (or reads a dotted address).
+/// @param host the name or address
+/// @param addr set to the address
+/// @return found
 bool net_resolve(const char *host, ip_addr_t *addr) {
     if (ipaddr_aton(host, addr))
         return true;

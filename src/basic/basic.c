@@ -2841,7 +2841,7 @@ static double mbf_to_double(const uint8_t *b, int bytes) {
 }
 
 /// Loads a GW-BASIC tokenised program (as SAVE without ,A makes on a PC).
-/// @param buf the file
+/// @param b the file
 /// @param len its length
 /// @return it was one
 static bool load_tokenised(const uint8_t *b, size_t len) {

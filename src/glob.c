@@ -114,7 +114,7 @@ void glob_free(char **list, int n) {
     free(list);
 }
 
-/// An absolute path without . and .. (and any number of /).
+// An absolute path without . and .. (and any number of /).
 void glob_absolute(const char *path, char *out, size_t size) {
     char raw[600] = "";
     if (path[0] != '/' && f_getcwd(raw, 300) != FR_OK)

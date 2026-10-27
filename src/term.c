@@ -894,6 +894,10 @@ static void x_close(void *ctx, void *file, bool ok) {
 static const xfer_io_t xfer_io = {NULL,   x_getc, x_write,      x_open_read, x_open_write,
                                   x_read, x_seek, x_write_file, x_close,     x_progress};
 
+/// Whether a name matches a pattern with * and ?.
+/// @param pat the pattern
+/// @param s the name
+/// @return it matches
 static bool glob_match(const char *pat, const char *s) {
     for (; *pat; ++pat, ++s) {
         if (*pat == '*') {

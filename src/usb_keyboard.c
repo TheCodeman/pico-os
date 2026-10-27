@@ -70,9 +70,8 @@ static volatile uint8_t held_keys[6], held_keys_mods;
 #define PADS 2
 static struct {
     bool mounted;  ///< the slot is in use
-    ///@{
-    uint8_t dev_addr, instance;
-    ///@}
+    uint8_t dev_addr,  ///< its USB address
+        instance;      ///< its HID instance
     hid_gamepad_layout layout;  ///< where its values are
 } pad[PADS];  ///< the pads
 static volatile uint32_t pad_state[PADS];  ///< x | y << 8 | buttons << 16, for core 0

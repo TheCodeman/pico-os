@@ -201,8 +201,8 @@ void gfx_hposn(int x, int y) {
     hposn(x, y);
 }
 
-/// HGLIN: a line from the last point to (x, y), one pixel step at a time
-/// (across or down, never both), as the ROM draws them.
+// HGLIN: a line from the last point to (x, y), one pixel step at a time
+// (across or down, never both), as the ROM draws them.
 void gfx_hplot_to(int x, int y) {
     int x0 = M[Z_HGRX] | M[Z_HGRX + 1] << 8;
     int y0 = M[Z_HGRY];
@@ -240,7 +240,7 @@ void gfx_hplot_to(int x, int y) {
     }
 }
 
-/// HGR and HGR2: hi-res on, page cleared to black.
+// HGR and HGR2: hi-res on, page cleared to black.
 void gfx_hgr(int page) {
     if (page == 2) {
         as_softswitch(0xc055, false, 0);
@@ -269,8 +269,8 @@ void gfx_hclear(void) {
     video_mark_all();
 }
 
-/// DRAW and XDRAW: shape `shape` from the table at $E8, scaled by SCALE and
-/// rotated by ROT (64ths of a turn), from the current position or (x, y).
+// DRAW and XDRAW: shape `shape` from the table at $E8, scaled by SCALE and
+// rotated by ROT (64ths of a turn), from the current position or (x, y).
 void gfx_draw(int shape, bool xdraw, bool at, int x, int y) {
     uint16_t table = w16(Z_HSHAPE);
     if (shape > M[table])

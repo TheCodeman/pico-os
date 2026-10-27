@@ -672,7 +672,7 @@ static uint32_t session_setup(smb_t *s, const char *domain, const char *user, co
     return 0;
 }
 
-/// TREE_CONNECT: to \\host\share.
+/// TREE_CONNECT: to \\\\host\\share.
 /// @param s the connection
 /// @param host the server
 /// @param share the share

@@ -380,8 +380,8 @@ void as_start_run(void) {
         ;  // run_from never returns
 }
 
-/// CHAIN: DOS 3.3 needs a helper program for this in Applesoft; here it is
-/// RUN of the other program.
+// CHAIN: DOS 3.3 needs a helper program for this in Applesoft; here it is
+// RUN of the other program.
 void as_chain(const char *name) {
     dos_load_program(name);
     as_start_run();
@@ -1076,7 +1076,6 @@ static uint16_t ptrget_ex(bool reading, bool *missing) {
 /// @param nd the dimensions
 /// @param subs the subscripts
 /// @return the element's address
-/// @param ndims the dimensions (the forward declaration's name for nd)
 static uint16_t find_or_make_array(uint8_t n1, uint8_t n2, int nd, const uint16_t *subs) {
     uint16_t a = w16(Z_ARYTAB), end = w16(Z_STREND);
     int esize = (n1 & 0x80) ? 2 : (n2 & 0x80) ? 3 : 5;

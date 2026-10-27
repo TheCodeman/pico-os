@@ -95,8 +95,8 @@ void mc_redraw(void) {
 
 // ---- Running things ---------------------------------------------------------------------------------
 
-/// Runs a shell command on the shell's own screen, then comes back. The
-/// command runs in the active panel's folder; a cd there moves the panel.
+// Runs a shell command on the shell's own screen, then comes back. The
+// command runs in the active panel's folder; a cd there moves the panel.
 void run_command(const char *line, bool pause) {
     panel_t *p = &panels[active];
     f_chdir(p->path);

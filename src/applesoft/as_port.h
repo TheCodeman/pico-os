@@ -40,7 +40,7 @@ void asp_screen_begin(void);
 /// Ends drawing a frame: the screen is shown.
 void asp_screen_end(void);
 
-/// Every character the interpreter prints, as plain ASCII with '\r' for a new
+/// Every character the interpreter prints, as plain ASCII with CR ('\\r') for a new
 /// line, for a serial terminal (on the board) or stdout (on a PC).
 /// @param c the character
 void asp_mirror(int c);

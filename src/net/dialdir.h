@@ -1,6 +1,6 @@
 /**
  * @file dialdir.h
- * @brief A BBS dialing directory: the <BBS name=".." ip=".." port=".." protocol=".."/> entries of an EtherTerm phonebook (dialdirectory.xml).
+ * @brief A BBS dialing directory: the \<BBS name=".." ip=".." port=".." protocol=".."/\> entries of an EtherTerm phonebook (dialdirectory.xml).
  *
  * Plain C, so it can be tested on a PC.
  *
