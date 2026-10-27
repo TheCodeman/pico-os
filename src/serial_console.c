@@ -18,15 +18,27 @@
 #include "pico/stdio.h"
 #include "pico/stdio_uart.h"
 
+/// The debug UART (GP0/GP1).
 #define UART     uart0
 #define RX_SIZE  4096  ///< powers of two
+/// Bytes waiting to be sent.
 #define TX_SIZE  2048
 
+/// The receive and send rings.
+///@{
 static uint8_t rx_buf[RX_SIZE], tx_buf[TX_SIZE];
+///@}
+/// The rings' write and read counts.
+///@{
 static volatile uint32_t rx_head, rx_tail, tx_head, tx_tail;
+///@}
+/// Characters dropped because the receive ring was full.
 static volatile unsigned rx_dropped;
+/// Guards the send ring between cores.
 static spin_lock_t *lock;
+/// stdio's callback for characters arriving.
 static void (*chars_available)(void *);
+/// Passed to it.
 static void *chars_available_param;
 
 /// Moves queued output into the UART's FIFO. Called with `lock` held.
@@ -39,6 +51,7 @@ static void tx_fill(void) {
         hw_clear_bits(&uart_get_hw(UART)->imsc, UART_UARTIMSC_TXIM_BITS);
 }
 
+/// The UART's interrupt: received characters into the ring, and more sent.
 static void uart_irq(void) {
     bool got = false;
     while (uart_is_readable(UART)) {
@@ -56,6 +69,9 @@ static void uart_irq(void) {
         chars_available(chars_available_param);
 }
 
+/// stdio driver: queues characters to send, waiting for room when the ring is full.
+/// @param buf the characters
+/// @param len how many
 static void serial_out_chars(const char *buf, int len) {
     for (int i = 0; i < len; i++) {
         uint32_t save = spin_lock_blocking(lock);
@@ -87,6 +103,7 @@ bool serial_console_write_some(const char *buf, int len) {
     return room;
 }
 
+/// stdio driver: waits until everything queued has been sent.
 static void serial_out_flush(void) {
     while (tx_head != tx_tail) {
         uint32_t save = spin_lock_blocking(lock);
@@ -96,6 +113,10 @@ static void serial_out_flush(void) {
     uart_tx_wait_blocking(UART);
 }
 
+/// stdio driver: characters received.
+/// @param buf where they go
+/// @param len room in buf
+/// @return how many, or PICO_ERROR_NO_DATA
 static int serial_in_chars(char *buf, int len) {
     int n = 0;
     while (n < len && rx_tail != rx_head)
@@ -103,6 +124,9 @@ static int serial_in_chars(char *buf, int len) {
     return n ? n : PICO_ERROR_NO_DATA;
 }
 
+/// stdio driver: sets the function called when characters arrive.
+/// @param fn the function
+/// @param param passed to it
 static void serial_set_callback(void (*fn)(void *), void *param) {
     chars_available = fn;
     chars_available_param = param;

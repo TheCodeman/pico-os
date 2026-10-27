@@ -17,10 +17,12 @@
 // 1 and 2 carry the even and odd bits of the four 64-bit subpackets. Every
 // 4-bit value is sent as a TERC4 symbol.
 
+/// The HSTX command to send words as they are.
 #define HSTX_CMD_RAW (0x0u << 12)
 
 /// Pixel clock and N/CTS for 48 kHz at 25.2 MHz (HDMI 1.4 table 7-3).
 #define ACR_N   6144
+/// CTS for the Audio Clock Regeneration packet: the TMDS clock in kHz.
 #define ACR_CTS 25200
 #define LINE_RATE (25200000 / 800)  ///< 31.5 kHz
 /// One audio packet carries 4 frames, so one is due every LINE_RATE*4/48000 lines.
@@ -28,9 +30,10 @@
 
 #define ACR_EVERY_LINES 32  ///< about 1 kHz, the rate 128*fs/N asks for
 
+/// One HDMI data island packet, encoded as HSTX words (TERC4 on the three channels).
 typedef struct {
     uint32_t first;  ///< word 0 when the packet opens a data island
-    uint32_t w[32];
+    uint32_t w[32];  ///< the rest of the packet's 32 words
 } hdmi_packet_t;
 
 /// In RAM because the scanout IRQ reads it, and an XIP cache miss
@@ -39,15 +42,24 @@ static const uint16_t __not_in_flash("hdmi_audio") terc4[16] = {
     0x29c, 0x263, 0x2e4, 0x2e2, 0x171, 0x11e, 0x18e, 0x13c,
     0x2cc, 0x139, 0x19c, 0x2c6, 0x28e, 0x271, 0x163, 0x2c3,
 };
+/// The guard band's TERC4 symbol on channels 1 and 2.
 #define GUARD_BAND_CH12 0x133u
 
 static hdmi_packet_t null_packet[2];  ///< indexed by vsync_active
+/// The packets sent at fixed times: clock regeneration, the AVI InfoFrame and the audio InfoFrame.
+///@{
 static hdmi_packet_t acr_packet, avi_infoframe, audio_infoframe;
+///@}
 
 /// 64 packets is about 5 ms of audio, enough to ride out USB work on core 1.
 #define RING_LEN 64
+/// The audio sample packets waiting for the scanout to send them.
 static hdmi_packet_t ring[RING_LEN];
+/// The ring's write and read counts (producer core, scanout IRQ).
+///@{
 static volatile uint32_t ring_head, ring_tail;
+///@}
+/// Audio packets the scanout may send now: time since the last one, in sample periods.
 static uint32_t audio_credit;
 
 /// BCH ECC from HDMI 1.4 figure 5-5: g(x) = 1 + x^6 + x^7 + x^8, data LSB first.
@@ -57,6 +69,10 @@ static const uint8_t __not_in_flash("hdmi_audio") ecc_nibble[16] = {
     0x00, 0xb3, 0x61, 0xd2, 0xc2, 0x71, 0xa3, 0x10, 0x83, 0x30, 0xe2, 0x51, 0x41, 0xf2, 0x20, 0x93,
 };
 
+/// The BCH error-correction byte of a packet header or subpacket.
+/// @param data the bytes
+/// @param len how many
+/// @return the ECC byte
 static inline uint8_t bch_ecc(const uint8_t *data, int len) {
     uint ecc = 0;
     for (int i = 0; i < len; ++i) {
@@ -66,6 +82,11 @@ static inline uint8_t bch_ecc(const uint8_t *data, int len) {
     return (uint8_t)ecc;
 }
 
+/// Encodes a packet: ECC bytes added, then TERC4 symbols for each of the island's 32 pixels.
+/// @param out the packet encoded
+/// @param header its 3 header bytes
+/// @param sub its 4 subpackets of 7 bytes
+/// @param vsync_active the island is in the vertical sync
 static void __not_in_flash_func(encode_packet)(hdmi_packet_t *out, const uint8_t header[3],
                           const uint8_t sub[4][7], bool vsync_active) {
     uint8_t hb[3] = {header[0], header[1], header[2]};
@@ -99,6 +120,11 @@ static void __not_in_flash_func(encode_packet)(hdmi_packet_t *out, const uint8_t
 }
 
 /// InfoFrames put a checksum in PB0 so that header + payload bytes sum to 0.
+/// @param out the packet encoded
+/// @param type the InfoFrame's type
+/// @param version its version
+/// @param payload its bytes after PB0
+/// @param len how many
 static void encode_infoframe(hdmi_packet_t *out, uint8_t type, uint8_t version,
                              const uint8_t *payload, int len) {
     uint8_t header[3] = {type, version, (uint8_t)len};
@@ -144,6 +170,8 @@ void hdmi_audio_init(void) {
 
 /// IEC 60958 channel status, one bit per frame of a 192-frame block:
 /// consumer, linear PCM, 48 kHz (bit 25), 16-bit words (bit 33).
+/// @param frame the frame's place in the 192-frame block
+/// @return the channel status bit for it
 static bool channel_status(uint frame) {
     return frame == 25 || frame == 33;
 }
@@ -183,6 +211,11 @@ bool __not_in_flash_func(hdmi_audio_push)(const int16_t frames[4][2]) {
     return true;
 }
 
+/// Copies an encoded packet into the HSTX command stream.
+/// @param dst where it goes
+/// @param p the packet
+/// @param first it opens the data island (word 0 differs)
+/// @return the end of what was written
 static uint32_t *__not_in_flash_func(copy_packet)(uint32_t *dst, const hdmi_packet_t *p,
                                                   bool first) {
     *dst++ = first ? p->first : p->w[0];
@@ -195,6 +228,10 @@ static uint32_t *__not_in_flash_func(copy_packet)(uint32_t *dst, const hdmi_pack
 /// before the slot is released so the producer can't overwrite it mid-copy.
 volatile uint32_t hdmi_audio_underruns;
 
+/// The next audio packet if one is due and waiting (counting underruns), else a null packet.
+/// @param dst where it goes
+/// @param first it opens the data island
+/// @return the end of what was written
 static uint32_t *__not_in_flash_func(put_audio_or_null)(uint32_t *dst, bool first) {
     if (audio_credit >= AUDIO_PACKET_COST && ring_head == ring_tail)
         ++hdmi_audio_underruns;

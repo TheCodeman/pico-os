@@ -17,7 +17,9 @@
 #include "hardware/xip_cache.h"
 #include "pico/sync.h"
 
+/// PSRAM's address through the XIP cache.
 #define PSRAM_CACHED   0x11000000u
+/// PSRAM's address without the cache.
 #define PSRAM_UNCACHED 0x15000000u
 
 /// 126 MHz / 3. At 63 MHz (divider 2, the SDK's choice for this clock) reads
@@ -31,13 +33,18 @@
 /// region with no gaps, so the next block is always at hdr + size.
 typedef struct {
     uint32_t size;  ///< whole block, header included, multiple of 8
-    uint32_t used;
+    uint32_t used;  ///< the block is allocated
 } block_t;
 
+/// A block header's size.
 #define HDR   sizeof(block_t)
+/// Blocks' alignment.
 #define ALIGN 8u
 
+/// The heap's start and end in PSRAM.
+///@{
 static uint8_t *heap_start, *heap_end;
+///@}
 /// A mutex, not a critical section: walking the block list can take a
 /// while, and interrupts (the HDMI scanout's above all) must go on meanwhile.
 /// So none of this may be called from an interrupt.
@@ -191,14 +198,24 @@ void psram_get_stats(psram_stats_t *s) {
 
 #include "pico/time.h"
 
+/// How often the scrubber runs a chunk.
 #define SCRUB_TICK_MS 10
 
 static volatile uint32_t *scrub_base;  ///< uncached alias
+/// The scrubber's region (words), chunk per tick and place.
+///@{
 static volatile size_t scrub_words, scrub_chunk, scrub_pos;
+///@}
+/// Full passes the scrubber has made.
 static volatile uint32_t scrub_passes;
+/// The scrubber's timer.
 static repeating_timer_t scrub_timer;
+/// The scrubber's timer is running.
 static bool scrub_timer_on;
 
+/// Rewrites the next chunk of the scrubbed region.
+/// @param t the timer
+/// @return true: keep going
 static bool scrub_tick(repeating_timer_t *t) {
     size_t words = scrub_words;
     if (!words)

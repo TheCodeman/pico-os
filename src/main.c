@@ -44,12 +44,14 @@ volatile uint32_t usb_restarts;  ///< read over SWD when looking into USB troubl
 /// A program's work for core 1 (core1_job.h), and how many times core 1 has
 /// been round its loop, so core1_job_stop can tell it has left the job.
 static void (*volatile core1_job)(void);
+/// Times round core 1's loop (read over SWD).
 static volatile uint32_t core1_loops;
 
 void core1_job_start(void (*fn)(void)) {
     core1_job = fn;
 }
 
+/// The job core 1 runs now (core1_job.h).
 void (*core1_job_now(void))(void) {
     return core1_job;
 }
@@ -61,6 +63,7 @@ void core1_job_stop(void) {
         tight_loop_contents();
 }
 
+/// Core 1: USB, the drive and the sound refill, then any job a program gives it.
 static void core1_main(void) {
     usb_keyboard_start();
     bool refilled = audio_start_refill();
@@ -91,8 +94,13 @@ static void core1_main(void) {
 #define CHIME_AFTER_MS 2000  ///< after the video starts
 volatile uint32_t psram_test_ms;  ///< how long the boot check took (read over SWD)
 
+/// The chime has started.
 static volatile bool chimed;
 
+/// The alarm that starts the chime.
+/// @param id the alarm
+/// @param unused not used
+/// @return 0: not again
 static int64_t start_chime(alarm_id_t id, void *unused) {
     audio_chime();
     chimed = true;
@@ -101,17 +109,26 @@ static int64_t start_chime(alarm_id_t id, void *unused) {
 
 /// Start-up screen colours (ANSI, understood by the console and terminals).
 #define TITLE  "\x1b[97;44m"  ///< bright white on blue
+/// Dark grey (ANSI).
 #define DIM    "\x1b[90m"
+/// Bright green (ANSI).
 #define GOOD   "\x1b[92m"
+/// Bright yellow (ANSI).
 #define WARN   "\x1b[93m"
+/// Normal colours (ANSI).
 #define PLAIN  "\x1b[0m"
 
 /// "  Keyboard  " in grey: the start of a status line.
+/// @param name the line's label
 static void label(const char *name) {
     printf("  " DIM "%-10s" PLAIN, name);
 }
 
+/// The keyboards and mice the start-up screen has shown.
+///@{
 static int keyboards, mice;
+///@}
+/// The start-up screen has shown the drive.
 static bool drive;
 static bool starting = true;  ///< start_up lists the drive itself
 
@@ -158,6 +175,7 @@ static void poll_events(void) {
     }
 }
 
+/// The spinner is on the screen.
 static bool spinner_shown;
 
 /// Clears the "Waiting..." line so a status line can take its place.
@@ -172,6 +190,7 @@ static void unspin(void) {
 /// on the serial console also starts the shell (it's then the keyboard), and
 /// after DRIVE_WAIT_MS it starts without a drive. Returns a key typed
 /// meanwhile, or -1.
+/// @return the key typed on the serial console, or -1
 static int start_up(void) {
     static const char spin[] = "|/-\\";
     uint64_t start = time_us_64();
@@ -237,6 +256,8 @@ static int start_up(void) {
     }
 }
 
+/// Core 0's main loop on the shell's stack: start-up, /AUTORUN, then the shell, the network and events.
+/// @param unused not used
 static void main_loop(void *unused) {
     net_init();
     int key = start_up();
@@ -256,6 +277,8 @@ static void main_loop(void *unused) {
 }
 
 
+/// Clocks, PSRAM, video, audio and USB set up; then the shell on its own stack.
+/// @return never
 int main(void) {
     // 126 MHz (or twice that, divided by 2 for HSTX) gives the exact 25.2 MHz
     // 640x480 pixel clock.

@@ -11,20 +11,26 @@
 
 #include <string.h>
 
+/// HID usage pages and usages the parser looks for.
 enum {
     PAGE_DESKTOP = 0x01, PAGE_BUTTON = 0x09,
     USAGE_X = 0x30, USAGE_Y = 0x31, USAGE_HAT = 0x39,
 };
 
+/// Usages remembered between Main items.
 #define MAX_USAGES 16
+/// Report IDs the bit counts are kept for.
 #define MAX_IDS    16
 
+/// The global items in force while the report descriptor is read.
 typedef struct {
-    uint16_t page;
+    uint16_t page;  ///< the usage page
+    /// the logical minimum and maximum
     ///@{
     int32_t min, max;
     ///@}
     uint32_t max_raw;  ///< the maximum's bytes as unsigned
+    /// the report size, count and ID
     ///@{
     uint32_t size, count, id;
     ///@}
@@ -32,11 +38,15 @@ typedef struct {
 
 /// The bits used so far in each numbered report.
 typedef struct {
-    uint8_t id[MAX_IDS];
-    uint16_t bits[MAX_IDS];
-    int n;
+    uint8_t id[MAX_IDS];  ///< report IDs seen
+    uint16_t bits[MAX_IDS];  ///< bits so far in each
+    int n;  ///< how many IDs are used
 } report_bits;
 
+/// The bit count of a report ID, adding it if it's new.
+/// @param r the counts
+/// @param id the report ID
+/// @return its count, or NULL if the table is full
 static uint16_t *bits_for(report_bits *r, uint8_t id) {
     for (int i = 0; i < r->n; ++i)
         if (r->id[i] == id)
@@ -48,6 +58,10 @@ static uint16_t *bits_for(report_bits *r, uint8_t id) {
     return &r->bits[r->n++];
 }
 
+/// Makes a field from the global items, at a bit position.
+/// @param f the field
+/// @param bit its first bit
+/// @param g the globals in force
 static void set_field(hid_field *f, uint32_t bit, const globals *g) {
     f->bit = (uint16_t)bit;
     f->size = (uint16_t)g->size;
@@ -169,6 +183,11 @@ bool hid_gamepad_parse(const uint8_t *desc, size_t len, hid_gamepad_layout *out)
     return true;
 }
 
+/// A field's raw value from a report.
+/// @param f the field
+/// @param data the report
+/// @param len its length
+/// @return the value
 static int32_t field_value(const hid_field *f, const uint8_t *data, size_t len) {
     uint32_t v = 0;
     for (unsigned k = 0; k < f->size && k < 32; ++k) {
@@ -181,6 +200,11 @@ static int32_t field_value(const hid_field *f, const uint8_t *data, size_t len) 
     return (int32_t)v;
 }
 
+/// A field's value scaled to 0-255 (127 if it isn't there).
+/// @param f the field
+/// @param data the report
+/// @param len its length
+/// @return 0-255
 static uint8_t scale(const hid_field *f, const uint8_t *data, size_t len) {
     if (!f->valid || f->max <= f->min)
         return 127;

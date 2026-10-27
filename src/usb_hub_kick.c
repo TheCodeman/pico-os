@@ -27,12 +27,14 @@
 #define SETUP_TIMEOUT_MS 30000  ///< longest the checks wait for a device to finish setting up
 
 static struct {
-    bool mounted;
+    bool mounted;  ///< TinyUSB has mounted the hub
     uint8_t unmounted[MAX_PORTS + 1];  ///< scans in a row each port had a device but nothing mounted
-    absolute_time_t next_scan;
-} hubs[CFG_TUH_HUB];
+    absolute_time_t next_scan;  ///< when its ports are next checked
+} hubs[CFG_TUH_HUB];  ///< each hub's state
 
+/// The steps of checking a hub's ports.
 enum { IDLE, GET_STATUS, CLEAR_CHANGE, RESET_PORT, WAIT_MOUNT };
+/// The step being done.
 static int step = IDLE;
 static uint8_t hub;            ///< index into hubs[] of the hub being worked on
 static uint8_t port;           ///< port the current step is on
@@ -45,20 +47,29 @@ static uint16_t gone_status[MAX_PORTS + 1];  ///< what the port showed, for the 
 /// it drop out and come back.
 static uint8_t gone_seen[CFG_TUH_HUB][MAX_PORTS + 1];
 static volatile bool waiting;  ///< a control transfer is in flight
+/// When the wait for a device to mount began.
 static absolute_time_t wait_started;
 /// Longest a hub may take to answer a status request. Sometimes one is never
 /// answered, and TinyUSB has no timeout for it; then the only way on is to
 /// start USB again (usb_restart_wanted()).
 #define ANSWER_TIMEOUT_MS 3000
+/// USB should be started again.
 static volatile bool restart_wanted;
 static volatile bool failed;   ///< ...and it failed (e.g. no such port)
+/// Devices mounted so far.
 static volatile uint32_t mounts;
 static volatile uint16_t app_mounted;  ///< bit n: address n has had tuh_mount_cb
+/// When USB last did something.
 static volatile uint32_t last_activity_ms;
+/// Mounts when the port reset was done.
 static uint32_t mounts_before;
+/// When the step's wait ends.
 static absolute_time_t wait_until;
+/// A port's status, as the hub answered.
 static hub_port_status_response_t status;
 
+/// A control transfer finished.
+/// @param xfer the transfer
 static void xfer_done(tuh_xfer_t *xfer) {
     failed = xfer->result != XFER_RESULT_SUCCESS;
     waiting = false;
@@ -79,6 +90,9 @@ void usb_hub_kick_device_unmounted(uint8_t dev_addr) {
     last_activity_ms = to_ms_since_boot(get_absolute_time());
 }
 
+/// Tells TinyUSB a device on a hub port has gone.
+/// @param h_addr the hub's address
+/// @param p the port
 static void post_remove(uint8_t h_addr, uint8_t p) {
     hcd_event_t event = {
         .rhport = 0,
@@ -98,6 +112,7 @@ static void post_remove(uint8_t h_addr, uint8_t p) {
 /// be noticed. So after SETUP_TIMEOUT_MS stop waiting for it: the checks go
 /// on, and if it is unplugged the usual path removes it. (Removing it by
 /// force while TinyUSB is still enumerating it makes TinyUSB panic.)
+/// @return true while a device is still being set up
 static bool device_setting_up(void) {
     static absolute_time_t since[CFG_TUH_DEVICE_MAX + 1];
     static bool given_up[CFG_TUH_DEVICE_MAX + 1];
@@ -120,10 +135,15 @@ static bool device_setting_up(void) {
     return any;
 }
 
+/// The address of the hub being checked.
+/// @return its USB address
 static uint8_t hub_addr(void) {
     return FIRST_HUB_ADDR + hub;
 }
 
+/// The next port to check, from p on.
+/// @param p the first port to look at
+/// @return the port, or 0 if none
 static uint8_t next_todo(uint8_t p) {
     for (; p <= MAX_PORTS; ++p)
         if (todo & (1u << p))
@@ -133,6 +153,7 @@ static uint8_t next_todo(uint8_t p) {
 
 /// Starts a control transfer to the hub. If the control pipe is busy it
 /// returns false and the step is simply tried again on the next call.
+/// @param ok the transfer was started (TinyUSB's answer; false: busy, try again)
 static void start(bool ok) {
     if (ok) {
         waiting = true;
@@ -142,6 +163,8 @@ static void start(bool ok) {
 }
 
 /// Ports of hub `h` that have a device TinyUSB has mounted.
+/// @param h_addr the hub's address
+/// @return the ports' bits
 static uint8_t mounted_ports(uint8_t h_addr) {
     uint8_t ports = 0;
     for (uint8_t a = 1; a <= CFG_TUH_DEVICE_MAX; ++a) {
@@ -155,6 +178,8 @@ static uint8_t mounted_ports(uint8_t h_addr) {
     return ports;
 }
 
+/// True once USB has been quiet for a while.
+/// @return true if quiet
 static bool quiet(void) {
     return to_ms_since_boot(get_absolute_time()) - last_activity_ms >= QUIET_MS;
 }
