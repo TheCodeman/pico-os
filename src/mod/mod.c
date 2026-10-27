@@ -15,10 +15,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+/// Paula's clock on a PAL Amiga (Hz): period p plays at PAULA_PAL / p.
 #define PAULA_PAL 3546895u
 
 // ---- Notes -----------------------------------------------------------------------------------
 
+/// The periods of the 3 octaves at finetune 0.
 static const uint16_t base_periods[36] = {
     856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453,
     428, 404, 381, 360, 339, 320, 302, 285, 269, 254, 240, 226,
@@ -63,6 +65,9 @@ const char *mod_note_name(int note) {
 
 // ---- The song ----------------------------------------------------------------------------------
 
+/// A pattern's size.
+/// @param s the song
+/// @return bytes
 static size_t pattern_bytes(const mod_song_t *s) {
     return (size_t)MOD_ROWS * s->channels * 4;
 }
@@ -109,6 +114,9 @@ bool mod_new(mod_song_t *s, int channels) {
     return true;
 }
 
+/// Reads 16 bits big-endian.
+/// @param p where
+/// @return the value
 static uint16_t be16(const uint8_t *p) {
     return p[0] << 8 | p[1];
 }
@@ -218,6 +226,9 @@ size_t mod_save_size(const mod_song_t *s) {
     return n;
 }
 
+/// Stores 16 bits big-endian.
+/// @param p where
+/// @param v the value
 static void put16be(uint8_t *p, unsigned v) {
     p[0] = v >> 8;
     p[1] = v;
@@ -255,54 +266,62 @@ void mod_save(const mod_song_t *s, uint8_t *o) {
 
 // ---- The player ------------------------------------------------------------------------------------
 
+/// ProTracker's vibrato sine (half a wave, 0 up to 255 and back).
 static const uint8_t sine_table[32] = {0,   24,  49,  74,  97,  120, 141, 161, 180, 197, 212,
                                        224, 235, 244, 250, 253, 255, 253, 250, 244, 235, 224,
                                        212, 197, 180, 161, 141, 120, 97,  74,  49,  24};
 
+/// A channel's state.
 typedef struct {
     /// What is playing
     const mod_sample_t *smp;
     int sample;            ///< 1..31, 0 none
     uint64_t pos;          ///< 32.32 position in the sample
     uint64_t step;         ///< per output frame
-    bool active;
+    bool active;  ///< sounding
     int period;            ///< the base period (portamento changes it)
     int out_period;        ///< what is heard this tick (vibrato, arpeggio)
     int volume;            ///< 0..64, the base
     int out_volume;        ///< this tick (tremolo)
-    int finetune;
+    int finetune;  ///< the sample's finetune (-8..7)
     /// Effects and their memories
     ///@{
     int effect, param;
     ///@}
+    /// Tone portamento: the period it slides to, and the speed.
     ///@{
     int porta_target, porta_speed;
     ///@}
+    /// Vibrato: position, speed, depth and waveform.
     ///@{
     int vib_pos, vib_speed, vib_depth, vib_wave;
     ///@}
+    /// Tremolo: position, speed, depth and waveform.
     ///@{
     int trem_pos, trem_speed, trem_depth, trem_wave;
     ///@}
-    int offset_mem;
+    int offset_mem;  ///< 9xx: the last offset
     bool gliss;            ///< E3x: tone portamento in semitones
+    /// E6x: the loop's start row and count.
     ///@{
     int loop_row, loop_count;
     ///@}
     int delay_tick;        ///< EDx: the note waits
-    mod_cell_t delayed;
+    mod_cell_t delayed;  ///< the cell held by EDx
     int pan;               ///< 0 left .. 256 right
     /// Display
     int level;
-    uint8_t scope_pos;
+    uint8_t scope_pos;  ///< the scope's position
 } channel_t;
 
 static struct {
-    mod_song_t *song;
-    volatile int state;
+    mod_song_t *song;  ///< the song
+    volatile int state;  ///< MOD_STOPPED, MOD_PLAYING or MOD_PATTERN
+    /// The order, pattern, row and tick.
     ///@{
     int order, pattern, row, tick;
     ///@}
+    /// Ticks a row, and BPM.
     ///@{
     int speed, tempo;
     ///@}
@@ -311,39 +330,50 @@ static struct {
     ///@{
     int next_order, next_row;
     ///@}
-    bool jump;
+    bool jump;  ///< B or D jumped this row
+    /// EEx: rows to wait, and the count.
     ///@{
     int pattern_delay, delay_count;
     ///@}
-    channel_t ch[MOD_MAX_CH];
-    bool muted[MOD_MAX_CH];
+    channel_t ch[MOD_MAX_CH];  ///< the channels
+    bool muted[MOD_MAX_CH];  ///< muted channels
     int separation;           ///< 0..100
     bool once;                ///< stop at the end instead of starting over
-    volatile bool paused;
+    volatile bool paused;  ///< paused
     int volume;               ///< 0..256
     /// Requests from core 0, taken by the player at its next frame.
     volatile int req;         ///< 0 none, 1 play, 2 stop, 3 jam
+    /// The order, row and pattern-only flag asked for.
     ///@{
     int req_order, req_row, req_pattern_only;
     ///@}
-    mod_song_t *req_song;
+    mod_song_t *req_song;  ///< the song asked for
+    /// The note to jam: channel, sample and note.
     ///@{
     int jam_ch, jam_sample, jam_note;
     ///@}
     int fixed_pattern;        ///< MOD_PATTERN: the pattern looped
+    /// The speed and tempo a song starts at.
     ///@{
     int start_speed, start_tempo;
     ///@}
+    /// Requests made and done.
     ///@{
     volatile unsigned req_seq, done_seq;
     ///@}
     int8_t (*scope)[256];     ///< each channel's last mixed values (from mod_alloc)
-} P = {.separation = 70, .start_speed = 6, .start_tempo = 125, .volume = 256};
+} P = {.separation = 70, .start_speed = 6, .start_tempo = 125, .volume = 256};  ///< the player (core 1)
 
+/// A channel's pan at the start: Amiga L R R L.
+/// @param ch the channel
+/// @return 0 left, 256 right
 static int default_pan(int ch) {
     return (ch & 3) == 0 || (ch & 3) == 3 ? 0 : 256;  // Amiga: L R R L (0..256)
 }
 
+/// Sets the step for a period.
+/// @param c the channel
+/// @param period the period
 static void set_step(channel_t *c, int period) {
     if (period < 28)
         period = 28;
@@ -351,6 +381,8 @@ static void set_step(channel_t *c, int period) {
     c->step = ((uint64_t)PAULA_PAL << 32) / ((uint64_t)period * MOD_RATE);
 }
 
+/// Starts the sample from the beginning.
+/// @param c the channel
 static void trigger(channel_t *c) {
     c->pos = 0;
     c->active = c->smp && c->smp->data && c->smp->length > 2;
@@ -360,6 +392,10 @@ static void trigger(channel_t *c) {
         c->trem_pos = 0;
 }
 
+/// Vibrato and tremolo's waveforms.
+/// @param wave 0 sine, 1 ramp, 2 square
+/// @param pos the position
+/// @return -255..255
 static int waveform(int wave, int pos) {
     // 0 sine, 1 ramp down, 2 square (and 3 random, as square); -255..255
     pos &= 63;
@@ -373,6 +409,9 @@ static int waveform(int wave, int pos) {
     return (pos >= 32 && (wave & 3) != 1) ? -v : v;
 }
 
+/// Axy: volume slide.
+/// @param c the channel
+/// @param param the parameter
 static void vol_slide(channel_t *c, int param) {
     int up = param >> 4, down = param & 15;
     c->volume += up ? up : -down;
@@ -382,6 +421,8 @@ static void vol_slide(channel_t *c, int param) {
         c->volume = 64;
 }
 
+/// 3xx: tone portamento's step.
+/// @param c the channel
 static void tone_porta(channel_t *c) {
     if (!c->porta_target)
         return;
@@ -397,6 +438,8 @@ static void tone_porta(channel_t *c) {
 }
 
 /// A new row's cell for a channel (tick 0).
+/// @param ci the channel
+/// @param cell the cell
 static void start_cell(int ci, mod_cell_t cell) {
     channel_t *c = &P.ch[ci];
     mod_song_t *s = P.song;
@@ -515,6 +558,7 @@ static void start_cell(int ci, mod_cell_t cell) {
 }
 
 /// Every tick: effects that run over time; then what is heard.
+/// @param ci the channel
 static void tick_channel(int ci) {
     channel_t *c = &P.ch[ci];
     int e = c->effect, x = c->param >> 4, y = c->param & 15;
@@ -566,6 +610,7 @@ static void tick_channel(int ci) {
         set_step(c, period);
 }
 
+/// Clears the channels.
 static void reset_channels(void) {
     for (int i = 0; i < MOD_MAX_CH; ++i) {
         channel_t *c = &P.ch[i];
@@ -574,6 +619,7 @@ static void reset_channels(void) {
     }
 }
 
+/// Plays a row: each channel's cell, then where to go next.
 static void do_row(void) {
     mod_song_t *s = P.song;
     P.jump = false;
@@ -616,6 +662,7 @@ static void next_row(void) {
     do_row();
 }
 
+/// Takes a request from core 0 (play, stop, jam).
 static void take_requests(void) {
     if (P.req_seq == P.done_seq)
         return;
@@ -738,6 +785,8 @@ MOD_HOT bool mod_render(int32_t *left, int32_t *right) {
 
 // ---- Core 0 side ---------------------------------------------------------------------------------
 
+/// Makes a request and lets the player take it.
+/// @param what 1 play, 2 stop, 3 jam
 static void request(int what) {
     if (!P.scope && (P.scope = mod_alloc(MOD_MAX_CH * 256)))  // kept from then on
         memset(P.scope, 0, MOD_MAX_CH * 256);
@@ -746,6 +795,7 @@ static void request(int what) {
     ++P.req_seq;
 }
 
+/// Waits for the player to take the last request.
 static void wait_done(void) {
     // The player takes a request within a frame; without audio (a PC test),
     // nothing renders, so don't wait for ever.
@@ -753,6 +803,11 @@ static void wait_done(void) {
         __sync_synchronize();
 }
 
+/// Starts playing.
+/// @param s the song
+/// @param order_or_pattern the order (or pattern)
+/// @param row the row
+/// @param pattern_only loop the pattern
 static void play(mod_song_t *s, int order_or_pattern, int row, bool pattern_only) {
     wait_done();
     P.req_song = s;

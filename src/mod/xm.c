@@ -17,10 +17,16 @@
 
 // ---- Loading ---------------------------------------------------------------------------------------
 
+/// Reads 16 bits little-endian.
+/// @param p where
+/// @return the value
 static uint16_t le16(const uint8_t *p) {
     return p[0] | p[1] << 8;
 }
 
+/// Reads 32 bits little-endian.
+/// @param p where
+/// @return the value
 static uint32_t le32(const uint8_t *p) {
     return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24;
 }
@@ -29,6 +35,10 @@ bool xm_is_xm(const uint8_t *d, size_t len) {
     return len >= 60 && !memcmp(d, "Extended Module: ", 17);
 }
 
+/// A name, 0-terminated.
+/// @param out the name
+/// @param in its bytes
+/// @param n their count
 static void name_copy(char *out, const uint8_t *in, int n) {
     memcpy(out, in, n);
     out[n] = 0;
@@ -47,6 +57,14 @@ void xm_clear(xm_song_t *s) {
     memset(s, 0, sizeof *s);
 }
 
+/// Reads an envelope.
+/// @param e the envelope
+/// @param points its 12 points
+/// @param count points used
+/// @param sus the sustain point
+/// @param ls the loop's start
+/// @param le its end
+/// @param type its flags
 static void read_env(xm_env_t *e, const uint8_t *points, uint8_t count, uint8_t sus, uint8_t ls,
                      uint8_t le, uint8_t type) {
     for (int i = 0; i < 12; ++i) {
@@ -62,6 +80,8 @@ static void read_env(xm_env_t *e, const uint8_t *points, uint8_t count, uint8_t 
 
 /// An instrument's keymap, envelopes, vibrato and fadeout, from b (the
 /// same in .XM and .XI files).
+/// @param in the instrument
+/// @param b the bytes
 static void read_body(xm_instrument_t *in, const uint8_t *b) {
     memcpy(in->keymap, b, 96);
     read_env(&in->venv, b + 96, b[192], b[194], b[195], b[196], b[200]);
@@ -74,6 +94,13 @@ static void read_body(xm_instrument_t *in, const uint8_t *b) {
 }
 
 /// An instrument's sample headers and sounds at d + *off (moved past them).
+/// @param in the instrument
+/// @param d the file
+/// @param len its length
+/// @param poff the offset (moved past them)
+/// @param ns sample count
+/// @param shsize a sample header's size
+/// @return NULL, or an error
 static const char *read_samples(xm_instrument_t *in, const uint8_t *d, size_t len, size_t *poff, int ns,
                                 uint32_t shsize) {
     size_t off = *poff;
@@ -256,12 +283,18 @@ const char *xm_load(xm_song_t *s, const uint8_t *d, size_t len) {
 
 // ---- Saving ---------------------------------------------------------------------------------------
 
+/// Writes 16 bits little-endian, moving on.
+/// @param o where
+/// @param v the value
 static void put16(uint8_t **o, unsigned v) {
     (*o)[0] = v;
     (*o)[1] = v >> 8;
     *o += 2;
 }
 
+/// Writes 32 bits little-endian, moving on.
+/// @param o where
+/// @param v the value
 static void put32(uint8_t **o, uint32_t v) {
     (*o)[0] = v;
     (*o)[1] = v >> 8;
@@ -271,6 +304,10 @@ static void put32(uint8_t **o, uint32_t v) {
 }
 
 /// A pattern packed as FT2 packs it, into o (NULL: just its size).
+/// @param s the song
+/// @param pt the pattern
+/// @param o where (or NULL)
+/// @return the size
 static size_t pack(const xm_song_t *s, const xm_pattern_t *pt, uint8_t *o) {
     size_t n = 0;
     for (int i = 0; pt->cells && i < pt->rows * s->channels; ++i) {
@@ -306,6 +343,9 @@ static size_t pack(const xm_song_t *s, const xm_pattern_t *pt, uint8_t *o) {
     return empty ? 0 : n;
 }
 
+/// Writes an instrument's keymap, envelopes and the rest.
+/// @param in the instrument
+/// @param o where
 static void write_body(const xm_instrument_t *in, uint8_t *o) {
     memcpy(o, in->keymap, 96);
     o += 96;
@@ -334,6 +374,9 @@ static void write_body(const xm_instrument_t *in, uint8_t *o) {
     put16(&o, in->fadeout);
 }
 
+/// The size of an instrument's sample headers and data.
+/// @param in the instrument
+/// @return bytes
 static size_t samples_size(const xm_instrument_t *in) {
     size_t n = 0;
     for (int k = 0; k < in->nsamples; ++k)
@@ -341,6 +384,9 @@ static size_t samples_size(const xm_instrument_t *in) {
     return n;
 }
 
+/// Writes an instrument's sample headers then data (delta encoded).
+/// @param in the instrument
+/// @param po where (moved past them)
 static void write_samples(const xm_instrument_t *in, uint8_t **po) {
     uint8_t *o = *po;
     for (int k = 0; k < in->nsamples; ++k) {
@@ -486,16 +532,19 @@ void xm_xi_save(const xm_instrument_t *in, uint8_t *o) {
 
 // ---- The player -------------------------------------------------------------------------------------
 
+/// FT2's vibrato sine (half a wave, 0 up to 255 and back).
 static const uint8_t sine_tab[32] = {0,   24,  49,  74,  97,  120, 141, 161, 180, 197, 212,
                                      224, 235, 244, 250, 253, 255, 253, 250, 244, 235, 224,
                                      212, 197, 180, 161, 141, 120, 97,  74,  49,  24};
 
+/// A voice: one channel's state.
 typedef struct {
     /// The sound
     const xm_instrument_t *ins;
-    const xm_sample_t *smp;
+    const xm_sample_t *smp;  ///< the sample sounding
     uint64_t pos;        ///< 32.32
     uint32_t step;       ///< 16.16 samples per frame
+    /// Sounding; going backwards (ping-pong loop).
     ///@{
     bool active, backwards;
     ///@}
@@ -506,17 +555,21 @@ typedef struct {
     /// What the row asked for
     int note;            ///< 1..96 last note played (without relnote)
     int instrument;      ///< 1-based, 0 none
+    /// The period, tone portamento's target, and what is heard.
     ///@{
     int period, target, out_period;
     ///@}
+    /// The volume and pan, and what is heard.
     ///@{
     int volume, out_volume, pan, out_pan;
     ///@}
+    /// The sample's finetune and relative note.
     ///@{
     int finetune, relnote;
     ///@}
-    bool key_on;
+    bool key_on;  ///< the key is down (not keyed off)
     int fade;            ///< 0..32768
+    /// The volume and panning envelopes' positions.
     ///@{
     int venv_tick, penv_tick;
     ///@}
@@ -532,73 +585,92 @@ typedef struct {
     ///@{
     int effect, param, vcmd;
     ///@}
+    /// Portamento memories: up, down, fine and extra fine, and tone portamento's speed.
     ///@{
     int porta_up, porta_down, fporta_up, fporta_down, xfporta_up, xfporta_down, porta_speed;
     ///@}
+    /// Vibrato: speed, depth, position and waveform.
     ///@{
     int vib_speed, vib_depth, vib_pos, vib_wave;
     ///@}
+    /// Tremolo: speed, depth, position and waveform.
     ///@{
     int trem_speed, trem_depth, trem_pos, trem_wave;
     ///@}
+    /// Memories: volume slide, fine slides, global and panning slides, sample offset.
     ///@{
     int vslide, fvslide_up, fvslide_down, gvslide, pslide, offset;
     ///@}
+    /// Retrigger: interval, volume change and count.
     ///@{
     int retrig, retrig_vol, retrig_count;
     ///@}
     int level;           ///< for meters, 0..64
+    /// Tremor: on and off times, and position.
     ///@{
     int tremor, tremor_pos;
     ///@}
+    /// Tremor has it off; glissando.
     ///@{
     bool tremor_off, gliss;
     ///@}
+    /// E6x: the loop's start row and count.
     ///@{
     int loop_row, loop_count;
     ///@}
+    /// The ticks for note delay, cut and key off.
     ///@{
     int delay_tick, cut_tick, keyoff_tick;
     ///@}
-    xm_cell_t delayed;
+    xm_cell_t delayed;  ///< the cell held by EDx
 } voice_t;
 
 static struct {
-    xm_song_t *song;
+    xm_song_t *song;  ///< the song
+    /// Playing; paused.
     ///@{
     volatile bool playing, paused;
     ///@}
-    bool loop;
+    bool loop;  ///< start over at the end
+    /// The order, row, tick, speed, BPM and global volume.
     ///@{
     int order, row, tick, speed, bpm, gvol;
     ///@}
-    int frames_left;
+    int frames_left;  ///< frames until the next tick
+    /// Where B and D jump to.
     ///@{
     int next_order, next_row;
     ///@}
-    bool jump;
+    bool jump;  ///< B or D jumped this row
+    /// EEx: rows to wait, and the count.
     ///@{
     int pattern_delay, delay_count;
     ///@}
     int master;          ///< 0..256
     voice_t *v;          ///< XM_MAX_CH of them, from the first play to xm_release (8 KB)
     int fixed_pattern;   ///< >= 0: that pattern over and over (the editor)
-    bool muted[XM_MAX_CH];
+    bool muted[XM_MAX_CH];  ///< muted channels
     /// Requests from core 0
     volatile int req;    ///< 1 play, 2 stop, 3 jam
+    /// Requests made and done.
     ///@{
     volatile unsigned req_seq, done_seq;
     ///@}
-    xm_song_t *req_song;
+    xm_song_t *req_song;  ///< the song asked for
+    /// The order, row and pattern asked for.
     ///@{
     int req_order, req_row, req_pattern;
     ///@}
+    /// The note to jam: channel, instrument and note.
     ///@{
     int jam_ch, jam_ins, jam_note;
     ///@}
-} X = {.loop = true, .master = 256, .fixed_pattern = -1};
+} X = {.loop = true, .master = 256, .fixed_pattern = -1};  ///< the player (core 1)
 
 /// FT2 periods: 64 a semitone; C-4 (note 49, finetune 0) is 4608 in the linear table.
+/// @param note the note (1-96)
+/// @param finetune the finetune
+/// @return the period
 static int note_period(int note, int finetune) {
     // note 1..96 plus relnote; finetune -128..127 (16 a semitone step)
     if (X.song->linear)
@@ -608,6 +680,9 @@ static int note_period(int note, int finetune) {
     return (int)(1712.0 * 16 * pow(2.0, -n / 12.0) + 0.5) / 4 * 4;
 }
 
+/// A period's step (16.16 per output frame).
+/// @param period the period
+/// @return the step
 static uint32_t period_step(int period) {
     if (period < 1)
         period = 1;
@@ -619,6 +694,10 @@ static uint32_t period_step(int period) {
     return (uint32_t)(hz * 65536.0 / XM_RATE);
 }
 
+/// An envelope's value at a tick.
+/// @param e the envelope
+/// @param tick the tick
+/// @return 0-64
 static int env_value(const xm_env_t *e, int tick) {
     if (e->count < 1)
         return 0;
@@ -636,6 +715,9 @@ static int env_value(const xm_env_t *e, int tick) {
 
 /// Moves an envelope on a tick: held at its sustain point while the key is
 /// down, round its loop.
+/// @param e the envelope
+/// @param tick its position
+/// @param key_on the key is down
 static void env_advance(const xm_env_t *e, int *tick, bool key_on) {
     if (!(e->flags & 1) || e->count < 1)
         return;
@@ -650,6 +732,8 @@ static void env_advance(const xm_env_t *e, int *tick, bool key_on) {
     *tick = t;
 }
 
+/// Restarts a voice's envelopes, fadeout and auto-vibrato.
+/// @param c the voice
 static void reset_voice_env(voice_t *c) {
     c->venv_tick = c->penv_tick = 0;
     c->key_on = true;
@@ -663,12 +747,16 @@ static void reset_voice_env(voice_t *c) {
         c->trem_pos = 0;
 }
 
+/// Key off: the envelopes go on past sustain (no envelope: silence).
+/// @param c the voice
 static void key_off(voice_t *c) {
     c->key_on = false;
     if (!c->ins || !(c->ins->venv.flags & 1))
         c->volume = 0;  // no envelope: silence (as FT2)
 }
 
+/// Starts the sample from the beginning.
+/// @param c the voice
 static void trigger(voice_t *c) {
     c->pos = 0;
     c->backwards = false;
@@ -676,6 +764,8 @@ static void trigger(voice_t *c) {
 }
 
 /// The sample an instrument plays for a note.
+/// @param c the voice
+/// @param note the note
 static void pick_sample(voice_t *c, int note) {
     c->smp = NULL;
     if (!c->ins || !c->ins->nsamples || note < 1 || note > 96)
@@ -685,6 +775,9 @@ static void pick_sample(voice_t *c, int note) {
         c->smp = &c->ins->samples[k];
 }
 
+/// The volume column's tick 0 part.
+/// @param c the voice
+/// @param v the column
 static void volume_column_tick0(voice_t *c, int v) {
     int hi = v >> 4, lo = v & 15;
     if (v >= 0x10 && v <= 0x50) {
@@ -701,6 +794,8 @@ static void volume_column_tick0(voice_t *c, int v) {
     }
 }
 
+/// Tone portamento's step.
+/// @param c the voice
 static void porta_to(voice_t *c) {
     if (!c->target)
         return;
@@ -715,6 +810,10 @@ static void porta_to(voice_t *c) {
     }
 }
 
+/// Vibrato and tremolo's waveforms.
+/// @param type 0 sine, 1 ramp, 2 square
+/// @param pos the position
+/// @return 0..255
 static int wave(int type, int pos) {
     int i = (pos >> 2) & 31;
     switch (type & 3) {
@@ -724,6 +823,9 @@ static int wave(int type, int pos) {
     }
 }
 
+/// Axy: volume slide.
+/// @param c the voice
+/// @param param the parameter
 static void vol_slide(voice_t *c, int param) {
     int up = param >> 4, down = param & 15;
     c->volume += up ? up : -down;
@@ -731,6 +833,9 @@ static void vol_slide(voice_t *c, int param) {
 }
 
 /// A row's cell, on tick 0 (or the delayed tick).
+/// @param ci the channel
+/// @param cell the cell
+/// @param delayed it was held by EDx
 static void start_cell(int ci, xm_cell_t cell, bool delayed) {
     voice_t *c = &X.v[ci];
     xm_song_t *s = X.song;
@@ -877,6 +982,7 @@ static void start_cell(int ci, xm_cell_t cell, bool delayed) {
 }
 
 /// Every tick but the row's first: effects that run over time.
+/// @param c the voice
 static void tick_effects(voice_t *c) {
     int e = c->effect, p = c->param, x = p >> 4, y = p & 15;
     int v = c->vcmd, vh = v >> 4, vl = v & 15;
@@ -937,6 +1043,7 @@ static void tick_effects(voice_t *c) {
 
 /// What is heard this tick: period and volume after vibrato, tremolo,
 /// envelopes, fadeout and auto-vibrato.
+/// @param c the voice
 static void tick_output(voice_t *c) {
     int e = c->effect, p = c->param;
     int period = c->period, volume = c->volume;
@@ -1016,6 +1123,7 @@ static void tick_output(voice_t *c) {
     c->vol_r = (int)((int64_t)fv * pan * 3 >> 9);
 }
 
+/// Plays a row: each channel's cell, then where to go next.
 static void do_row(void) {
     xm_song_t *s = X.song;
     X.jump = false;
@@ -1061,6 +1169,7 @@ static void next_row(void) {
     do_row();
 }
 
+/// A tick: effects, then what is heard.
 static void do_tick(void) {
     xm_song_t *s = X.song;
     if (X.tick) {  // (tick 0's effects ran in do_row)
@@ -1077,6 +1186,7 @@ static void do_tick(void) {
         tick_output(&X.v[ci]);
 }
 
+/// Takes a request from core 0 (play, stop, jam).
 static void take_requests(void) {
     if (X.req_seq == X.done_seq)
         return;
@@ -1128,6 +1238,9 @@ static void take_requests(void) {
 }
 
 /// Mixes n frames of one voice into out.
+/// @param c the voice
+/// @param out the mix
+/// @param n frames
 static MOD_HOT void mix_voice(voice_t *c, int32_t *out, int n) {
     const xm_sample_t *sm = c->smp;
     const int16_t *d = sm->data;
@@ -1239,6 +1352,8 @@ MOD_HOT bool xm_render(int32_t *out, int n) {
 
 // ---- Core 0 side ---------------------------------------------------------------------------------
 
+/// Makes a request (after the last is taken).
+/// @param what 1 play, 2 stop, 3 jam
 static void request(int what) {
     for (int i = 0; i < 2000000 && X.done_seq != X.req_seq; ++i)
         __sync_synchronize();
@@ -1247,12 +1362,14 @@ static void request(int what) {
     ++X.req_seq;
 }
 
+/// Waits for the player to take the last request.
 static void wait_done(void) {
     for (int i = 0; i < 2000000 && X.done_seq != X.req_seq; ++i)
         __sync_synchronize();
 }
 
 /// The voices, made on first use (core 0). False if there's no memory.
+/// @return there are voices
 static bool voices(void) {
     if (!X.v)
         X.v = calloc(XM_MAX_CH, sizeof *X.v);
