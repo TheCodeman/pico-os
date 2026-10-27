@@ -1,0 +1,18 @@
+HIMEM: 49152
+10 DIM A(5), B$(3,4), C%(2,2,2)
+20 FOR I = 0 TO 5: A(I) = I*I: NEXT
+30 FOR I = 0 TO 3: FOR J = 0 TO 4: B$(I,J) = CHR$(65+I)+CHR$(48+J): NEXT: NEXT
+40 PRINT A(3);B$(2,3);B$(3,4);C%(1,1,1)
+50 C%(2,1,0) = -5: PRINT C%(2,1,0)
+60 D(10) = 7: PRINT D(10);D(0)
+70 E(2,3) = 9: PRINT E(2,3)
+80 PRINT FRE(0)
+90 DIM Z(3): Z(4) = 1
+RUN
+D(11) = 1
+DIM A(3)
+E(1) = 2
+F(-1) = 2
+PRINT G(1,2,3,4)
+DIM H(5): PRINT H(5): H(6)=1
+PRINT A(2.9)

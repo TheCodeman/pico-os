@@ -1,0 +1,24 @@
+
+ VIEW.README     BAS       1  15-SEP-16
+*BITSY.BOOT      SYS       1  15-SEP-16
+*QUIT.SYSTEM     SYS       1  15-SEP-16
+*BASIC.SYSTEM    SYS      21  30-AUG-16
+*COPYIIPLUS.8.4  SYS      56  28-FEB-89
+*CAT.DOCTOR      SYS      28  22-FEB-90
+*ADTPRO2.0.2     SYS       1  13-NOV-16
+*FASTDSK.SYSTEM  SYS       4   4-MAY-09
+*UNSHRINK        SYS      26  13-OCT-90
+*BLOCKWARDEN     SYS      20  21-FEB-90
+*MR.FIXIT.Y2K    SYS      19   6-APR-99
+ MAKE.SMALL.P8   BAS       1  18-JAN-18
+ MINIBAS         SYS       1  16-SEP-16
+*ADTPRO2.0.2.BIN BIN      29  13-NOV-16
+*CD.EXT          $F1      11  22-FEB-90
+*FASTDSK         BIN      19   4-MAY-09
+ FASTDSK.CONF    BIN       1   8-SEP-16
+ README          TXT       1  18-JAN-18
+*PRODOS          SYS      34  18-JAN-18
+
+BLOCKS FREE:    0     BLOCKS USED:  280
+
+]

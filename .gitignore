@@ -1,0 +1,30 @@
+build/
+build-host/
+build-as/
+ROMS
+DISKS
+/APPLE2E/
+/apple_dsk/
+/c64/
+/sega/
+
+# Local build folders and generated API docs
+build*/
+docs/api/
+# A dialing directory with a login in it (see docs/NETWORK_MANUAL.md)
+telnet_list/
+
+# Songs and ANSI art are not kept in git (bring your own; tools/make_*_mod.py
+# make the examples' two songs)
+/mods/
+/ansi/
+*.mod
+*.MOD
+*.xm
+*.XM
+*.ans
+*.ANS
+
+# Build outputs
+*.elf
+*.uf2

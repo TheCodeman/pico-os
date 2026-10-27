@@ -1,0 +1,24 @@
+]10 FOR I = 1 TO 5
+
+]20 PRINT I, I * I
+
+]30 NEXT
+
+]40 PRINT "HELLO FROM THE IIE"
+
+]LIST
+
+ 10  FOR I = 1 TO 5
+ 20  PRINT I,I * I
+ 30  NEXT
+ 40  PRINT "HELLO FROM THE IIE"
+
+]RUN
+1               1
+2               4
+3               9
+4               16
+5               25
+HELLO FROM THE IIE
+
+]

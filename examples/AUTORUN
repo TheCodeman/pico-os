@@ -1,0 +1,14 @@
+# AUTORUN: copy to the drive as /AUTORUN (no extension) and it runs at
+# start-up, a line at a time, as if typed at the prompt. Lines starting
+# with # or REM are comments; @ before a command (or "echo off") stops it
+# being shown. Esc during start-up skips it; Esc while it runs stops it.
+# "run /AUTORUN" runs it again by hand.
+
+# Wait for WiFi (up to 20 s), then put a Windows or Samba share at /NET.
+# The login comes from /SMB/CREDS: mount the share once by hand and answer
+# yes to saving the login. At start-up mount never stops to ask.
+wifi wait 20
+# mount //mypc/share /NET
+
+# Anything else, e.g. start in a folder:
+# cd /EXAMPLES

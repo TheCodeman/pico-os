@@ -1,0 +1,9 @@
+LOAD"$",8
+\w\w\w\w\w\w\w\w\w\w\w\w\w\w\w\w\w\w\w\wLIST
+LOAD"HELLO",8
+\w\w\w\w\w\w\w\w\w\wRUN
+10 PRINT "VIA THE 1541"
+SAVE"MINE",8
+\w\w\w\w\w\w\w\w\w\w\w\w\w\w\w\w\w\w\w\wNEW
+LOAD"MINE",8
+\w\w\w\w\w\w\w\w\w\wRUN

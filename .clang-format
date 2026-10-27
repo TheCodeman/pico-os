@@ -1,0 +1,14 @@
+# The style the code is written in (for new code and editors; the existing
+# files are not reformatted wholesale).
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 100
+DerivePointerAlignment: false
+PointerAlignment: Right
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: true
+IndentCaseLabels: false
+SortIncludes: false
+SpacesBeforeTrailingComments: 2

@@ -1,0 +1,4 @@
+10 GET A$: IF A$ = "Y" THEN PRINT "YES": END
+20 PRINT "NOT ";A$: GOTO 10
+RUN
+ny

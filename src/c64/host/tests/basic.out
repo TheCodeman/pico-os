@@ -1,0 +1,25 @@
+
+    **** COMMODORE 64 BASIC V2 ****
+
+ 64K RAM SYSTEM  38911 BASIC BYTES FREE
+
+READY.
+PRINT 2+3
+ 5
+
+READY.
+10 FOR I=1 TO 3:PRINT I*I:NEXT
+RUN
+ 1
+ 4
+ 9
+
+READY.
+
+
+
+
+
+
+
+

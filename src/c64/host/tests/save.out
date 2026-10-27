@@ -1,0 +1,25 @@
+
+READY.
+NEW
+
+READY.
+LOAD"MINE",8
+
+READY.
+RUN
+SAVED ON DISK
+
+READY.
+LOAD"$",8
+
+READY.
+LIST
+
+0 "TEST DISK       " 01 2A
+1    "HELLO"            PRG
+2    "DATA"             PRG
+1    "WRECK"            PRG
+1    "MINE"             PRG
+659 BLOCKS FREE.
+READY.
+

@@ -1,0 +1,1 @@
+-P "$P5" -B 3000000 "$DISKS/dos33master.dsk" -d 12000000

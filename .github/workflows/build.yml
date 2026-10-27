@@ -1,0 +1,23 @@
+# Builds the firmware with the Pico SDK 2.3.1 on each push and pull request.
+name: build
+on: [push, pull_request]
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib python3
+      - name: Pico SDK 2.3.1
+        run: git clone --depth 1 --branch 2.3.1 --recurse-submodules --shallow-submodules https://github.com/raspberrypi/pico-sdk.git "$HOME/pico-sdk"
+      - name: Build
+        run: |
+          export PICO_SDK_PATH="$HOME/pico-sdk"
+          cmake -S . -B build -G Ninja -DPICOTOOL_FORCE_FETCH_FROM_GIT=ON
+          cmake --build build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pico2_os
+          path: |
+            build/pico2_os.uf2
+            build/pico2_os.elf

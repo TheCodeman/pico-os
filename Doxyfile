@@ -1,0 +1,45 @@
+# Doxygen settings for Pico 2 mini OS's own code (`doxygen` in this folder;
+# the HTML goes to docs/api, which git ignores). Third-party code keeps its
+# own documentation and is left out.
+PROJECT_NAME           = "Pico 2 mini OS"
+PROJECT_BRIEF          = "A small OS for the RP2350: HDMI console, USB, files, WiFi, BASIC and emulators"
+OUTPUT_DIRECTORY       = docs/api
+CREATE_SUBDIRS         = NO
+OPTIMIZE_OUTPUT_FOR_C  = YES
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+MARKDOWN_SUPPORT       = YES
+EXTRACT_ALL            = NO
+EXTRACT_STATIC         = NO
+EXTRACT_PRIVATE        = NO
+HIDE_UNDOC_MEMBERS     = NO
+CASE_SENSE_NAMES       = YES
+SORT_MEMBER_DOCS       = NO
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = NO
+WARN_LOGFILE           = docs/api/warnings.txt
+INPUT                  = src README.md
+USE_MDFILE_AS_MAINPAGE = README.md
+FILE_PATTERNS          = *.c *.h
+RECURSIVE              = YES
+EXCLUDE                = src/fatfs \
+                         src/radio/helix \
+                         src/radio/aac \
+                         src/genesis/core \
+                         src/usb_patch \
+                         src/image/lodepng.c src/image/lodepng.h \
+                         src/image/tjpgd.c src/image/tjpgd.h src/image/tjpgdcnf.h \
+                         src/net/mbedtls_config.h src/net/lwipopts.h src/tusb_config.h \
+                         src/genesis/genesis_fast_68k.h src/font8x16.h
+EXCLUDE_PATTERNS       = */host/*
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = __attribute__(x)= __not_in_flash_func(f)=f __arm__
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+HTML_OUTPUT            = .
+SOURCE_BROWSER         = YES

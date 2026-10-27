@@ -1,0 +1,25 @@
+
+]INVERSE: PRINT CHR$(27);: FOR I=64 TO 95: PRINT CHR$(I);: NEXT: PRINT CHR$(24):
+ NORMAL
+@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+
+]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+video: same 640x480, same 640x240, 192 then 0 lines drawn

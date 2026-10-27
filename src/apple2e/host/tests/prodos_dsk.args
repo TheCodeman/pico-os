@@ -1,0 +1,1 @@
+-P "$P5" -1 "$DISKS/prodos242.dsk" -d 40000000 -c 20000000 -k '\x0a\x0a\x0a\rCAT\r'

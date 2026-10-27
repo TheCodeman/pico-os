@@ -1,0 +1,5 @@
+# Saves a program on a copy of the DOS 3.3 disk, written back to the file.
+[ -f "$DISKS/dos33master.dsk" ] || exit 77  # no disk: skip the test
+cp "$DISKS/dos33master.dsk" "$WORK/save.dsk" && chmod u+w "$WORK/save.dsk" &&
+"$EMU" "$ROM" -P "$P5" -1 "$WORK/save.dsk" -W -d 30000000 \
+    -k 'NEW\n10 PRINT "SAVED ON THE EMULATED IIE"\nSAVE PICOTEST\n' > /dev/null

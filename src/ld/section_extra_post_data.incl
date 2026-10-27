@@ -1,0 +1,53 @@
+/* pico-os: overrides the SDK's empty file of this name (CMakeLists.txt adds
+   this folder with pico_add_linker_script_override_path). Included between
+   the end of data/bss and the start of the heap.
+
+   The framebuffer (dvi_framebuf, 640 x 480 bytes) goes here, and inside it
+   the genesis_fast overlay: code linked to run from the framebuffer's far
+   end but kept in flash. While the genesis command runs the scanout needs
+   only a quarter of the framebuffer, and genesis_pico.c copies the overlay
+   in (from __genesis_fast_load) before using it; nothing may call that code
+   at any other time. The framebuffer is three sections back to back (before,
+   the overlay, after), as the linker won't let sections overlap. */
+
+GENESIS_FAST_AT = 0x3B800;  /* bytes into the framebuffer: genesis_pico.c checks it */
+
+SECTIONS
+{
+    /* The apps' shared SRAM area (src/app_overlay.h): each app's SRAM code
+       and variables are linked to run here and kept in flash, and
+       app_overlay_load copies one app's in when it starts; the radio uses
+       the area as raw memory (at least app_ov_radio's size). No app may call
+       another's (NOCROSSREFS). */
+    . = ALIGN(8);
+    __app_overlay_start = .;
+    OVERLAY : NOCROSSREFS
+    {
+        app_ov_c64 { *(app_ov_c64 app_ov_c64.*) . = ALIGN(8); }
+        app_ov_apple2 { *(app_ov_apple2 app_ov_apple2.*) . = ALIGN(8); }  /* Applesoft and the Apple IIe share the 65C02 */
+        app_ov_genesis { *(app_ov_genesis app_ov_genesis.*) . = ALIGN(8); }
+        app_ov_radio { . = . + 24 * 1024 + 512; }  /* the MP3 decoder: 23.3 KB */
+    } > RAM AT> RAM_STORE
+    __app_overlay_end = .;
+
+    .framebuf (NOLOAD) : ALIGN(8)
+    {
+        dvi_framebuf = .;
+        . = . + GENESIS_FAST_AT;
+    } > RAM
+
+    .genesis_fast :
+    {
+        __genesis_fast_start = .;
+        *(genesis_fast)
+        . = ALIGN(8);
+        __genesis_fast_end = .;
+    } > RAM AT> RAM_STORE
+    __genesis_fast_load = LOADADDR(.genesis_fast);
+
+    ASSERT(__genesis_fast_end <= dvi_framebuf + 640 * 480, "genesis_fast doesn't fit in the framebuffer")
+    .framebuf_end (NOLOAD) :
+    {
+        . = dvi_framebuf + 640 * 480;
+    } > RAM
+}
