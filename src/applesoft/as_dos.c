@@ -24,12 +24,16 @@
 #include "as_internal.h"
 #include "as_port.h"
 
+/// DOS 3.3's error numbers.
 enum {
     DOS_LANGUAGE = 1, DOS_RANGE = 2, DOS_WRITE_PROTECTED = 4, DOS_END_OF_DATA = 5,
     DOS_NOT_FOUND = 6, DOS_IO = 8, DOS_FULL = 9, DOS_LOCKED = 10, DOS_SYNTAX = 11,
     DOS_NO_BUFFERS = 12, DOS_TYPE = 13, DOS_TOO_LARGE = 14, DOS_NOT_DIRECT = 15,
 };
 
+/// A DOS error's message.
+/// @param code the error number
+/// @return its text
 const char *dos_error_text(int code) {
     switch (code) {
     case DOS_LANGUAGE: return "LANGUAGE NOT AVAILABLE";
@@ -50,19 +54,29 @@ const char *dos_error_text(int code) {
     }
 }
 
+/// Files open at once (MAXFILES).
 #define MAX_FILES 3
 
+/// An open file.
 typedef struct {
-    bool open;
-    char name[64];
-    asp_file *f;
+    bool open;  ///< in use
+    char name[64];  ///< its name, as OPEN was given it
+    asp_file *f;  ///< the file itself
     unsigned reclen;   ///< random access record length (0: sequential)
 } dos_file;
 
+/// The open files.
 static dos_file files[MAX_FILES] APP_OV_DATA(apple2);
+/// The file READ and WRITE take input from and send output to.
+///@{
 static dos_file *reading, *writing;
+///@}
+/// The file EXEC is running, or NULL.
 static asp_file *exec_file;
+/// MON's C, I and O: echo commands, input and output.
+///@{
 static bool mon_c, mon_i, mon_o;
+///@}
 
 void dos_init(void) {
     memset(files, 0, sizeof files);
@@ -146,13 +160,17 @@ int dos_input_char(void) {
 
 // ---- Command parsing ----------------------------------------------------------
 
+/// A DOS command's arguments.
 typedef struct {
-    char name[64];
+    char name[64];  ///< the file name
     char name2[64];  ///< RENAME's second name
     bool has[26];    ///< options A B D L R S V...
-    long val[26];
+    long val[26];  ///< the options' values
 } dos_args;
 
+/// Skips spaces.
+/// @param p the text
+/// @return the first non-space
 static const char *skip_spaces(const char *p) {
     while (*p == ' ')
         p++;
@@ -160,6 +178,9 @@ static const char *skip_spaces(const char *p) {
 }
 
 /// name[,name2],options. Option values are decimal, or hex after '$'.
+/// @param p the text after the command word
+/// @param a the arguments found
+/// @param two_names RENAME: a second name after the comma
 static void parse_args(const char *p, dos_args *a, bool two_names) {
     memset(a, 0, sizeof *a);
     p = skip_spaces(p);
@@ -210,12 +231,20 @@ static void parse_args(const char *p, dos_args *a, bool two_names) {
         as_dos_error(DOS_SYNTAX);
 }
 
+/// Whether a file name has an extension.
+/// @param name the name
+/// @return it has
 static bool has_extension(const char *name) {
     const char *dot = strrchr(name, '.');
     return dot && !strchr(dot, '/');
 }
 
 /// Finds name, or name with ext added. Returns the name to use in out.
+/// @param name the name given
+/// @param ext the extension to try (".BAS" and the like)
+/// @param out the name found
+/// @param size room in out
+/// @return found
 static bool find_file(const char *name, const char *ext, char *out, size_t size) {
     if (!*name)
         as_dos_error(DOS_SYNTAX);
@@ -234,6 +263,8 @@ static bool find_file(const char *name, const char *ext, char *out, size_t size)
 
 // ---- Programs ------------------------------------------------------------------
 
+/// Loads a text program (lines with numbers), as typing them would.
+/// @param f the file
 static void load_text_program(asp_file *f) {
     char line[512];
     int n = 0;
@@ -260,6 +291,9 @@ static void load_text_program(asp_file *f) {
 
 /// A tokenised Applesoft file: as DOS 3.3 keeps them, a 2-byte length then
 /// the program as it sits in memory; or the bare program.
+/// @param data the file's bytes
+/// @param size their count
+/// @return it loaded
 static bool load_tokenised(const uint8_t *data, uint32_t size) {
     const uint8_t *p = data;
     uint32_t len = size;
@@ -289,6 +323,10 @@ static bool load_tokenised(const uint8_t *data, uint32_t size) {
     return true;
 }
 
+/// Whether a file holds a tokenised program rather than text.
+/// @param d the file's bytes
+/// @param size their count
+/// @return tokenised
 static bool looks_tokenised(const uint8_t *d, uint32_t size) {
     // Text programs start with a digit (or blank lines); tokenised ones with
     // a link and a line number, and contain bytes >= $80.
@@ -370,6 +408,9 @@ void dos_save_program(const char *name) {
 // A DOS 3.3 binary file starts with its load address and length; files
 // without that header need ,A (and are read to their end).
 
+/// BLOAD (and BRUN): a binary file into memory at its address or A.
+/// @param a the arguments
+/// @param run BRUN: call it after
 static void bload(dos_args *a, bool run) {
     char path[80];
     if (!find_file(a->name, ".BIN", path, sizeof path))
@@ -421,6 +462,8 @@ static void bload(dos_args *a, bool run) {
         as_call((uint16_t)addr);
 }
 
+/// BSAVE name,A,L.
+/// @param a the arguments
 static void bsave(dos_args *a) {
     if (!a->has['A' - 'A'] || !a->has['L' - 'A'])
         as_dos_error(DOS_SYNTAX);
@@ -443,8 +486,14 @@ static void bsave(dos_args *a) {
 
 // ---- CATALOG -----------------------------------------------------------------------
 
+/// Lines CATALOG has printed, for its paging.
 static int cat_lines;
 
+/// One CATALOG line: type, size in sectors and name.
+/// @param ctx unused
+/// @param name the file's name
+/// @param size its size
+/// @param is_dir a directory
 static void cat_entry(void *ctx, const char *name, uint32_t size, bool is_dir) {
     (void)ctx;
     char type = 'T';
@@ -472,6 +521,7 @@ static void cat_entry(void *ctx, const char *name, uint32_t size, bool is_dir) {
     }
 }
 
+/// CATALOG.
 static void catalog(void) {
     as_crdo();
     as_print("DISK VOLUME 254");
@@ -484,6 +534,9 @@ static void catalog(void) {
 
 // ---- Text files ----------------------------------------------------------------------
 
+/// An open file by name.
+/// @param name its name
+/// @return the file, or NULL
 static dos_file *find_open(const char *name) {
     for (int i = 0; i < MAX_FILES; ++i)
         if (files[i].open && !strcasecmp(files[i].name, name))
@@ -491,6 +544,8 @@ static dos_file *find_open(const char *name) {
     return NULL;
 }
 
+/// Closes an open file.
+/// @param d the file
 static void close_file(dos_file *d) {
     if (!d->open)
         return;
@@ -502,6 +557,8 @@ static void close_file(dos_file *d) {
     d->open = false;
 }
 
+/// OPEN name[,Lreclen].
+/// @param a the arguments
 static void open_file(dos_args *a) {
     dos_file *d = find_open(a->name);
     if (d)
@@ -520,6 +577,9 @@ static void open_file(dos_args *a) {
     snprintf(d->name, sizeof d->name, "%s", a->name);
 }
 
+/// An open file by name, or ?FILE NOT FOUND.
+/// @param name its name
+/// @return the file
 static dos_file *need_open(const char *name) {
     dos_file *d = find_open(name);
     if (!d)
@@ -527,6 +587,9 @@ static dos_file *need_open(const char *name) {
     return d;
 }
 
+/// Positions a file for READ or WRITE: R (records or lines) and B (bytes).
+/// @param d the file
+/// @param a the arguments
 static void position_for(dos_file *d, dos_args *a) {
     if (a->has['R' - 'A']) {
         if (!d->reclen && !a->has['B' - 'A']) {
@@ -549,6 +612,7 @@ static void position_for(dos_file *d, dos_args *a) {
 
 // ---- The command table ----------------------------------------------------------
 
+/// The commands' ids.
 enum {
     C_CATALOG, C_CAT, C_LOAD, C_SAVE, C_RUN, C_CHAIN, C_DELETE, C_RENAME, C_LOCK, C_UNLOCK,
     C_VERIFY, C_BLOAD, C_BSAVE, C_BRUN, C_EXEC, C_OPEN, C_CLOSE, C_READ, C_WRITE, C_APPEND,
@@ -557,8 +621,8 @@ enum {
 };
 
 static const struct {
-    const char *word;
-    int id;
+    const char *word;  ///< its word
+    int id;  ///< its id
 } commands[] = {
     {"CATALOG", C_CATALOG}, {"CAT", C_CAT}, {"LOAD", C_LOAD}, {"SAVE", C_SAVE},
     {"RUN", C_RUN}, {"CHAIN", C_CHAIN}, {"DELETE", C_DELETE}, {"RENAME", C_RENAME},
@@ -568,9 +632,12 @@ static const struct {
     {"POSITION", C_POSITION}, {"MON", C_MON}, {"NOMON", C_NOMON}, {"MAXFILES", C_MAXFILES},
     {"FP", C_FP}, {"INT", C_INT}, {"INIT", C_INIT}, {"PR#", C_PR}, {"IN#", C_IN},
     {"BYE", C_BYE}, {"PREFIX", C_PREFIX},
-};
+};  ///< the DOS command words
 
 /// Matches a command word at the start of line (spaces ignored, any case).
+/// @param line the line
+/// @param rest set to what follows the word
+/// @return the command's id, or -1
 static int match_command(const char *line, const char **rest) {
     for (size_t i = 0; i < sizeof commands / sizeof commands[0]; ++i) {
         const char *w = commands[i].word, *p = line;
@@ -590,6 +657,9 @@ static int match_command(const char *line, const char **rest) {
     return -1;
 }
 
+/// MON or NOMON's flags.
+/// @param p the flags (C, I, O)
+/// @param on MON
 static void do_monitor_flags(const char *p, bool on) {
     for (; *p; ++p) {
         char c = (char)toupper((unsigned char)*p);

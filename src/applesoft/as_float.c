@@ -14,27 +14,42 @@
 void (*as_fp_error)(int code);
 uint8_t fp_int_low;
 
+/// The 40 bits of mantissa and rounding byte.
 #define MASK40 0xffffffffffull
+/// Their top bit.
 #define BIT39  0x8000000000ull
 
 /// Constants, in the packed form the ROM keeps them.
 static const as_packed C_ONE = {0x81, 0x00, 0x00, 0x00, 0x00};
+/// 0.5
 static const as_packed C_HALF = {0x80, 0x00, 0x00, 0x00, 0x00};
+/// -0.5
 static const as_packed C_NEG_HALF = {0x80, 0x80, 0x00, 0x00, 0x00};
+/// 0.25
 static const as_packed C_QUARTER = {0x7f, 0x00, 0x00, 0x00, 0x00};
+/// 10
 static const as_packed C_TEN = {0x84, 0x20, 0x00, 0x00, 0x00};
+/// SQR(0.5)
 static const as_packed C_SQR_HALF = {0x80, 0x35, 0x04, 0xf3, 0x34};
+/// SQR(2)
 static const as_packed C_SQR_TWO = {0x81, 0x35, 0x04, 0xf3, 0x34};
+/// LOG(2)
 static const as_packed C_LN2 = {0x80, 0x31, 0x72, 0x17, 0xf8};
+/// 1 / LOG(2)
 static const as_packed C_LOG2E = {0x81, 0x38, 0xaa, 0x3b, 0x29};
+/// PI / 2
 static const as_packed C_HALF_PI = {0x81, 0x49, 0x0f, 0xda, 0xa2};
+/// 2 * PI
 static const as_packed C_TWO_PI = {0x83, 0x49, 0x0f, 0xda, 0xa2};
 /// -32768 with a stray low bit, so -32768 itself is out of range, as on the Apple.
 static const as_packed C_NEG32768 = {0x90, 0x80, 0x00, 0x00, 0x20};
 static const as_packed C_FOUT_LO = {0x9b, 0x3e, 0xbc, 0x1f, 0xfd};  ///< 99999999.90625
 static const as_packed C_FOUT_HI = {0x9e, 0x6e, 0x6b, 0x27, 0xfd};  ///< 999999999.25
+/// 1E9
 static const as_packed C_1E9 = {0x9e, 0x6e, 0x6b, 0x28, 0x00};
+/// RND's multiplier.
 static const as_packed C_RND_MUL = {0x98, 0x35, 0x44, 0x7a, 0x68};
+/// RND's addend.
 static const as_packed C_RND_ADD = {0x68, 0x28, 0xb1, 0x46, 0x20};
 
 /// Polynomials: the number of terms less one, then the coefficients, highest
@@ -43,16 +58,19 @@ static const uint8_t P_LOG[] = {
     0x03, 0x7f, 0x5e, 0x56, 0xcb, 0x79, 0x80, 0x13, 0x9b, 0x0b, 0x64,
     0x80, 0x76, 0x38, 0x93, 0x16, 0x82, 0x38, 0xaa, 0x3b, 0x20,
 };
+/// EXP's polynomial.
 static const uint8_t P_EXP[] = {
     0x07, 0x71, 0x34, 0x58, 0x3e, 0x56, 0x74, 0x16, 0x7e, 0xb3, 0x1b, 0x77, 0x2f, 0xee,
     0xe3, 0x85, 0x7a, 0x1d, 0x84, 0x1c, 0x2a, 0x7c, 0x63, 0x59, 0x58, 0x0a, 0x7e, 0x75,
     0xfd, 0xe7, 0xc6, 0x80, 0x31, 0x72, 0x18, 0x10, 0x81, 0x00, 0x00, 0x00, 0x00,
 };
+/// SIN's polynomial.
 static const uint8_t P_SIN[] = {
     0x05, 0x84, 0xe6, 0x1a, 0x2d, 0x1b, 0x86, 0x28, 0x07, 0xfb, 0xf8,
     0x87, 0x99, 0x68, 0x89, 0x01, 0x87, 0x23, 0x35, 0xdf, 0xe1, 0x86,
     0xa5, 0x5d, 0xe7, 0x28, 0x83, 0x49, 0x0f, 0xda, 0xa2,
 };
+/// ATN's polynomial.
 static const uint8_t P_ATN[] = {
     0x0b, 0x76, 0xb3, 0x83, 0xbd, 0xd3, 0x79, 0x1e, 0xf4, 0xa6, 0xf5, 0x7b, 0x83,
     0xfc, 0xb0, 0x10, 0x7c, 0x0c, 0x1f, 0x67, 0xca, 0x7c, 0xde, 0x53, 0xcb, 0xc1,
@@ -61,19 +79,29 @@ static const uint8_t P_ATN[] = {
     0xaa, 0xaa, 0xaa, 0x13, 0x81, 0x00, 0x00, 0x00, 0x00,
 };
 
+/// Raises an Applesoft error.
+/// @param code the error
 static void fail(int code) {
     as_fp_error(code);
 }
 
+/// The mantissa and rounding byte as one 40-bit number.
+/// @param f the number
+/// @return the 40 bits
 static inline uint64_t wide(const as_fp *f) {
     return (uint64_t)f->mant << 8 | f->ext;
 }
 
+/// Sets the mantissa and rounding byte from 40 bits.
+/// @param f the number
+/// @param v the 40 bits
 static inline void set_wide(as_fp *f, uint64_t v) {
     f->mant = (uint32_t)(v >> 8);
     f->ext = (uint8_t)v;
 }
 
+/// Sets a number to zero.
+/// @param f the number
 static inline void set_zero(as_fp *f) {
     f->exp = 0;
     f->neg = false;
@@ -114,6 +142,8 @@ void fp_pack(as_fp *f, uint8_t *m) {
 }
 
 /// The ROM's FAC to ARG: rounded, without the rounding byte.
+/// @param f the FAC
+/// @return the ARG
 static as_fp to_arg(as_fp *f) {
     fp_round(f);
     f->ext = 0;
@@ -123,6 +153,7 @@ static as_fp to_arg(as_fp *f) {
 
 /// Shifts the rounding byte and mantissa left until the top bit is set,
 /// taking it off the exponent; zero (or underflow) gives zero.
+/// @param f the number
 static void normalize(as_fp *f) {
     uint64_t v = wide(f);
     int count = 0;
@@ -148,6 +179,8 @@ static void normalize(as_fp *f) {
     f->exp -= count;
 }
 
+/// Negates the 40-bit mantissa (two's complement), flipping the sign.
+/// @param f the number
 static void negate_wide(as_fp *f) {
     f->neg = !f->neg;
     set_wide(f, (~wide(f) + 1) & MASK40);
@@ -155,6 +188,9 @@ static void negate_wide(as_fp *f) {
 
 /// The ROM's FADDT: f = a + f, where `differ` says the signs differ (ROM's
 /// sign comparison byte, worked out when ARG was loaded).
+/// @param f the FAC, and the sum
+/// @param a the ARG
+/// @param differ the signs differ
 static void add_core(as_fp *f, const as_fp *a, bool differ) {
     if (!f->exp) {
         f->exp = a->exp;
@@ -215,6 +251,12 @@ void fp_neg(as_fp *f) {
 /// ADD.EXPONENTS for multiply and divide: e1 + e2 - 128 into f->exp. Returns
 /// false when the result is zero (underflow); *first_carry is the carry the
 /// ROM is left with, which the multiply loop goes on to use.
+/// @param f the result
+/// @param aexp the ARG's exponent
+/// @param fexp the FAC's exponent
+/// @param neg the result's sign
+/// @param first_carry set to the first carry
+/// @return false if the result is zero (or underflowed)
 static bool add_exponents(as_fp *f, uint8_t aexp, uint8_t fexp, bool neg, int *first_carry) {
     if (!aexp) {
         set_zero(f);
@@ -239,6 +281,10 @@ static bool add_exponents(as_fp *f, uint8_t aexp, uint8_t fexp, bool neg, int *f
     return true;
 }
 
+/// The ROM's FMULTT: f = a * f.
+/// @param f the FAC, and the product
+/// @param a the ARG
+/// @param neg the product's sign
 static void mul_core(as_fp *f, const as_fp *a, bool neg) {
     if (!f->exp)
         return;
@@ -280,6 +326,10 @@ void fp_mul(as_fp *f, const as_fp *a) {
     mul_core(f, a, f->neg != a->neg);
 }
 
+/// The ROM's FDIVT: f = a / f.
+/// @param f the FAC (the divisor), and the quotient
+/// @param a the ARG (the dividend)
+/// @param neg the quotient's sign
 static void div_core(as_fp *f, const as_fp *a, bool neg) {
     if (!f->exp)
         fail(AS_ERR_DIVZERO);
@@ -344,6 +394,10 @@ int fp_compare(const as_fp *f, const uint8_t *m) {
     return f_less ? -1 : 1;
 }
 
+/// Compares f with a packed constant.
+/// @param f the number
+/// @param m the constant
+/// @return -1, 0 or 1
 static int compare_fp(const as_fp *f, const as_packed m) {
     return fp_compare(f, m);
 }
@@ -433,33 +487,48 @@ void fp_div10(as_fp *f) {
 
 // ---- Polynomials and the functions built on them -------------------------------
 
+/// A packed number unpacked.
+/// @param m the 5 bytes
+/// @return the number
 static as_fp from_packed(const uint8_t *m) {
     return fp_unpack(m);
 }
 
+/// f = m * f.
+/// @param f the number
+/// @param m a packed number
 static void mul_mem(as_fp *f, const uint8_t *m) {
     as_fp a = from_packed(m);
     fp_mul(f, &a);
 }
 
+/// f = m + f.
+/// @param f the number
+/// @param m a packed number
 static void add_mem(as_fp *f, const uint8_t *m) {
     as_fp a = from_packed(m);
     fp_add(f, &a);
 }
 
 /// m - f
+/// @param f the number
+/// @param m a packed number
 static void sub_from_mem(as_fp *f, const uint8_t *m) {
     as_fp a = from_packed(m);
     fp_sub(f, &a);
 }
 
 /// m / f
+/// @param f the number
+/// @param m a packed number
 static void div_into_mem(as_fp *f, const uint8_t *m) {
     as_fp a = from_packed(m);
     fp_div(f, &a);
 }
 
 /// POLY1: c0*y^n + ... + cn by Horner's rule, y being f (kept rounded).
+/// @param f the number
+/// @param table the polynomial
 static void poly(as_fp *f, const uint8_t *table) {
     as_packed y;
     fp_pack(f, y);
@@ -476,6 +545,8 @@ static void poly(as_fp *f, const uint8_t *table) {
 }
 
 /// POLY_ODD: x * P(x^2).
+/// @param f the number
+/// @param table the polynomial
 static void poly_odd(as_fp *f, const uint8_t *table) {
     as_packed x;
     fp_pack(f, x);
@@ -585,6 +656,9 @@ void fp_sqr(as_fp *f) {
 static bool tan_flip;
 static as_packed sin_reduced;  ///< what SIN left in TEMP1, which TAN reuses
 
+/// SIN's end, shared with COS and TAN: 0.25 - f, then the polynomial.
+/// @param f the reduced argument
+/// @param push_neg negate first (the ROM's sign on the stack)
 static void sin_tail(as_fp *f, bool push_neg) {
     fp_neg(f);
     add_mem(f, C_QUARTER);
@@ -675,12 +749,18 @@ void fp_rnd(as_fp *f, uint8_t *seed) {
 
 // ---- Text ----------------------------------------------------------------------
 
+/// Adds a digit to the number being read: f = f * 10 + digit, as the ROM does it.
+/// @param f the number
+/// @param digit the digit
 static void add_digit(as_fp *f, int digit) {
     as_fp a = to_arg(f);
     *f = fp_from_byte((int8_t)digit);
     add_core(f, &a, a.neg != f->neg);
 }
 
+/// Whether c is a decimal digit.
+/// @param c the character
+/// @return it is
 static bool is_digit(int c) {
     return c >= '0' && c <= '9';
 }

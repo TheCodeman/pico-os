@@ -17,8 +17,11 @@
 #include "as_port.h"
 
 static uint64_t cpu_base_us;   ///< asp_micros() when the 6502 started running
+/// Cycle count when the 6502 started running.
 static uint32_t cpu_start_cycles;
+/// The 6502 is running.
 static bool cpu_running;
+/// The 6502.
 static as_cpu cpu;
 static uint32_t paddle_trigger;  ///< cycle count at the last $C070
 
@@ -116,6 +119,10 @@ void as_poke(uint16_t a, uint8_t v) {
 
 // ---- The 65C02 ---------------------------------------------------------------------
 
+/// The 6502's memory reads: RAM and ROM, soft switches at $C0xx.
+/// @param ctx unused
+/// @param a the address
+/// @return the byte
 static uint8_t cpu_read(void *ctx, uint16_t a) {
     (void)ctx;
     if (a < 0xc000 || a >= 0xd000)
@@ -125,6 +132,10 @@ static uint8_t cpu_read(void *ctx, uint16_t a) {
     return 0xff;
 }
 
+/// The 6502's memory writes: RAM, and soft switches at $C0xx.
+/// @param ctx unused
+/// @param a the address
+/// @param v the byte
 static void cpu_write(void *ctx, uint16_t a, uint8_t v) {
     (void)ctx;
     if (a < 0xc000) {
@@ -137,11 +148,14 @@ static void cpu_write(void *ctx, uint16_t a, uint8_t v) {
 
 #define RETURN_TRAP 0xfff0  ///< where CALL's return address points
 
+/// Pulls a byte off the 6502's stack.
+/// @return the byte
 static uint8_t pull(void) {
     cpu.s++;
     return M[0x100 | cpu.s];
 }
 
+/// RTS for a trapped routine.
 static void rts(void) {
     uint16_t lo = pull();
     cpu.pc = (uint16_t)((lo | pull() << 8) + 1);
@@ -153,6 +167,7 @@ static void basic_in(void) {
     as_sync_in();
 }
 
+/// The output hook's trap: the character in A out through BASIC.
 static void basic_out(void) {
     as_sync_out();
     cpu.a = M[Z_FAC];
@@ -168,6 +183,7 @@ static void fac_in(void) {
     fac_string = false;
 }
 
+/// The FAC into zero page.
 static void fac_out(void) {
     M[Z_FAC] = fac.exp;
     M[Z_FAC + 1] = (uint8_t)(fac.mant >> 24);
@@ -179,6 +195,8 @@ static void fac_out(void) {
     cpu.a = fac.exp;
 }
 
+/// ARG from zero page.
+/// @return the ARG
 static as_fp arg_in(void) {
     as_fp a;
     a.exp = M[Z_ARG];
@@ -190,6 +208,7 @@ static as_fp arg_in(void) {
 }
 
 /// FAC = (memory at A,Y) op FAC
+/// @param op the operation
 static void fp_mem_op(void (*op)(as_fp *, const as_fp *)) {
     fac_in();
     as_fp a = fp_unpack(&M[(uint16_t)(cpu.a | cpu.y << 8)]);
@@ -197,6 +216,8 @@ static void fp_mem_op(void (*op)(as_fp *, const as_fp *)) {
     fac_out();
 }
 
+/// FAC = ARG op FAC.
+/// @param op the operation
 static void fp_arg_op(void (*op)(as_fp *, const as_fp *)) {
     fac_in();
     as_fp a = arg_in();
@@ -204,20 +225,28 @@ static void fp_arg_op(void (*op)(as_fp *, const as_fp *)) {
     fac_out();
 }
 
+/// FAC = fn(FAC).
+/// @param fn the function
 static void fp_fn(void (*fn)(as_fp *)) {
     fac_in();
     fn(&fac);
     fac_out();
 }
 
+/// RND with the seed in zero page.
+/// @param f the FAC
 static void fp_rnd_trap(as_fp *f) {
     fp_rnd(f, &M[Z_RNDSEED]);
 }
 
+/// SGN.
+/// @param f the FAC
 static void fp_sgn_trap(as_fp *f) {
     *f = fp_from_byte((int8_t)fp_sign(f));
 }
 
+/// A byte in hex out through COUT.
+/// @param v the byte
 static void print_hex(uint8_t v) {
     static const char hex[] = "0123456789ABCDEF";
     as_cout((uint8_t)(hex[v >> 4] | 0x80));
@@ -225,12 +254,15 @@ static void print_hex(uint8_t v) {
 }
 
 /// The monitor's WAIT: the cycles it takes, counted rather than spent.
+/// @param a the monitor's A
 static void wait_cycles(uint8_t a) {
     unsigned n = a ? a : 256;
     cpu.cycles += (26 + 27 * n + 5 * n * n) / 2;
 }
 
 /// Runs the ROM routine at pc natively. Returns false if we don't have it.
+/// @param pc the address
+/// @return run
 static bool rom_trap(uint16_t pc) {
     switch (pc) {
     // Monitor: screen and keyboard
@@ -459,6 +491,8 @@ static bool rom_trap(uint16_t pc) {
 }
 
 /// Runs machine code from pc until it returns to RETURN_TRAP.
+/// @param pc the address
+/// @param keep_regs keep A, X and Y as they are (CALL leaves them)
 static void run_6502(uint16_t pc, bool keep_regs) {
     bool outer = cpu_running;
     as_cpu saved = cpu;

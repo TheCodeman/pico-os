@@ -25,6 +25,7 @@
 // The emulated 64 KB doesn't fit in SRAM next to the framebuffer, so big
 // blocks come from the PSRAM.
 
+/// Allocations from this size up come from the PSRAM.
 #define BIG_BLOCK 4096
 
 void *asp_alloc(size_t n) {
@@ -113,10 +114,12 @@ void asp_speaker_click(uint64_t when_us) {
 
 // ---- Files ---------------------------------------------------------------------
 
+/// An open file.
 struct asp_file {
-    FIL fil;
+    FIL fil;  ///< the FatFs file
 };
 
+/// The last FatFs error.
 static FRESULT last_error;
 
 const char *asp_file_error(void) {

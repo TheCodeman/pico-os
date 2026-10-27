@@ -15,7 +15,7 @@
 #include "pico.h"
 #define FAST(f) __attribute__((section("app_ov_apple2." #f))) f  ///< the apps' SRAM area (app_overlay.h)
 #else
-#define FAST(f) f
+#define FAST(f) f  ///< host builds: nothing
 #endif
 
 /// Base cycles per opcode (65C02). Page crossings, taken branches and decimal
@@ -39,18 +39,30 @@ static const uint8_t base_cycles[256] = {
     2, 5, 5, 1, 4, 4, 6, 1, 2, 4, 4, 1, 4, 4, 7, 1,  // Fx
 };
 
+/// A memory read through the machine's read hook.
 #define RD(addr)     c->read(c->ctx, (uint16_t)(addr))
+/// A memory write through the machine's write hook.
 #define WR(addr, v)  c->write(c->ctx, (uint16_t)(addr), (uint8_t)(v))
 
+/// The next program byte.
+/// @param c the CPU
+/// @return the byte
 static inline uint8_t fetch(as_cpu *c) {
     return RD(c->pc++);
 }
 
+/// The next two program bytes, low first.
+/// @param c the CPU
+/// @return the word
 static inline uint16_t fetch16(as_cpu *c) {
     uint16_t lo = fetch(c);
     return lo | (uint16_t)fetch(c) << 8;
 }
 
+/// A pointer from zero page, wrapping within it.
+/// @param c the CPU
+/// @param z its zero-page address
+/// @return the pointer
 static inline uint16_t read16_zp(as_cpu *c, uint8_t z) {
     return RD(z) | (uint16_t)RD((uint8_t)(z + 1)) << 8;
 }
@@ -60,11 +72,17 @@ void as_cpu_push(as_cpu *c, uint8_t v) {
     c->s--;
 }
 
+/// Pulls a byte off the stack.
+/// @param c the CPU
+/// @return the byte
 static inline uint8_t pull(as_cpu *c) {
     c->s++;
     return RD(0x100 | c->s);
 }
 
+/// Sets N and Z from a value.
+/// @param c the CPU
+/// @param v the value
 static inline void set_nz(as_cpu *c, uint8_t v) {
     c->p = (c->p & ~(AS_N | AS_Z)) | (v & AS_N) | (v ? 0 : AS_Z);
 }
@@ -75,6 +93,10 @@ void as_cpu_reset(as_cpu *c) {
     c->pc = RD(0xfffc) | (uint16_t)RD(0xfffd) << 8;
 }
 
+/// ADC, binary or decimal.
+/// @param c the CPU
+/// @param m the operand
+/// @param cyc the cycle count (65C02 decimal mode takes one more)
 static void FAST(adc)(as_cpu *c, uint8_t m, int *cyc) {
     unsigned carry = c->p & AS_C;
     if (c->p & AS_D) {
@@ -105,6 +127,10 @@ static void FAST(adc)(as_cpu *c, uint8_t m, int *cyc) {
     }
 }
 
+/// SBC, binary or decimal.
+/// @param c the CPU
+/// @param m the operand
+/// @param cyc the cycle count (65C02 decimal mode takes one more)
 static void FAST(sbc)(as_cpu *c, uint8_t m, int *cyc) {
     if (c->p & AS_D) {
         unsigned borrow = (c->p & AS_C) ? 0 : 1;
@@ -130,11 +156,19 @@ static void FAST(sbc)(as_cpu *c, uint8_t m, int *cyc) {
     }
 }
 
+/// CMP, CPX and CPY: the flags of r - m.
+/// @param c the CPU
+/// @param r the register
+/// @param m the operand
 static inline void compare(as_cpu *c, uint8_t r, uint8_t m) {
     c->p = (c->p & ~AS_C) | (r >= m ? AS_C : 0);
     set_nz(c, (uint8_t)(r - m));
 }
 
+/// ASL.
+/// @param c the CPU
+/// @param v the value
+/// @return it shifted
 static inline uint8_t asl(as_cpu *c, uint8_t v) {
     c->p = (c->p & ~AS_C) | (v >> 7);
     v <<= 1;
@@ -142,6 +176,10 @@ static inline uint8_t asl(as_cpu *c, uint8_t v) {
     return v;
 }
 
+/// LSR.
+/// @param c the CPU
+/// @param v the value
+/// @return it shifted
 static inline uint8_t lsr(as_cpu *c, uint8_t v) {
     c->p = (c->p & ~AS_C) | (v & 1);
     v >>= 1;
@@ -149,6 +187,10 @@ static inline uint8_t lsr(as_cpu *c, uint8_t v) {
     return v;
 }
 
+/// ROL.
+/// @param c the CPU
+/// @param v the value
+/// @return it rotated
 static inline uint8_t rol(as_cpu *c, uint8_t v) {
     uint8_t r = (uint8_t)(v << 1) | (c->p & AS_C);
     c->p = (c->p & ~AS_C) | (v >> 7);
@@ -156,6 +198,10 @@ static inline uint8_t rol(as_cpu *c, uint8_t v) {
     return r;
 }
 
+/// ROR.
+/// @param c the CPU
+/// @param v the value
+/// @return it rotated
 static inline uint8_t ror(as_cpu *c, uint8_t v) {
     uint8_t r = (uint8_t)(v >> 1) | (uint8_t)((c->p & AS_C) << 7);
     c->p = (c->p & ~AS_C) | (v & 1);
@@ -163,9 +209,37 @@ static inline uint8_t ror(as_cpu *c, uint8_t v) {
     return r;
 }
 
+/// BIT: N and V from the operand, Z from A AND it.
+/// @param c the CPU
+/// @param m the operand
 static inline void bit(as_cpu *c, uint8_t m) {
     c->p = (c->p & ~(AS_N | AS_V | AS_Z)) | (m & (AS_N | AS_V)) | ((c->a & m) ? 0 : AS_Z);
 }
+
+/// @def ZP()
+/// Zero page.
+/// @def ZPX()
+/// Zero page,X.
+/// @def ZPY()
+/// Zero page,Y.
+/// @def ABS()
+/// Absolute.
+/// @def ABSX(pen)
+/// Absolute,X; pen adds a cycle on a page crossing.
+/// @def ABSY(pen)
+/// Absolute,Y; pen adds a cycle on a page crossing.
+/// @def INDX()
+/// (Zero page,X).
+/// @def INDY(pen)
+/// (Zero page),Y; pen adds a cycle on a page crossing.
+/// @def INDZ()
+/// (Zero page), the 65C02's.
+/// @def BRANCH(cond)
+/// A relative branch, taken if cond: a cycle more, two across a page.
+/// @def ALU_GROUP(base, zpind, body)
+/// The cases of one ALU instruction (ORA AND EOR ADC CMP SBC...): its opcode base, its (zp) opcode and what it does with m.
+/// @def RMW_GROUP(base, fn)
+/// The cases of one read-modify-write instruction: its opcode base and the function applied.
 
 int FAST(as_cpu_step)(as_cpu *c) {
     if (c->irq && !(c->p & AS_I)) {

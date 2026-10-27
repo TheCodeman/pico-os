@@ -16,6 +16,9 @@
 
 // ---- Low resolution (the monitor's PLOT, HLINE, VLINE, SCRN) ---------------------
 
+/// GBASCALC: the address of lo-res row row's start.
+/// @param row the row (0-47)
+/// @return the address
 static uint16_t gbascalc(int row) {
     return (uint16_t)(0x400 + (row & 7) * 128 + (row >> 3) * 40);
 }
@@ -79,19 +82,27 @@ void gfx_gr(void) {
 // row's base address, $30 the bit mask (with bit 7), $E5 the byte column,
 // $E0-$E2 the last point HPLOT was given.
 
+/// Zero page: the colour byte.
 #define HCOLOR1 0x1c
 
+/// HCOLOR's 8 colour bytes.
 static const uint8_t hcolors[8] = {0x00, 0x2a, 0x55, 0x7f, 0x80, 0xaa, 0xd5, 0xff};
 
 void gfx_hcolor(int c) {
     M[Z_HCOLOR1] = hcolors[c & 7];
 }
 
+/// A hi-res row's base address.
+/// @param page the page's high byte ($20 or $40)
+/// @param y the row
+/// @return the address
 static uint16_t hrow(uint8_t page, int y) {
     return (uint16_t)((page << 8) + ((y & 7) << 10) + (((y >> 3) & 7) << 7) + (y >> 6) * 40);
 }
 
 /// The row number of a row base address.
+/// @param base the address
+/// @return the row
 static int hrow_y(uint16_t base) {
     uint8_t hi = base >> 8, lo = (uint8_t)base;
     int y = (hi >> 2) & 7;
@@ -110,6 +121,8 @@ static void flip_color(void) {
 }
 
 /// HPOSN: sets the position to (x, y).
+/// @param x the column
+/// @param y the row
 static void hposn(int x, int y) {
     M[Z_HGRY] = (uint8_t)y;
     M[Z_HGRX] = (uint8_t)x;
@@ -123,6 +136,7 @@ static void hposn(int x, int y) {
         flip_color();
 }
 
+/// Plots the point at the position in the colour.
 static void plot_here(void) {
     uint16_t a = (uint16_t)(w16(Z_GBASL) + M[0xe5]);
     uint8_t b = M[a];
@@ -143,6 +157,7 @@ static void move_left(void) {
     flip_color();
 }
 
+/// Moves the position one dot right.
 static void move_right(void) {
     uint8_t m = M[0x30];
     uint8_t s = (uint8_t)((m << 1) ^ 0x80);
@@ -163,6 +178,7 @@ static void move_up(void) {
     sw16(Z_GBASL, hrow(base >> 8 & 0xe0, y));
 }
 
+/// Moves the position one row down, wrapping to the top.
 static void move_down(void) {
     uint16_t base = w16(Z_GBASL);
     int y = hrow_y(base);

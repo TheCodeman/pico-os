@@ -22,26 +22,38 @@ static bool col80;              ///< PR#3 is active
 static uint8_t aux_text[0x400] APP_OV_DATA(apple2); ///< 80 columns: the even columns ($400-$7FF aux)
 static bool last_was_cr = true; ///< DOS commands start a line
 static bool capturing;          ///< after a Ctrl-D: a DOS command is being printed
+/// The DOS command being typed (after Ctrl-D).
 static char dos_line[256] APP_OV_DATA(apple2);
+/// Its length.
 static int dos_len;
 
+/// The 80-column card's auxiliary text memory.
+/// @return the 1 KB
 uint8_t *as_aux_text(void) {
     return aux_text;
 }
 
+/// Whether 80 columns are on.
+/// @return on
 bool text_80col(void) {
     return col80;
 }
 
+/// The cursor's column.
+/// @return the column
 int text_column(void) {
     return col80 ? M[0x57b] : M[Z_CH];
 }
 
+/// Where LIST wraps its lines.
+/// @return the column
 int text_list_wrap(void) {
     return col80 ? 73 : 33;
 }
 
 /// BASCALC: the address of the start of text row r.
+/// @param r the row
+/// @return the address
 static uint16_t row_addr(int r) {
     return (uint16_t)(0x400 + (r & 7) * 128 + (r >> 3) * 40);
 }
@@ -55,6 +67,8 @@ void as_vtab(void) {
 
 /// A character into the screen at column col of the row at BASL (80 columns:
 /// even columns in auxiliary memory).
+/// @param col the column
+/// @param c the character
 static void put_cell(int col, uint8_t c) {
     if (col80) {
         uint16_t base = (uint16_t)(w16(Z_BASL) + M[Z_WNDLFT] / 2);
@@ -72,6 +86,9 @@ static void put_cell(int col, uint8_t c) {
     video_mark(a);
 }
 
+/// The character at column col of the row at BASL.
+/// @param col the column
+/// @return the character
 static uint8_t get_cell(int col) {
     if (col80) {
         uint16_t base = (uint16_t)(w16(Z_BASL) + M[Z_WNDLFT] / 2);
@@ -82,10 +99,14 @@ static uint8_t get_cell(int col) {
     return M[(uint16_t)(w16(Z_BASL) + col)];
 }
 
+/// The window's width.
+/// @return the width
 static int width(void) {
     return M[Z_WNDWDTH];
 }
 
+/// Clears the row from a column on.
+/// @param from the column
 static void clear_row_from(int from) {
     for (int x = from; x < width(); ++x)
         put_cell(x, 0xa0);
@@ -95,6 +116,7 @@ void as_clreol(void) {
     clear_row_from(M[Z_CH]);
 }
 
+/// Scrolls the window up a line.
 static void scroll(void) {
     uint8_t cv = M[Z_CV];
     for (int r = M[Z_WNDTOP]; r < M[Z_WNDBTM] - 1; ++r) {
@@ -115,6 +137,7 @@ static void scroll(void) {
     as_vtab();
 }
 
+/// Line feed: down, scrolling at the bottom.
 static void lf(void) {
     M[Z_CV]++;
     if (M[Z_CV] < M[Z_WNDBTM]) {
@@ -126,11 +149,13 @@ static void lf(void) {
     scroll();
 }
 
+/// Carriage return.
 static void cr(void) {
     M[Z_CH] = 0;
     lf();
 }
 
+/// Cursor up, not past the window's top.
 static void up(void) {
     if (M[Z_WNDTOP] < M[Z_CV]) {
         M[Z_CV]--;
@@ -138,6 +163,7 @@ static void up(void) {
     }
 }
 
+/// Backspace, onto the line above at the left edge.
 static void bs(void) {
     M[Z_CH]--;
     if (M[Z_CH] & 0x80) {
@@ -173,6 +199,7 @@ void as_bell(void) {
 }
 
 /// STOADV: a character into the window, then on.
+/// @param c the character
 static void stoadv(uint8_t c) {
     put_cell(M[Z_CH], c);
     M[Z_CH]++;
@@ -183,6 +210,7 @@ static void stoadv(uint8_t c) {
 static void wait_ctrl_s(void);
 
 /// COUT1: the screen's output routine.
+/// @param c the character
 static void cout1(uint8_t c) {
     asp_mirror(c & 0x7f);
     uint8_t v = c >= 0xa0 ? (uint8_t)(c & M[Z_INVFLG]) : c;
@@ -265,6 +293,8 @@ void as_crdo(void) {
     as_outdo('\r');
 }
 
+/// HTAB: the cursor to column n (past the width: rows down).
+/// @param n the column, from 1
 void text_htab(int n) {
     uint8_t x = (uint8_t)(n - 1);
     for (;;) {
@@ -281,6 +311,8 @@ void text_htab(int n) {
     }
 }
 
+/// 80 columns on or off.
+/// @param on on
 void text_set_80col(bool on) {
     col80 = on;
     vid.col80 = on;
@@ -342,6 +374,9 @@ void text_init(void) {
 /// Keys from the PC side: ANSI escape sequences become the Apple's arrow keys.
 static int pending_esc;  ///< characters held while an escape sequence decodes
 
+/// A key from the DOS input, or the keyboard with ANSI arrows mapped to Apple's.
+/// @param timeout_us how long to wait
+/// @return the key, or -1
 static int read_host_key(uint32_t timeout_us) {
     int c = dos_input_char();
     if (c >= 0)
@@ -370,6 +405,9 @@ static int read_host_key(uint32_t timeout_us) {
     }
 }
 
+/// The next key, an ESC's second key first.
+/// @param timeout_us how long to wait
+/// @return the key, or -1
 static int next_key(uint32_t timeout_us) {
     if (pending_esc) {
         int c = pending_esc;
@@ -439,6 +477,7 @@ uint8_t as_rdkey(void) {
 /// RDCHAR: RDKEY, with escape mode: ESC, then I J K M or the arrows move the
 /// cursor (for copying text from the screen with the right arrow) until some
 /// other key.
+/// @return the key
 static uint8_t rdchar(void) {
     for (;;) {
         uint8_t c = as_rdkey();
