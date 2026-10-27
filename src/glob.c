@@ -21,6 +21,10 @@ bool glob_wild(const char *path) {
     return strpbrk(slash ? slash + 1 : path, "*?") != NULL;
 }
 
+/// Whether s matches a pattern with * and ?.
+/// @param pat the pattern
+/// @param s the name
+/// @return it matches
 static bool match(const char *pat, const char *s) {
     for (; *pat; ++pat, ++s) {
         if (*pat == '*') {
@@ -50,6 +54,12 @@ bool glob_match(const char *pattern, const char *name) {
     return false;
 }
 
+/// Adds a path to the list, growing it.
+/// @param list the list
+/// @param n its count
+/// @param cap its room
+/// @param path the path, copied
+/// @return false when out of memory
 static bool add(char ***list, int *n, int *cap, const char *path) {
     if (*n == *cap) {
         char **bigger = realloc(*list, (*cap + 16) * sizeof **list);

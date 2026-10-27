@@ -14,14 +14,31 @@
 #include "hardware/sync.h"
 
 /// From the linker (src/ld/section_extra_post_data.incl).
+/// The overlay area's start and end.
+///@{
 extern char __app_overlay_start[], __app_overlay_end[];
+///@}
+/// The C64's overlay contents in flash.
+///@{
 extern char __load_start_app_ov_c64[], __load_stop_app_ov_c64[];
+///@}
+/// The Apple IIe's overlay contents in flash.
+///@{
 extern char __load_start_app_ov_apple2[], __load_stop_app_ov_apple2[];
+///@}
+/// The Genesis's overlay contents in flash.
+///@{
 extern char __load_start_app_ov_genesis[], __load_stop_app_ov_genesis[];
+///@}
 
+/// The app holding the area (APP_OV_NONE: none).
 static int owner = APP_OV_NONE;
+/// What it calls to give the area up.
 static void (*owner_release)(void);
 
+/// Gives the area to app, after the one holding it lets go.
+/// @param app the app
+/// @param release what it calls to give the area up
 static void take(int app, void (*release)(void)) {
     if (owner_release && owner != app) {
         void (*r)(void) = owner_release;

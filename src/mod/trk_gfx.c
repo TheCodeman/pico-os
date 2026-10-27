@@ -21,6 +21,12 @@
 #include "font8x16.h"
 #include "trk.h"
 
+/// Clips a rectangle to the screen.
+/// @param x its left
+/// @param y its top
+/// @param w its width
+/// @param h its height
+/// @return any of it is left
 static inline bool clip(int *x, int *y, int *w, int *h) {
     if (*x < 0) { *w += *x; *x = 0; }
     if (*y < 0) { *h += *y; *y = 0; }

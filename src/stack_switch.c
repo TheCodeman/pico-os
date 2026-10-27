@@ -19,6 +19,11 @@ char *stack_bottom(void) {
     return bottom;
 }
 
+/// Calls fn(arg) on another stack, from low to top, setting MSPLIM to match.
+/// @param fn the function
+/// @param arg its argument
+/// @param low the stack's bottom
+/// @param top its top
 static void __attribute__((noinline)) switch_and_call(void (*fn)(void *), void *arg, char *low,
                                                       char *top) {
     __asm volatile(

@@ -20,15 +20,27 @@
 #include "mc.h"
 #include "psram_heap.h"
 
+/// The biggest file viewed.
 #define VIEW_MAX (4u << 20)
+/// Text rows.
 #define ROWS (SCR_H - 2)
 
+/// The file.
 static uint8_t *data;
+/// Its size.
 static uint32_t size;
+/// Wrap long lines; hex.
+///@{
 static bool wrap = true, hex;
+///@}
+/// The search's match: where, and its length.
+///@{
 static uint32_t match_at = UINT32_MAX, match_len;
+///@}
 
 /// The start of the screen row after the one starting at `at` (text mode).
+/// @param at the row's start
+/// @return the next row's
 static uint32_t next_row(uint32_t at) {
     int col = 0;
     for (uint32_t i = at; i < size; ++i) {
@@ -42,6 +54,9 @@ static uint32_t next_row(uint32_t at) {
     return size;
 }
 
+/// The start of the screen row before the one at at.
+/// @param at the row's start
+/// @return the row before's
 static uint32_t prev_row(uint32_t at) {
     if (!at)
         return 0;
@@ -59,6 +74,9 @@ static uint32_t prev_row(uint32_t at) {
     return prev;
 }
 
+/// A row down, unless at the end.
+/// @param at the row's start
+/// @return the next row's
 static uint32_t down(uint32_t at) {
     if (hex)
         return at + 16 < size ? at + 16 : at;
@@ -66,6 +84,9 @@ static uint32_t down(uint32_t at) {
     return n < size ? n : at;
 }
 
+/// Draws the viewer.
+/// @param path the file's path
+/// @param top the first row
 static void draw(const char *path, uint32_t top) {
     scr_fill(0, 0, 1, SCR_W, ' ', C_MENU);
     char title[SCR_W + 1];
@@ -118,6 +139,11 @@ static void draw(const char *path, uint32_t top) {
     scr_flush();
 }
 
+/// Finds text, any case.
+/// @param text the text
+/// @param from where to start
+/// @param found set to where
+/// @return found
 static bool search(const char *text, uint32_t from, uint32_t *found) {
     size_t n = strlen(text);
     for (uint32_t i = from; n && i + n <= size; ++i)

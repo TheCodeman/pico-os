@@ -18,12 +18,17 @@
 #include "psram_heap.h"
 #include "radio.h"
 
+/// The most of a server reply kept.
 #define REPLY_MAX (160 * 1024)
 
 /// The servers (any of them will do; tried in turn).
 static const char *const servers[] = {"de1.api.radio-browser.info", "de2.api.radio-browser.info",
                                       "fi1.api.radio-browser.info", "all.api.radio-browser.info"};
 
+/// URL-encodes a string.
+/// @param in the text
+/// @param out the encoded text
+/// @param size room in out
 static void url_escape(const char *in, char *out, size_t size) {
     size_t n = 0;
     for (; *in && n + 4 < size; ++in) {
@@ -38,6 +43,12 @@ static void url_escape(const char *in, char *out, size_t size) {
 
 /// The string value of "key" in a JSON object's text (from p to end), with
 /// escapes undone (non-ASCII becomes '?'). False if it isn't there.
+/// @param p the object
+/// @param end its end
+/// @param key the key
+/// @param out the value
+/// @param size room in out
+/// @return found
 static bool json_string(const char *p, const char *end, const char *key, char *out, size_t size) {
     char pat[40];
     snprintf(pat, sizeof pat, "\"%s\"", key);

@@ -18,6 +18,9 @@
 #include "pico/stdlib.h"
 
 /// Lines of `text` (split at \n): their count and the longest.
+/// @param text the text
+/// @param longest set to the longest line
+/// @return the line count
 static int measure(const char *text, int *longest) {
     int lines = 1, len = 0;
     *longest = 0;
@@ -36,6 +39,13 @@ static int measure(const char *text, int *longest) {
     return lines;
 }
 
+/// Draws a dialog's frame.
+/// @param row its row
+/// @param col its column
+/// @param h its height
+/// @param w its width
+/// @param title its title
+/// @param attr its colours
 static void frame(int row, int col, int h, int w, const char *title, uint8_t attr) {
     scr_fill(row, col, h, w, ' ', attr);
     scr_box(row + 1, col + 2, h - 2, w - 4, true, attr);
@@ -47,8 +57,15 @@ static void frame(int row, int col, int h, int w, const char *title, uint8_t att
 }
 
 /// Where the last buttons drawn are, for the mouse.
+/// Their row (-1: none), count, columns and widths.
+///@{
 static int btn_row = -1, btn_n, btn_col[8], btn_w[8];
+///@}
 
+/// The button at a cell.
+/// @param row the row
+/// @param col the column
+/// @return the button, or -1
 static int button_at(int row, int col) {
     for (int i = 0; row == btn_row && i < btn_n; ++i)
         if (col >= btn_col[i] && col < btn_col[i] + btn_w[i])
@@ -57,12 +74,22 @@ static int button_at(int row, int col) {
 }
 
 /// A mouse event's cell.
+/// @param e the event
+/// @param row set to the row
+/// @param col set to the column
 static void cell_of(const mouse_event_t *e, int *row, int *col) {
     *row = e->y / 16;
     *col = e->x / 8;
 }
 
 /// Buttons "Yes|No" laid out centred on a row; returns how many.
+/// @param row the row
+/// @param col the left column
+/// @param w the width
+/// @param buttons the labels
+/// @param focus the one chosen
+/// @param error error colours
+/// @return the count
 static int draw_buttons(int row, int col, int w, const char *buttons, int focus, bool error) {
     char names[8][16];
     int n = 0, total = 0;
@@ -164,6 +191,15 @@ done:
 }
 
 /// An editable line at (row, col), width w: the buffer, cursor and scroll.
+/// @param row the row
+/// @param col the column
+/// @param w the width
+/// @param buf the text
+/// @param size room in buf
+/// @param k the key
+/// @param pos the cursor
+/// @param off the scroll
+/// @return the key was used
 static bool edit_line(int row, int col, int w, char *buf, int size, int k, int *pos, int *off) {
     int len = strlen(buf);
     if (k == KEY_LEFT && *pos > 0)
@@ -194,6 +230,13 @@ static bool edit_line(int row, int col, int w, char *buf, int size, int k, int *
     return true;
 }
 
+/// Draws an input field.
+/// @param row the row
+/// @param col the column
+/// @param w the width
+/// @param buf the text
+/// @param off the scroll
+/// @param at its colours
 static void draw_field(int row, int col, int w, const char *buf, int off, uint8_t at) {
     int len = strlen(buf);
     for (int i = 0; i < w; ++i)
@@ -337,8 +380,11 @@ int dlg_list(const char *title, char *const *items, int n, int start) {
 
 // ---- Progress ---------------------------------------------------------------------------------------
 
+/// The screen under the progress dialog.
 static void *progress_saved;
+/// Its title.
 static const char *progress_title;
+/// When it is next redrawn.
 static absolute_time_t progress_next;
 
 void dlg_progress_begin(const char *title) {
@@ -347,6 +393,12 @@ void dlg_progress_begin(const char *title) {
     progress_next = nil_time;
 }
 
+/// Draws a progress bar.
+/// @param row the row
+/// @param col the column
+/// @param w the width
+/// @param done the part done
+/// @param total the whole
 static void bar(int row, int col, int w, uint64_t done, uint64_t total) {
     int fill = total ? (int)(done * w / total) : 0;
     if (fill > w)
@@ -383,6 +435,10 @@ void dlg_progress_end(void) {
 
 // ---- Menus -------------------------------------------------------------------------------------------
 
+/// A menu title's column.
+/// @param menus the menus
+/// @param i the menu
+/// @return the column
 static int menu_col(menu_t *menus, int i) {
     int c = 2;
     for (int k = 0; k < i; ++k)
@@ -390,6 +446,10 @@ static int menu_col(menu_t *menus, int i) {
     return c;
 }
 
+/// Draws the menu bar.
+/// @param menus the menus
+/// @param count their count
+/// @param open the open one (-1 none)
 static void draw_bar(menu_t *menus, int count, int open) {
     scr_fill(0, 0, 1, SCR_W, ' ', C_MENU);
     for (int i = 0; i < count; ++i)
@@ -398,6 +458,10 @@ static void draw_bar(menu_t *menus, int count, int open) {
 }
 
 /// The menu whose title is at column col, or -1.
+/// @param menus the menus
+/// @param count their count
+/// @param col the column
+/// @return the menu
 static int menu_at(menu_t *menus, int count, int col) {
     for (int i = 0; i < count; ++i) {
         int c = menu_col(menus, i), w = strlen(menus[i].title) + 4;

@@ -24,20 +24,24 @@
 #include "psram_heap.h"
 
 #define RING_SIZE      (16 * 1024)  ///< more than TCP_WND, so a delivery always fits
+/// How long a DNS lookup may take.
 #define DNS_TIMEOUT_MS 10000
+/// How long connecting may take.
 #define CONN_TIMEOUT_MS 15000
 
+/// A connection's states.
 enum { ST_CONNECTING, ST_OPEN, ST_CLOSED, ST_FAILED };
 
+/// A TCP connection: lwIP's socket and a receive ring.
 struct net_conn {
-    struct tcp_pcb *pcb;
-    volatile int state;
-    volatile err_t err;
+    struct tcp_pcb *pcb;  ///< lwIP's socket (NULL once gone)
+    volatile int state;  ///< ST_CONNECTING and the like
+    volatile err_t err;  ///< the error that closed it
     /// ring: lwIP writes at head, we read at tail
     ///@{
     volatile size_t head, tail;
     ///@}
-    uint8_t ring[RING_SIZE];
+    uint8_t ring[RING_SIZE];  ///< the received bytes
 };
 
 bool net_stop_key(void) {
@@ -47,6 +51,12 @@ bool net_stop_key(void) {
 
 // ---- lwIP callbacks (interrupt) ---------------------------------------------
 
+/// lwIP's receive callback: the data into the ring.
+/// @param arg the connection
+/// @param pcb the socket
+/// @param p the data (NULL: closed)
+/// @param err unused
+/// @return ERR_OK
 static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) {
     net_conn_t *c = arg;
     if (!p) {
@@ -66,6 +76,9 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
     return ERR_OK;
 }
 
+/// lwIP's error callback.
+/// @param arg the connection
+/// @param err the error
 static void on_err(void *arg, err_t err) {
     net_conn_t *c = arg;
     c->pcb = NULL;  // lwIP has already freed it
@@ -73,6 +86,11 @@ static void on_err(void *arg, err_t err) {
     c->state = c->state == ST_OPEN ? ST_CLOSED : ST_FAILED;
 }
 
+/// lwIP's connected callback.
+/// @param arg the connection
+/// @param pcb the socket
+/// @param err unused
+/// @return ERR_OK
 static err_t on_connected(void *arg, struct tcp_pcb *pcb, err_t err) {
     net_conn_t *c = arg;
     c->state = ST_OPEN;
@@ -80,8 +98,13 @@ static err_t on_connected(void *arg, struct tcp_pcb *pcb, err_t err) {
 }
 
 static volatile int dns_done;  ///< 0 waiting, 1 found, -1 not found
+/// The address the lookup found.
 static ip_addr_t dns_addr;
 
+/// lwIP's DNS callback.
+/// @param name the name
+/// @param addr its address, or NULL
+/// @param arg unused
 static void on_dns(const char *name, const ip_addr_t *addr, void *arg) {
     if (addr)
         dns_addr = *addr;
@@ -123,6 +146,8 @@ bool net_resolve(const char *host, ip_addr_t *addr) {
     return true;
 }
 
+/// Aborts the socket.
+/// @param c the connection
 static void abort_pcb(net_conn_t *c) {
     cyw43_arch_lwip_begin();
     if (c->pcb) {

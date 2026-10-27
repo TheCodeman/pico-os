@@ -17,13 +17,17 @@
 #include <math.h>
 #include <stdlib.h>
 
+/// The sample rate.
 #define RATE    48000
+/// Notes sounding at once.
 #define VOICES  4
 #define ATTACK  192  ///< frames (4 ms)
 
 static int16_t sine[257];  ///< one cycle, and the first value again at the end
 
+/// A note: three partials, with their envelope and pan.
 static struct voice {
+    /// The partials' phases and steps.
     ///@{
     uint32_t phase[3], step[3];
     ///@}
@@ -32,8 +36,10 @@ static struct voice {
     ///@{
     int start, pan;
     ///@}
-} v[VOICES];
+} v[VOICES];  ///< the notes
+/// Samples played so far.
 static int t;
+/// The chime is playing.
 static bool running;
 
 void chime_begin(void) {
@@ -56,6 +62,9 @@ void chime_begin(void) {
     running = true;
 }
 
+/// The sine table, interpolated.
+/// @param phase the phase (32 bits a cycle)
+/// @return the sample
 static inline int32_t wave(uint32_t phase) {
     // Linear interpolation in the table: the top 8 bits pick the entry.
     int i = phase >> 24, frac = (phase >> 16) & 0xff;

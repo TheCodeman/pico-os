@@ -16,10 +16,14 @@
 static const int16_t vol_table[16] = {
     0, 53, 75, 111, 160, 233, 333, 508, 619, 1017, 1485, 1769, 2484, 3032, 3922, 5000,
 };
+/// The bits each register keeps.
 static const uint8_t reg_mask[16] = {
     0xff, 0x0f, 0xff, 0x0f, 0xff, 0x0f, 0x1f, 0xff, 0x1f, 0x1f, 0x1f, 0xff, 0xff, 0x0f, 0xff, 0xff,
 };
 
+/// A tone channel's step per sample, from its period.
+/// @param a the chip
+/// @param ch the channel (0-2)
 static void update_tone(ay38910 *a, unsigned ch) {
     uint32_t tp = a->regs[2 * ch] | (uint32_t)a->regs[2 * ch + 1] << 8;
     if (tp == 0)
@@ -33,12 +37,17 @@ static void update_tone(ay38910 *a, unsigned ch) {
 }
 
 /// 16.16 steps per sample for a generator stepping every 16 * period clocks.
+/// @param a the chip
+/// @param period the period
+/// @return the step
 static uint32_t steps_inc(const ay38910 *a, uint32_t period) {
     if (period == 0)
         period = 1;
     return (uint32_t)(((uint64_t)a->clock << 16) / (16ull * period * a->rate));
 }
 
+/// Restarts the envelope (a write to register 13).
+/// @param a the chip
 static void env_restart(ay38910 *a) {
     a->env_step = 0;
     a->env_acc = 0;
@@ -70,6 +79,8 @@ void ay_init(ay38910 *a, uint32_t clock_hz, uint32_t rate) {
 }
 
 /// The envelope's next level. Shape bits: CONTINUE ATTACK ALTERNATE HOLD.
+/// @param a the chip
+/// @return the level (0-15)
 static unsigned envelope(ay38910 *a) {
     if (a->env_holding)
         return a->env_vol;

@@ -14,6 +14,7 @@
 #include "ff.h"
 #include "mouse.h"
 
+/// The settings file.
 #define CONFIG "/MOUSE.CFG"
 
 void mouse_load_config(void) {
@@ -34,6 +35,7 @@ void mouse_load_config(void) {
     mouse_set_speed(s, a);
 }
 
+/// Saves the mouse's speed and acceleration.
 static void save(void) {
     int s;
     bool a;

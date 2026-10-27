@@ -19,6 +19,10 @@
 #include "mod.h"
 #include "xm.h"
 
+/// A MOD sample as an XM instrument.
+/// @param in the instrument
+/// @param m the sample
+/// @return NULL, or an error
 static const char *convert_instrument(xm_instrument_t *in, const mod_sample_t *m) {
     memset(in, 0, sizeof *in);
     memcpy(in->name, m->name, 22);

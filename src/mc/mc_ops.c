@@ -23,30 +23,43 @@
 #include "psram_heap.h"
 #include "smb_vfs.h"
 
+/// Ask before deleting, before overwriting, before quitting.
+///@{
 bool confirm_delete = true, confirm_overwrite = true, confirm_exit = false;
+///@}
 
+/// Copy buffer size.
 #define COPY_BUF (32 * 1024)
 
+/// Overwrite answers: ask, all, none, older ones.
 enum { OW_ASK, OW_ALL, OW_NONE, OW_OLDER };
 
+/// A copy or move.
 typedef struct {
+    /// A move (not a copy); stopped.
     ///@{
     bool move, abort;
     ///@}
-    int overwrite;
+    int overwrite;  ///< OW_ASK and the like
+    /// Bytes to copy and copied.
     ///@{
     uint64_t total_bytes, done_bytes;
     ///@}
+    /// Files to copy and copied.
     ///@{
     int total_files, done_files;
     ///@}
     uint8_t *buf;   ///< PSRAM, with the two files
+    /// The files open.
     ///@{
     FIL *src, *dst;
     ///@}
 } job_t;
 
 /// The names in a folder, folders marked with a leading '/'.
+/// @param path the folder
+/// @param out set to the names (free each and it)
+/// @return their count
 static int list_names(const char *path, char ***out) {
     static FILINFO info;
     char **names = NULL;
@@ -71,6 +84,10 @@ static int list_names(const char *path, char ***out) {
     return n;
 }
 
+/// A folder and name joined with a slash.
+/// @param folder the folder
+/// @param name the name
+/// @return the path (malloc'd), or NULL
 static char *join(const char *folder, const char *name) {
     size_t a = strlen(folder), b = strlen(name);
     char *p = malloc(a + b + 2);
@@ -80,6 +97,9 @@ static char *join(const char *folder, const char *name) {
 }
 
 /// The files to work on: the marked ones, or the one under the cursor.
+/// @param p the panel
+/// @param out set to the paths (free each and it)
+/// @return their count
 static int sources(panel_t *p, char ***out) {
     char **list = NULL;
     int n = 0;
@@ -97,6 +117,10 @@ static int sources(panel_t *p, char ***out) {
     return n;
 }
 
+/// Counts the files and bytes under a path.
+/// @param j the job
+/// @param path the path
+/// @param depth folders deep
 static void scan(job_t *j, const char *path, int depth) {
     FILINFO info;
     if (f_stat(path, &info) != FR_OK)
@@ -122,6 +146,10 @@ static void scan(job_t *j, const char *path, int depth) {
     glob_free(names, n);
 }
 
+/// A file's size and date as text.
+/// @param out the text
+/// @param size room in out
+/// @param f the file
 static void fmt_info(char *out, size_t size, const FILINFO *f) {
     snprintf(out, size, "%10llu bytes, %04d-%02d-%02d %02d:%02d", (unsigned long long)f->fsize,
              (f->fdate >> 9) + 1980, (f->fdate >> 5) & 15, f->fdate & 31, f->ftime >> 11,
@@ -129,6 +157,10 @@ static void fmt_info(char *out, size_t size, const FILINFO *f) {
 }
 
 /// May the copy overwrite `to`? Asks if need be.
+/// @param j the job
+/// @param src the file being copied
+/// @param to where it goes
+/// @return copy it
 static bool may_overwrite(job_t *j, const FILINFO *src, const char *to) {
     FILINFO dst;
     if (f_stat(to, &dst) != FR_OK)
@@ -159,6 +191,11 @@ static bool may_overwrite(job_t *j, const FILINFO *src, const char *to) {
 }
 
 /// After a failure: true to skip and go on, false to stop.
+/// @param j the job
+/// @param what the operation ("read" and the like)
+/// @param path the path
+/// @param r the error
+/// @return go on
 static bool skip_error(job_t *j, const char *what, const char *path, FRESULT r) {
     char text[340];
     snprintf(text, sizeof text, "Can't %s\n%s\n(error %d)", what, path, r);
@@ -168,6 +205,10 @@ static bool skip_error(job_t *j, const char *what, const char *path, FRESULT r) 
     return false;
 }
 
+/// Copies (or moves) one file.
+/// @param j the job
+/// @param from the file
+/// @param to where it goes
 static void copy_file(job_t *j, const char *from, const char *to) {
     FILINFO info;
     if (f_stat(from, &info) != FR_OK) {
@@ -239,6 +280,11 @@ static void copy_file(job_t *j, const char *from, const char *to) {
         f_unlink(from);
 }
 
+/// Copies (or moves) a folder and what's in it.
+/// @param j the job
+/// @param from the folder
+/// @param to where it goes
+/// @param depth folders deep
 static void copy_tree(job_t *j, const char *from, const char *to, int depth) {
     if (depth > 16) {
         dlg_message("Error", "Folders nested too deep.", "OK", true);
@@ -342,14 +388,19 @@ void op_copy(bool move) {
 
 // ---- Delete --------------------------------------------------------------------------------------
 
+/// A delete.
 typedef struct {
     /// delete non-empty folders without asking; stop
     ///@{
     bool all, abort;
     ///@}
-    int done;
+    int done;  ///< files deleted
 } del_t;
 
+/// Deletes a folder's contents.
+/// @param d the delete
+/// @param path the folder
+/// @param depth folders deep
 static void delete_tree(del_t *d, const char *path, int depth) {
     char **names;
     int n = list_names(path, &names);
@@ -462,20 +513,27 @@ void op_mkdir(void) {
 
 // ---- Find file -------------------------------------------------------------------------------------
 
+/// A find.
 typedef struct {
+    /// The file name pattern; the text looked for (or NULL).
     ///@{
     const char *pattern, *text;
     ///@}
-    char **found;
-    int n;
-    bool abort;
+    char **found;  ///< the paths found
+    int n;  ///< their count
+    bool abort;  ///< stopped
 } find_t;
 
 /// The search's file and buffer (PSRAM, while op_find runs).
 static FIL *find_file;
-static char *find_buf;
+static char *find_buf;  ///< its buffer
+/// The buffer's size.
 #define FIND_BUF 2048
 
+/// Whether a file contains text.
+/// @param path the file
+/// @param text the text
+/// @return it does
 static bool file_has(const char *path, const char *text) {
     FIL *f = find_file;
     if (f_open(f, path, FA_READ) != FR_OK)
@@ -498,6 +556,10 @@ static bool file_has(const char *path, const char *text) {
     return hit;
 }
 
+/// Finds matching files under a path.
+/// @param f the find
+/// @param path the folder
+/// @param depth folders deep
 static void find_in(find_t *f, const char *path, int depth) {
     if (depth > 16 || f->n >= 500)
         return;

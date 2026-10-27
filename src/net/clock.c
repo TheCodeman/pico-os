@@ -78,15 +78,25 @@ void net_cmd_date(int argc, char **argv) {
 
 // ---- The ntp command ----------------------------------------------------------
 
+/// NTP's UDP port.
 #define NTP_PORT        123
 #define NTP_UNIX_OFFSET 2208988800u  ///< seconds from 1900 (NTP) to 1970 (Unix)
+/// How long to wait for an answer.
 #define NTP_TIMEOUT_MS  5000
 #define NTP_RESEND_MS   1500  ///< UDP can be lost: ask again this often
 
+/// The reply came.
 static volatile bool ntp_got;
+/// The reply.
 static uint8_t ntp_reply[48];
 static uint64_t ntp_rx_us;  ///< time_us_64() when the reply arrived
 
+/// lwIP's UDP receive callback: keeps the reply.
+/// @param arg unused
+/// @param pcb the socket
+/// @param p the packet
+/// @param addr the sender
+/// @param port its port
 static void on_ntp(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr,
                    u16_t port) {
     if (!ntp_got && p->tot_len >= sizeof ntp_reply) {
@@ -97,10 +107,16 @@ static void on_ntp(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr
     pbuf_free(p);
 }
 
+/// A big-endian 32-bit number.
+/// @param b the bytes
+/// @return it
 static uint32_t get32(const uint8_t *b) {
     return (uint32_t)b[0] << 24 | (uint32_t)b[1] << 16 | (uint32_t)b[2] << 8 | b[3];
 }
 
+/// Stores a big-endian 32-bit number.
+/// @param b the bytes
+/// @param v it
 static void put32(uint8_t *b, uint32_t v) {
     b[0] = v >> 24;
     b[1] = v >> 16;
@@ -109,11 +125,15 @@ static void put32(uint8_t *b, uint32_t v) {
 }
 
 /// An NTP timestamp (seconds since 1900, 32.32 fixed point) as Unix microseconds.
+/// @param b the timestamp
+/// @return the microseconds
 static int64_t ntp_to_us(const uint8_t *b) {
     return ((int64_t)get32(b) - NTP_UNIX_OFFSET) * 1000000 +
            (int64_t)(((uint64_t)get32(b + 4) * 1000000) >> 32);
 }
 
+/// The clock, in Unix microseconds.
+/// @return it
 static int64_t wall_us(void) {
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -121,6 +141,7 @@ static int64_t wall_us(void) {
 }
 
 /// Prints a time difference: "12 ms" or "3.4 s" or "2 days".
+/// @param us the difference
 static void print_span(int64_t us) {
     if (us < 1000000)
         printf("%lld ms", (long long)(us / 1000));

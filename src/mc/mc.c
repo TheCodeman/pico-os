@@ -24,22 +24,30 @@
 #include "psram_heap.h"
 #include "shell.h"
 
+/// The settings file.
 #define INI_FILE  "/MC.INI"
+/// The user menu file.
 #define MENU_FILE "/MC.MNU"
 
+/// The command line.
 static char cmd[256];
+/// The cursor in it.
 static int cmd_pos;
 static bool searching;  ///< quick search (Ctrl-S)
+/// The quick search text.
 static char search[40];
+/// Quitting.
 static bool quit;
 
 // ---- Drawing ---------------------------------------------------------------------------------------
 
+/// Draws the menu bar.
 static void draw_menubar(void) {
     scr_fill(0, 0, 1, SCR_W, ' ', C_MENU);
     scr_text(0, 2, -1, C_MENU, "  Left     File     Command     Options     Right");
 }
 
+/// Draws the F-key bar.
 static void draw_keybar(void) {
     static const char *const labels[10] = {"Help",  "Menu",  "View",   "Edit",   "Copy",
                                            "RenMov", "Mkdir", "Delete", "PullDn", "Quit"};
@@ -52,6 +60,7 @@ static void draw_keybar(void) {
     }
 }
 
+/// Draws the command line (or the quick search).
 static void draw_cmdline(void) {
     int row = SCR_H - 2;
     scr_fill(row, 0, 1, SCR_W, ' ', C_CMDLINE);
@@ -115,6 +124,10 @@ void run_command(const char *line, bool pause) {
     panel_load(&panels[1], NULL);
 }
 
+/// Whether a name has one of the extensions.
+/// @param name the name
+/// @param exts the extensions, NULL last
+/// @return it has
 static bool has_ext(const char *name, const char *const *exts) {
     const char *dot = strrchr(name, '.');
     if (!dot)
@@ -125,6 +138,11 @@ static bool has_ext(const char *name, const char *const *exts) {
     return false;
 }
 
+/// A command and a path, quoted if it has spaces.
+/// @param out the command
+/// @param size room in out
+/// @param verb the command
+/// @param path the path
 static void quoted(char *out, size_t size, const char *verb, const char *path) {
     snprintf(out, size, strchr(path, ' ') ? "%s \"%s\"" : "%s %s", verb, path);
 }
@@ -155,6 +173,7 @@ static void open_entry(void) {
     }
 }
 
+/// F4: edits the entry under the cursor.
 static void edit_entry(void) {
     panel_t *p = &panels[active];
     if (!p->count || (p->ent[p->cur].attr & AM_DIR))
@@ -165,6 +184,7 @@ static void edit_entry(void) {
     run_command(line, false);
 }
 
+/// F3: views the entry under the cursor (a folder: opens it).
 static void view_entry(void) {
     panel_t *p = &panels[active];
     if (!p->count)
@@ -181,6 +201,8 @@ static void view_entry(void) {
 
 // ---- Settings ---------------------------------------------------------------------------------------
 
+/// Saves the settings to MC.INI.
+/// @param tell report failure in a dialog
 static void save_setup(bool tell) {
     FIL f;
     if (f_open(&f, INI_FILE, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) {
@@ -200,6 +222,7 @@ static void save_setup(bool tell) {
         dlg_message("Save setup", "Saved in " INI_FILE ".", "OK", false);
 }
 
+/// Loads the settings from MC.INI.
 static void load_setup(void) {
     FIL f;
     if (f_open(&f, INI_FILE, FA_READ) != FR_OK)
@@ -244,6 +267,7 @@ static void load_setup(void) {
 
 // ---- Menus, help, user menu ------------------------------------------------------------------------
 
+/// The menu items' ids.
 enum {
     M_FULL = 1, M_BRIEF, M_LONG, M_INFO, M_SORT, M_HIDDEN, M_RESCAN,  ///< M_FULL..M_INFO: 1 + MODE_*
     M_VIEW, M_EDIT, M_COPY, M_MOVE, M_MKDIR, M_DELETE, M_SELECT, M_UNSELECT, M_INVERT, M_ATTR,
@@ -251,6 +275,8 @@ enum {
     M_CONF_EXIT, M_SAVE,
 };
 
+/// Marks or unmarks the files matching a pattern.
+/// @param on mark
 static void select_group(bool on) {
     static char pattern[64] = "*";
     if (dlg_input(on ? "Select group" : "Unselect group", "Files matching (* and ?):", pattern,
@@ -258,6 +284,7 @@ static void select_group(bool on) {
         panel_select_pattern(&panels[active], pattern, on);
 }
 
+/// Inverts the marks.
 static void invert(void) {
     panel_t *p = &panels[active];
     for (int i = 0; i < p->count; ++i)
@@ -265,6 +292,8 @@ static void invert(void) {
             panel_mark(p, i, !p->ent[i].marked);
 }
 
+/// The sort order dialog.
+/// @param p the panel
 static void sort_dialog(panel_t *p) {
     static char *const items[] = {"Name", "Extension", "Size", "Modify time", "Unsorted",
                                   "Reverse order on/off"};
@@ -277,6 +306,7 @@ static void sort_dialog(panel_t *p) {
         panel_load(p, NULL);
 }
 
+/// Quick cd: a folder typed in.
 static void quick_cd(void) {
     char where[256] = "";
     if (!dlg_input("Quick cd", "Go to folder:", where, sizeof where) || !where[0])
@@ -299,6 +329,7 @@ static void quick_cd(void) {
     panel_load(p, "..");
 }
 
+/// F1: the keys.
 static void help(void) {
     dlg_message("mc - keys",
                 "Tab        other panel         Enter  open folder / run .BAS / view\n"
@@ -312,6 +343,7 @@ static void help(void) {
                 "OK", false);
 }
 
+/// MC.MNU's first contents.
 static const char default_menu[] =
     "# mc user menu (F2): Title|command; %f file, %n name, %d folder\n"
     "Run in BASIC|basic %f\n"
@@ -321,6 +353,7 @@ static const char default_menu[] =
     "Memory|mem\n"
     "Copy to the other panel|cp %f %o\n";
 
+/// F2: the user menu from MC.MNU.
 static void user_menu(void) {
     FIL f;
     if (f_open(&f, MENU_FILE, FA_READ) != FR_OK) {
@@ -383,6 +416,8 @@ static void user_menu(void) {
     }
 }
 
+/// Does a pull-down menu's item.
+/// @param id the item
 static void do_menu_item(int id) {
     panel_t *p = &panels[active];
     switch (id) {
@@ -435,6 +470,8 @@ static void do_menu_item(int id) {
     }
 }
 
+/// F9: the pull-down menus.
+/// @param open the menu to open first
 static void pull_down(int open) {
     panel_t *p = &panels[active];
     menu_item_t left[] = {
@@ -503,6 +540,8 @@ static void pull_down(int open) {
 
 // ---- The loop -------------------------------------------------------------------------------------------
 
+/// Puts a character into the command line.
+/// @param c the character
 static void cmd_insert(int c) {
     int len = strlen(cmd);
     if (len >= (int)sizeof cmd - 1)
@@ -511,6 +550,8 @@ static void cmd_insert(int c) {
     cmd[cmd_pos++] = c;
 }
 
+/// Handles a key.
+/// @param k the key
 static void handle(int k) {
     panel_t *p = &panels[active];
     if (searching) {
@@ -665,6 +706,7 @@ static void handle(int k) {
 
 /// The mouse: click an entry to choose it (double-click opens it, the right
 /// button marks it), the wheel scrolls, the menu bar and the F-key bar work.
+/// @param e the event
 static void mouse_click(const mouse_event_t *e) {
     if (e->type != MOUSE_DOWN && e->type != MOUSE_WHEEL)
         return;

@@ -37,6 +37,14 @@ void panel_free(panel_t *p) {
     p->names_len = p->names_cap = 0;
 }
 
+/// Adds an entry to a panel.
+/// @param p the panel
+/// @param name its name
+/// @param size its size
+/// @param date its date
+/// @param time its time
+/// @param attr its attributes
+/// @return false when out of memory
 static bool add(panel_t *p, const char *name, FSIZE_t size, WORD date, WORD time, BYTE attr) {
     if (p->count == p->cap) {
         int cap = p->cap ? p->cap * 2 : 64;
@@ -63,13 +71,21 @@ static bool add(panel_t *p, const char *name, FSIZE_t size, WORD date, WORD time
     return true;
 }
 
+/// The panel being sorted (for compare).
 static const panel_t *sorting;
 
+/// A name's extension.
+/// @param name the name
+/// @return the extension, or ""
 static const char *ext_of(const char *name) {
     const char *dot = strrchr(name, '.');
     return dot && dot != name ? dot + 1 : "";
 }
 
+/// qsort's comparison by the panel's sort order.
+/// @param a an entry
+/// @param b another
+/// @return less, equal or more than 0
 static int compare(const void *a, const void *b) {
     const entry_t *x = a, *y = b;
     const char *nx = ent_name(sorting, x), *ny = ent_name(sorting, y);
@@ -217,10 +233,15 @@ void panel_enter(panel_t *p, const char *name) {
 
 // ---- Drawing --------------------------------------------------------------------------------------
 
+/// A panel's left column.
+/// @param which 0 left, 1 right
+/// @return the column
 static int panel_col(int which) {
     return panels[active].mode == MODE_LONG ? 0 : which * 40;
 }
 
+/// A panel's width.
+/// @return the width
 static int panel_width(void) {
     return panels[active].mode == MODE_LONG ? SCR_W : 40;
 }
@@ -274,6 +295,11 @@ void panel_quick_search(panel_t *p, const char *text) {
         }
 }
 
+/// An entry's size column: bytes, <DIR> or UP--DIR.
+/// @param out the text
+/// @param width its width
+/// @param e the entry
+/// @param name its name
 static void size_text(char *out, int width, const entry_t *e, const char *name) {
     if (!strcmp(name, ".."))
         snprintf(out, width + 1, "%*s", width, "UP--DIR");
@@ -287,6 +313,12 @@ static void size_text(char *out, int width, const entry_t *e, const char *name) 
         snprintf(out, width + 1, "%*lluM", width - 1, (unsigned long long)(e->size >> 20));
 }
 
+/// An entry's date.
+/// @param out the text
+/// @param size room in out
+/// @param date the FAT date
+/// @param time the FAT time
+/// @param long_form with the time
 static void date_text(char *out, size_t size, WORD date, WORD time, bool long_form) {
     static const char *const months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
@@ -301,6 +333,11 @@ static void date_text(char *out, size_t size, WORD date, WORD time, bool long_fo
         snprintf(out, size, "%s %2d %02d:%02d", months[m - 1], d, time >> 11, (time >> 5) & 63);
 }
 
+/// An entry's colour.
+/// @param p the panel
+/// @param e the entry
+/// @param selected under the cursor
+/// @return the attribute
 static uint8_t name_attr(const panel_t *p, const entry_t *e, bool selected) {
     if (selected)
         return e->marked ? C_SELMARK : C_SELECT;
@@ -316,6 +353,11 @@ static uint8_t name_attr(const panel_t *p, const entry_t *e, bool selected) {
     return C_PANEL;
 }
 
+/// An entry's name, cut to fit, folders with a leading '/'.
+/// @param out the text
+/// @param width its width
+/// @param p the panel
+/// @param e the entry
 static void cell_name(char *out, int width, const panel_t *p, const entry_t *e) {
     const char *name = ent_name(p, e);
     bool dir = (e->attr & AM_DIR) && strcmp(name, "..");
@@ -328,6 +370,10 @@ static void cell_name(char *out, int width, const panel_t *p, const entry_t *e) 
         snprintf(out, width + 1, "%s", full);
 }
 
+/// The free space line.
+/// @param out the text
+/// @param size room in out
+/// @param p the panel
 static void free_space(char *out, size_t size, const panel_t *p) {
     out[0] = 0;
     if (smb_path_on_share(p->path)) {

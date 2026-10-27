@@ -17,6 +17,12 @@
 
 /// The value of attribute `key` in the tag from p to end, with XML's entities
 /// undone; false if it isn't there.
+/// @param p the tag
+/// @param end its end
+/// @param key the attribute
+/// @param out the value
+/// @param size room in out
+/// @return found
 static bool attr(const char *p, const char *end, const char *key, char *out, size_t size) {
     size_t kl = strlen(key);
     for (const char *q = p; q + kl + 2 < end; ++q) {
@@ -54,6 +60,9 @@ static bool attr(const char *p, const char *end, const char *key, char *out, siz
 }
 
 /// Copies s into out (size bytes), cut to fit.
+/// @param out where
+/// @param size its room
+/// @param s the text
 static void copy(char *out, size_t size, const char *s) {
     size_t n = strlen(s);
     if (n >= size)
@@ -62,6 +71,8 @@ static void copy(char *out, size_t size, const char *s) {
     out[n] = 0;
 }
 
+/// Trims spaces off both ends.
+/// @param s the text
 static void trim(char *s) {
     char *p = s;
     while (*p == ' ')

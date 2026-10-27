@@ -24,8 +24,12 @@
 /// in PSRAM once that has been checked (usb_log_use_psram), so the shell
 /// keeps none of its SRAM.
 #define LOG_SIZE 2048
+/// The log (PSRAM).
 static char *log_buf;
-static uint32_t log_head, log_tail;  ///< characters ever put in, taken out
+/// Characters ever put in and taken out.
+///@{
+static uint32_t log_head, log_tail;
+///@}
 static spin_lock_t *log_lock;        ///< core 1 writes, core 0 reads
 
 void usb_log_init(void) {
@@ -69,6 +73,7 @@ int usb_log_getc(void) {
 }
 
 /// Every device TinyUSB finishes enumerating, whatever its class.
+/// @param dev_addr its address
 void tuh_mount_cb(uint8_t dev_addr) {
     uint16_t vid = 0, pid = 0;
     tuh_vid_pid_get(dev_addr, &vid, &pid);
@@ -76,6 +81,8 @@ void tuh_mount_cb(uint8_t dev_addr) {
     usb_hub_kick_device_mounted(dev_addr);
 }
 
+/// TinyUSB: a device gone.
+/// @param dev_addr its address
 void tuh_umount_cb(uint8_t dev_addr) {
     usb_log_printf("[USB: address %u disconnected]\n", dev_addr);
     usb_hub_kick_device_unmounted(dev_addr);

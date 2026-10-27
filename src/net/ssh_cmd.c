@@ -24,6 +24,7 @@
 
 #define KEEPALIVE_MS 60000  ///< idle this long: send something so NAT boxes keep us
 
+/// The session.
 static ssh_t *session;
 
 // ---- UTF-8 to code page 437 ------------------------------------------------------
@@ -45,6 +46,8 @@ static const uint16_t cp437_high[128] = {
 };
 
 /// The nearest CP437 byte (0x20 and up) for a code point.
+/// @param u the code point
+/// @return the byte
 static uint8_t to_cp437(uint32_t u) {
     if (u < 0x80)
         return u;
@@ -88,6 +91,9 @@ static uint8_t to_cp437(uint32_t u) {
 
 /// Converts UTF-8 to CP437 in place (it only gets shorter); keeps state
 /// across calls for characters split between packets.
+/// @param buf the text
+/// @param n its length
+/// @return the new length
 static int utf8_to_cp437(uint8_t *buf, int n) {
     static uint32_t code;
     static int need;
@@ -124,6 +130,9 @@ static int utf8_to_cp437(uint8_t *buf, int n) {
 
 // ---- Screen and keys -------------------------------------------------------------
 
+/// Shows text on the screen and the serial console.
+/// @param s the text
+/// @param n its length
 static void show(const char *s, int n) {
     fflush(stdout);
     console_write(s, n);
@@ -131,17 +140,25 @@ static void show(const char *s, int n) {
 }
 
 /// Answers to the console's status queries go to the server.
+/// @param text the answer
+/// @param len its length
 static void reply_to_server(const char *text, int len) {
     if (session)
         ssh_write(session, text, len);
 }
 
+/// Sends to the server.
+/// @param s the bytes
+/// @param n their count
+/// @return sent
 static bool send(const char *s, int n) {
     return ssh_write(session, s, n);
 }
 
 /// Reads the rest of an escape sequence after ESC (a key like an arrow);
 /// returns its length in seq.
+/// @param seq the sequence
+/// @return its length
 static int read_escape(char *seq) {
     int n = 0;
     seq[n++] = 0x1b;
@@ -165,6 +182,7 @@ static int read_escape(char *seq) {
     return n;
 }
 
+/// ~?: the escape sequences.
 static void escape_help(void) {
     static const char help[] =
         "\r\nSupported escape sequences (after Enter):\r\n"
@@ -176,6 +194,7 @@ static void escape_help(void) {
 
 // ---- The command -------------------------------------------------------------------
 
+/// Prints how to use ssh.
 static void usage(void) {
     printf("usage: ssh [-p port] [user@]host [command]\n"
            "A terminal on an SSH server (Enter ~. disconnects). The password is\n"

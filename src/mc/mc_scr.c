@@ -25,9 +25,12 @@
 #include "pico/stdlib.h"
 #include "psram_heap.h"
 
+/// Cells on the screen.
 #define CELLS (SCR_W * SCR_H)
 
+/// A screen's cells.
 typedef struct {
+    /// Characters and attributes.
     ///@{
     uint8_t ch[CELLS], at[CELLS];
     ///@}
@@ -37,8 +40,14 @@ typedef struct {
     ///@}
 } screen_t;
 
+/// The screen wanted, the one on the display, and the user screen (Ctrl-O).
+///@{
 static screen_t *want, *have, *user;
+///@}
+/// Where the cursor is (row -1: hidden).
+///@{
 static int cur_row = -1, cur_col;
+///@}
 /// Overlay mode: the picture under the cells, put back where a cell stops
 /// being drawn (a dialog closing).
 static const uint8_t *under;
@@ -78,6 +87,8 @@ void scr_overlay(const uint8_t *picture) {
     memcpy(have->at, want->at, CELLS);
 }
 
+/// Puts the picture back under a cell.
+/// @param i the cell
 static void put_back(int i) {
     int x = i % SCR_W * 8, y = i / SCR_W * 16;
     for (int k = 0; k < 16; ++k)
@@ -213,8 +224,14 @@ void scr_show_user(void) {
 
 // ---- Keys -----------------------------------------------------------------------------------------
 
+/// Keys read ahead.
+///@{
 static int pending[8], npending;
+///@}
 
+/// A key, read-ahead ones first.
+/// @param us how long to wait
+/// @return the key, or -1
 static int raw(uint32_t us) {
     if (npending) {
         int c = pending[0];
@@ -225,6 +242,8 @@ static int raw(uint32_t us) {
     return c < 0 ? -1 : c;
 }
 
+/// The key an escape sequence stands for.
+/// @return the key
 static int escape(void) {
     // A key's sequence arrives at once; Esc typed by hand is followed (or
     // not) by a digit or letter within half a second, as in mc.
