@@ -13,12 +13,19 @@
 
 #include "c64.h"
 
+/// The .crt hardware types supported.
 enum { NORMAL = 0, OCEAN = 5, SYSTEM3 = 15, MAGIC_DESK = 19, EASYFLASH = 32 };
 
+/// A big-endian 32-bit number from the .crt header.
+/// @param p its bytes
+/// @return the number
 static uint32_t be32(const uint8_t *p) {
     return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
 }
 
+/// A big-endian 16-bit number.
+/// @param p its bytes
+/// @return the number
 static uint16_t be16(const uint8_t *p) {
     return (uint16_t)(p[0] << 8 | p[1]);
 }

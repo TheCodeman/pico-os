@@ -16,7 +16,9 @@
 #define FAST(f) __attribute__((section("app_ov_c64." #f))) f  ///< the apps' SRAM area (app_overlay.h)
 #define TABLE   __attribute__((section("app_ov_c64.tables")))
 #else
+/// PC builds: the hot functions stay where they are.
 #define FAST(f) f
+/// PC builds: the tables stay in flash.
 #define TABLE   const
 #endif
 
@@ -25,12 +27,14 @@
 
 // ---- GCR ---------------------------------------------------------------------------
 
+/// Nybbles as 5-bit GCR codes.
 static TABLE uint8_t to_gcr[16] = {
     0x0a, 0x0b, 0x12, 0x13, 0x0e, 0x0f, 0x16, 0x17, 0x09, 0x19, 0x1a, 0x1b, 0x0d, 0x1d, 0x1e, 0x15,
 };
 
 static int8_t from_gcr[32];  ///< -1: not a GCR code
 
+/// Makes the GCR decoding table.
 static void gcr_tables(void) {
     memset(from_gcr, -1, sizeof from_gcr);
     for (int i = 0; i < 16; ++i)
@@ -38,6 +42,8 @@ static void gcr_tables(void) {
 }
 
 /// 4 bytes as 5 GCR bytes.
+/// @param in the 4 bytes
+/// @param out the 5 GCR bytes
 static void encode4(const uint8_t *in, uint8_t *out) {
     uint64_t bits = 0;
     for (int i = 0; i < 4; ++i)
@@ -47,6 +53,9 @@ static void encode4(const uint8_t *in, uint8_t *out) {
 }
 
 /// 5 GCR bytes as 4 bytes; false if any code isn't GCR.
+/// @param in the 5 GCR bytes
+/// @param out the 4 bytes
+/// @return false if a code isn't GCR
 static bool decode5(const uint8_t *in, uint8_t *out) {
     uint64_t bits = 0;
     for (int i = 0; i < 5; ++i)
@@ -60,14 +69,24 @@ static bool decode5(const uint8_t *in, uint8_t *out) {
     return ok;
 }
 
+/// Sectors on a track.
+/// @param track the track
+/// @return its sectors
 static int sectors(int track) {
     return track <= 17 ? 21 : track <= 24 ? 19 : track <= 30 ? 18 : 17;
 }
 
+/// A track's length in GCR bytes, by its speed zone.
+/// @param track the track
+/// @return its length
 static int zone_len(int track) {
     return track <= 17 ? 7692 : track <= 24 ? 7142 : track <= 30 ? 6666 : 6250;
 }
 
+/// A sector's place in the .d64.
+/// @param track the track
+/// @param sec the sector
+/// @return its offset
 static size_t sector_offset(int track, int sec) {
     size_t at = 0;
     for (int t = 1; t < track; ++t)
@@ -75,6 +94,10 @@ static size_t sector_offset(int track, int sec) {
     return (at + (size_t)sec) * 256;
 }
 
+/// A track's GCR data.
+/// @param d the drive
+/// @param track the track
+/// @return its bytes
 static uint8_t *track_gcr(c64_drive *d, int track) {
     return d->gcr + (size_t)(track - 1) * C64_GCR_TRACK_MAX;
 }
@@ -82,6 +105,8 @@ static uint8_t *track_gcr(c64_drive *d, int track) {
 /// A track of the .d64 as the 1541 formats it: for each sector a sync, the
 /// header (ID 8, checksum, sector, track, the disk's ID), a gap, a sync, the
 /// data block (ID 7, 256 bytes, checksum) and a gap.
+/// @param d the drive
+/// @param track the track
 static void make_track(c64_drive *d, int track) {
     uint8_t *out = track_gcr(d, track), id1 = 0, id2 = 0;
     int len = zone_len(track), n = sectors(track), at = 0;
@@ -121,6 +146,8 @@ static void make_track(c64_drive *d, int track) {
 
 /// The sectors on a written track back into the .d64: each header found
 /// after a sync, then the data block after the next sync.
+/// @param d the drive
+/// @param track the track
 static void read_back_track(c64_drive *d, int track) {
     const uint8_t *t = track_gcr(d, track);
     int len = d->track_len[track - 1];
@@ -157,6 +184,10 @@ static void read_back_track(c64_drive *d, int track) {
 
 // ---- The drive ----------------------------------------------------------------------
 
+/// The drive's 6502 reads: the VIAs, or open bus (RAM and ROM are mapped).
+/// @param ctx the drive
+/// @param addr the address
+/// @return the byte
 static uint8_t open_read(void *ctx, uint16_t addr) {
     c64_drive *d = ctx;
     switch (addr & 0x1c00) {
@@ -166,6 +197,10 @@ static uint8_t open_read(void *ctx, uint16_t addr) {
     }
 }
 
+/// The drive's 6502 writes: the VIAs, or RAM.
+/// @param ctx the drive
+/// @param addr the address
+/// @param v the byte
 static void open_write(void *ctx, uint16_t addr, uint8_t v) {
     c64_drive *d = ctx;
     switch (addr & 0x1c00) {
@@ -181,6 +216,10 @@ static void open_write(void *ctx, uint16_t addr, uint8_t v) {
 /// The serial bus: the C64 pulls a line low by writing 1 to its CIA 2 bit
 /// (ATN 3, CLOCK 4, DATA 5); the drive with VIA 1 port B (DATA 1, CLOCK 3),
 /// and DATA also while ATN and its acknowledge (bit 4) differ.
+/// @param d the drive
+/// @param atn_low set if ATN is low
+/// @param clk_low set if CLOCK is low
+/// @param data_low set if DATA is low
 static inline void lines(const c64_drive *d, bool *atn_low, bool *clk_low, bool *data_low) {
     uint8_t c = c64_cia_out(d->cia2, 0), v = c64_via_out(&d->via1, 1);
     *atn_low = c & 0x08;
@@ -195,6 +234,11 @@ void c64_drive_bus(const c64_drive *d, bool *clk_low, bool *data_low) {
     *data_low = (v & 0x02) || (atn_low != ((v & 0x10) != 0));
 }
 
+/// VIA 1's ports: the serial bus and the device number.
+/// @param ctx the drive
+/// @param via VIA 1
+/// @param port 0 (A) or 1 (B)
+/// @return the port's level
 static uint8_t via1_port(void *ctx, c64_via *via, int port) {
     c64_drive *d = ctx;
     if (!port)
@@ -206,6 +250,11 @@ static uint8_t via1_port(void *ctx, c64_via *via, int port) {
     return (uint8_t)((c64_via_out(via, 1) & 0x1a) | (data ? 0x01 : 0) | (clk ? 0x04 : 0) | (atn ? 0x80 : 0));
 }
 
+/// VIA 2's ports: the byte read, write protect and SYNC.
+/// @param ctx the drive
+/// @param via VIA 2
+/// @param port 0 (A) or 1 (B)
+/// @return the port's level
 static uint8_t via2_port(void *ctx, c64_via *via, int port) {
     c64_drive *d = ctx;
     if (!port)
@@ -293,6 +342,8 @@ bool c64_drive_motor(const c64_drive *d) {
 /// is ready for the CPU: latched in VIA 2 port A and, if CA2 (SOE) is high,
 /// setting the 6502's overflow flag. In write mode (CB2 low) port A's
 /// output is written instead.
+/// @param d the drive
+/// @param n cycles
 static void FAST(spin)(c64_drive *d, unsigned n) {
     uint8_t pb = c64_via_out(&d->via2, 1);
     if (!(pb & 0x04))
@@ -335,6 +386,7 @@ static void FAST(spin)(c64_drive *d, unsigned n) {
 
 /// The head stepper: VIA 2 port B bits 0-1 step through four phases; one
 /// up moves the head in (a half-track), one down out.
+/// @param d the drive
 static void step(c64_drive *d) {
     int phase = c64_via_out(&d->via2, 1) & 3;
     if (phase == ((d->phase_was + 1) & 3) && d->half_track < 2 * C64_DRIVE_TRACKS) {
@@ -359,6 +411,8 @@ void c64_drive_sync(c64_drive *d, uint64_t c64_cycles) {
 
 /// The VIAs' timers for a few cycles, the usual case (nothing underflows)
 /// without a call.
+/// @param v the VIA
+/// @param n cycles
 static inline void via_tick(c64_via *v, unsigned n) {
     if (v->t1 > n && (v->t2 > n || (v->acr & 0x20))) {
         v->t1 -= (uint16_t)n;
@@ -371,6 +425,7 @@ static inline void via_tick(c64_via *v, unsigned n) {
 
 /// The DOS's main loop, where it waits for the C64 or a job to do.
 #define IDLE_FROM 0xebff
+/// The end of the DOS's main loop.
 #define IDLE_TO   0xec9e
 
 void FAST(c64_drive_run_to)(c64_drive *d, uint64_t c64_cycles) {

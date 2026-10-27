@@ -18,7 +18,9 @@
 #define FAST(f) __attribute__((section("app_ov_c64." #f))) f  ///< the apps' SRAM area (app_overlay.h)
 #define TABLE   __attribute__((section("app_ov_c64.tables")))  ///< in SRAM with the code, away from the XIP cache
 #else
+/// PC builds: the hot functions stay where they are.
 #define FAST(f) f
+/// PC builds: the tables stay in flash.
 #define TABLE   const
 #endif
 
@@ -43,8 +45,10 @@ static TABLE uint8_t base_cycles[256] = {
     2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7,  // Fx
 };
 
+/// The addressing modes.
 enum { IMP, IMM, ZP, ZPX, ZPY, ABS, ABX, ABY, IZX, IZY, REL, IND };
 
+/// The instructions, documented and undocumented ones (NMOS 6510).
 enum {
     ADC, ALR, ANC, AND, ANE, ARR, ASL, BIT, BR, BRK, CLC, CLD, CLI, CLV, CMP, CPX,
     CPY, DCP, DEC, DEX, DEY, EOR, INC, INX, INY, ISC, JAM, JMP, JSR, LAS, LAX, LDA,
@@ -53,6 +57,7 @@ enum {
     TAY, TSX, TXA, TXS, TYA,
 };
 
+/// Each opcode's instruction.
 static TABLE uint8_t inst[256] = {
     BRK, ORA, JAM, SLO, NOP, ORA, ASL, SLO, PHP, ORA, ASL, ANC, NOP, ORA, ASL, SLO,  // 0x
     BR,  ORA, JAM, SLO, NOP, ORA, ASL, SLO, CLC, ORA, NOP, SLO, NOP, ORA, ASL, SLO,  // 1x
@@ -72,6 +77,7 @@ static TABLE uint8_t inst[256] = {
     BR,  SBC, JAM, ISC, NOP, SBC, INC, ISC, SED, SBC, NOP, ISC, NOP, SBC, INC, ISC,  // Fx
 };
 
+/// Each opcode's addressing mode.
 static TABLE uint8_t modes[256] = {
     IMP, IZX, IMP, IZX, ZP, ZP, ZP, ZP, IMP, IMM, IMP, IMM, ABS, ABS, ABS, ABS,  // 0x
     REL, IZY, IMP, IZY, ZPX, ZPX, ZPX, ZPX, IMP, ABY, IMP, ABY, ABX, ABX, ABX, ABX,  // 1x
@@ -91,11 +97,19 @@ static TABLE uint8_t modes[256] = {
     REL, IZY, IMP, IZY, ZPX, ZPX, ZPX, ZPX, IMP, ABY, IMP, ABY, ABX, ABX, ABX, ABX,  // Fx
 };
 
+/// Reads a byte, straight from a mapped page if there is one.
+/// @param c the CPU
+/// @param addr the address
+/// @return the byte
 static inline uint8_t rd(c64_cpu *c, uint16_t addr) {
     const uint8_t *p = c->rpage ? c->rpage[addr >> 8] : NULL;
     return p ? p[addr & 0xff] : c->read(c->ctx, addr);
 }
 
+/// Writes a byte, straight into a mapped page if there is one.
+/// @param c the CPU
+/// @param addr the address
+/// @param v the byte
 static inline void wr(c64_cpu *c, uint16_t addr, uint8_t v) {
     uint8_t *p = c->wpage && addr > 1 ? c->wpage[addr >> 8] : NULL;
     if (p)
@@ -104,33 +118,55 @@ static inline void wr(c64_cpu *c, uint16_t addr, uint8_t v) {
         c->write(c->ctx, addr, v);
 }
 
+/// Reads a byte of memory.
 #define RD(addr)     rd(c, (uint16_t)(addr))
+/// Writes a byte of memory.
 #define WR(addr, v)  wr(c, (uint16_t)(addr), (uint8_t)(v))
 
+/// The next byte of the instruction stream.
+/// @param c the CPU
+/// @return the byte
 static inline uint8_t fetch(c64_cpu *c) {
     return RD(c->pc++);
 }
 
+/// The next two bytes of the instruction stream, little-endian.
+/// @param c the CPU
+/// @return the word
 static inline uint16_t fetch16(c64_cpu *c) {
     uint16_t lo = fetch(c);
     return lo | (uint16_t)fetch(c) << 8;
 }
 
+/// Pushes a byte on the stack.
+/// @param c the CPU
+/// @param v the byte
 static inline void push(c64_cpu *c, uint8_t v) {
     WR(0x100 | c->s, v);
     c->s--;
 }
 
+/// Pulls a byte from the stack.
+/// @param c the CPU
+/// @return the byte
 static inline uint8_t pull(c64_cpu *c) {
     c->s++;
     return RD(0x100 | c->s);
 }
 
+/// Sets N and Z from a value.
+/// @param c the CPU
+/// @param v the value
+/// @return v
 static inline uint8_t nz(c64_cpu *c, uint8_t v) {
     c->p = (c->p & ~(C64_N | C64_Z)) | (v & C64_N) | (v ? 0 : C64_Z);
     return v;
 }
 
+/// Sets or clears a flag.
+/// @param c the CPU
+/// @param f the flag
+/// @param on set or clear
 static inline void set_flag(c64_cpu *c, uint8_t f, bool on) {
     c->p = on ? (c->p | f) : (c->p & ~f);
 }
@@ -143,6 +179,9 @@ void c64_cpu_reset(c64_cpu *c) {
     c->pc = RD(0xfffc) | (uint16_t)RD(0xfffd) << 8;
 }
 
+/// ADC, binary or decimal (NMOS flags).
+/// @param c the CPU
+/// @param m the operand
 static void FAST(adc)(c64_cpu *c, uint8_t m) {
     unsigned carry = c->p & C64_C;
     if (c->p & C64_D) {
@@ -167,6 +206,9 @@ static void FAST(adc)(c64_cpu *c, uint8_t m) {
     }
 }
 
+/// SBC, binary or decimal.
+/// @param c the CPU
+/// @param m the operand
 static void FAST(sbc)(c64_cpu *c, uint8_t m) {
     unsigned borrow = (c->p & C64_C) ? 0 : 1;
     unsigned t = c->a - m - borrow;
@@ -186,33 +228,57 @@ static void FAST(sbc)(c64_cpu *c, uint8_t m) {
     }
 }
 
+/// CMP, CPX and CPY.
+/// @param c the CPU
+/// @param r the register
+/// @param m the operand
 static inline void cmp(c64_cpu *c, uint8_t r, uint8_t m) {
     set_flag(c, C64_C, r >= m);
     nz(c, (uint8_t)(r - m));
 }
 
+/// ASL.
+/// @param c the CPU
+/// @param v the value
+/// @return the result
 static inline uint8_t asl(c64_cpu *c, uint8_t v) {
     set_flag(c, C64_C, v & 0x80);
     return nz(c, (uint8_t)(v << 1));
 }
 
+/// LSR.
+/// @param c the CPU
+/// @param v the value
+/// @return the result
 static inline uint8_t lsr(c64_cpu *c, uint8_t v) {
     set_flag(c, C64_C, v & 1);
     return nz(c, v >> 1);
 }
 
+/// ROL.
+/// @param c the CPU
+/// @param v the value
+/// @return the result
 static inline uint8_t rol(c64_cpu *c, uint8_t v) {
     uint8_t r = (uint8_t)(v << 1) | (c->p & C64_C);
     set_flag(c, C64_C, v & 0x80);
     return nz(c, r);
 }
 
+/// ROR.
+/// @param c the CPU
+/// @param v the value
+/// @return the result
 static inline uint8_t ror(c64_cpu *c, uint8_t v) {
     uint8_t r = (v >> 1) | (uint8_t)((c->p & C64_C) << 7);
     set_flag(c, C64_C, v & 1);
     return nz(c, r);
 }
 
+/// Takes an interrupt or BRK: pushes PC and P, sets I and jumps through the vector.
+/// @param c the CPU
+/// @param vector the vector's address
+/// @param brk a BRK (B set in the pushed P)
 static void FAST(interrupt)(c64_cpu *c, uint16_t vector, bool brk) {
     push(c, c->pc >> 8);
     push(c, c->pc & 0xff);

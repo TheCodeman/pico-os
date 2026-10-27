@@ -12,10 +12,18 @@
 #include <string.h>
 
 /// Sectors per track: 21 on 1-17, 19 on 18-24, 18 on 25-30, 17 on 31-35.
+/// @param track the track (1-35)
+/// @return its sectors
 static int sectors(int track) {
     return track <= 17 ? 21 : track <= 24 ? 19 : track <= 30 ? 18 : 17;
 }
 
+/// A sector of the image.
+/// @param img the image
+/// @param size its size
+/// @param track the track
+/// @param sec the sector
+/// @return its 256 bytes, or NULL
 static const uint8_t *sector(const uint8_t *img, size_t size, int track, int sec) {
     if (track < 1 || track > 35 || sec < 0 || sec >= sectors(track))
         return NULL;
@@ -48,6 +56,11 @@ bool c64_name_match(const uint8_t *typed, int len, const uint8_t name[16]) {
 /// Calls fn for each directory entry in use; stops when it returns true.
 typedef bool (*entry_fn)(void *ctx, const uint8_t *entry);
 
+/// Calls fn for each file in the directory until it returns true.
+/// @param img the image
+/// @param size its size
+/// @param fn the function
+/// @param ctx passed to fn
 static void each_entry(const uint8_t *img, size_t size, entry_fn fn, void *ctx) {
     int track = 18, sec = 1;
     for (int n = 0; n < 19 && track; ++n) {
@@ -64,13 +77,18 @@ static void each_entry(const uint8_t *img, size_t size, entry_fn fn, void *ctx) 
     }
 }
 
+/// What find_entry looks for, and finds.
 typedef struct {
-    const uint8_t *typed;
-    int len;
-    bool want_prg;
-    const uint8_t *found;
+    const uint8_t *typed;  ///< the name typed
+    int len;  ///< its length
+    bool want_prg;  ///< only PRG files
+    const uint8_t *found;  ///< the entry found
 } find_ctx;
 
+/// each_entry's function for finding a file.
+/// @param ctx the find_ctx
+/// @param entry a directory entry
+/// @return true when found
 static bool find_entry(void *ctx, const uint8_t *entry) {
     find_ctx *f = ctx;
     if (f->want_prg && (entry[2] & 0x07) != 2)
@@ -111,17 +129,26 @@ int c64_d64_load(const uint8_t *img, size_t size, const uint8_t *typed, int len,
 
 // ---- Listings ------------------------------------------------------------------
 
+/// Adds a byte to the listing.
+/// @param l the listing
+/// @param b the byte
 static void put(c64_listing *l, uint8_t b) {
     if (l->len < 0x10002)
         l->buf[l->len++] = b;
 }
 
+/// Adds a string to the listing.
+/// @param l the listing
+/// @param s the string
 static void put_str(c64_listing *l, const char *s) {
     while (*s)
         put(l, (uint8_t)*s++);
 }
 
 /// A line: its link (filled in when the next starts), number, and text.
+/// @param l the listing
+/// @param number the line's number
+/// @return where its link is, for line_end
 static int line_start(c64_listing *l, unsigned number) {
     int at = l->len;
     put(l, 0);
@@ -131,6 +158,9 @@ static int line_start(c64_listing *l, unsigned number) {
     return at;
 }
 
+/// Ends a line and fills in its link.
+/// @param l the listing
+/// @param at where its link is
 static void line_end(c64_listing *l, int at) {
     put(l, 0);
     l->addr = (uint16_t)(l->addr + (l->len - at));
@@ -140,6 +170,9 @@ static void line_end(c64_listing *l, int at) {
     }
 }
 
+/// Adds a quoted name padded to 16.
+/// @param l the listing
+/// @param name the name
 static void put_name(c64_listing *l, const uint8_t name[16]) {
     int n = 0;
     put(l, '"');
@@ -189,10 +222,15 @@ int c64_listing_end(c64_listing *l, unsigned free_blocks) {
     return l->len;
 }
 
+/// What list_entry adds to.
 typedef struct {
-    c64_listing *l;
+    c64_listing *l;  ///< the listing
 } list_ctx;
 
+/// each_entry's function for the directory listing.
+/// @param ctx the list_ctx
+/// @param entry a directory entry
+/// @return false: go on
 static bool list_entry(void *ctx, const uint8_t *entry) {
     static const char *const types[] = {"DEL", "SEQ", "PRG", "USR", "REL", "???", "???", "???"};
     c64_listing *l = ((list_ctx *)ctx)->l;
@@ -221,14 +259,30 @@ int c64_d64_directory(const uint8_t *img, size_t size, uint8_t *buf) {
 
 // ---- Writing ----------------------------------------------------------------------
 
+/// A sector of the image, for writing.
+/// @param img the image
+/// @param size its size
+/// @param track the track
+/// @param sec the sector
+/// @return its 256 bytes, or NULL
 static uint8_t *sector_rw(uint8_t *img, size_t size, int track, int sec) {
     return (uint8_t *)sector(img, size, track, sec);
 }
 
+/// Whether a sector is free in the BAM.
+/// @param bam the BAM sector
+/// @param t the track
+/// @param s the sector
+/// @return true if free
 static bool sector_free(const uint8_t *bam, int t, int s) {
     return bam[4 * t + 1 + s / 8] & (1 << (s % 8));
 }
 
+/// Marks a sector used or free in the BAM, keeping the track's count.
+/// @param bam the BAM sector
+/// @param t the track
+/// @param s the sector
+/// @param used used or free
 static void mark(uint8_t *bam, int t, int s, bool used) {
     uint8_t *byte = &bam[4 * t + 1 + s / 8], bit = (uint8_t)(1 << (s % 8));
     if (used && (*byte & bit)) {
@@ -242,6 +296,10 @@ static void mark(uint8_t *bam, int t, int s, bool used) {
 
 /// A free sector for a file: from track 17 outwards, as the 1541 does
 /// (towards track 1, then from 19 up), never on 18 (the directory's).
+/// @param bam the BAM sector
+/// @param track set to the track
+/// @param sec set to the sector
+/// @return false if the disk is full
 static bool alloc(uint8_t *bam, int *track, int *sec) {
     static const int8_t order[34] = {17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
                                      19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35};
@@ -270,6 +328,10 @@ unsigned c64_d64_blocks_free(const uint8_t *img, size_t size) {
 }
 
 /// The name without a "0:" and as 16 characters padded with $A0.
+/// @param typed the name typed
+/// @param len its length
+/// @param name set to the padded name
+/// @return the name's length
 static int typed_name(const uint8_t *typed, int len, uint8_t name[16]) {
     if (len >= 2 && typed[1] == ':' && (typed[0] == '0' || typed[0] == '1'))
         typed += 2, len -= 2;

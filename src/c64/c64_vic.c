@@ -16,7 +16,9 @@
 #define FAST(f) __attribute__((section("app_ov_c64." #f))) f  ///< the apps' SRAM area (app_overlay.h)
 #define TABLE   __attribute__((section("app_ov_c64.tables")))  ///< in SRAM with the code
 #else
+/// PC builds: the hot functions stay where they are.
 #define FAST(f) f
+/// PC builds: the tables stay in flash.
 #define TABLE   const
 #endif
 
@@ -32,10 +34,15 @@ const uint32_t c64_palette[16] = {
 
 static void draw_to(c64_vic *v, int x);
 
+/// Sets the IRQ line from the flags and the enables.
+/// @param v the VIC-II
 static void update_irq(c64_vic *v) {
     v->irq = (v->irq_flags & v->reg[0x1a] & 0x0f) != 0;
 }
 
+/// The raster line the interrupt compares with.
+/// @param v the VIC-II
+/// @return the line
 static uint16_t raster_cmp(const c64_vic *v) {
     return v->reg[0x12] | (uint16_t)(v->reg[0x11] & 0x80) << 1;
 }
@@ -137,6 +144,10 @@ void c64_vic_line_start(c64_vic *v) {
     }
 }
 
+/// A byte as the VIC-II sees it: the character ROM in banks 0 and 2, else RAM.
+/// @param v the VIC-II
+/// @param a the address in its bank
+/// @return the byte
 static inline uint8_t vread(const c64_vic *v, uint16_t a) {
     a &= 0x3fff;
     if (!(v->bank & 0x4000) && (a & 0x3000) == 0x1000)
@@ -144,6 +155,10 @@ static inline uint8_t vread(const c64_vic *v, uint16_t a) {
     return v->ram[v->bank | a];
 }
 
+/// Draws the line's sprites over the graphics, with their priorities and collisions.
+/// @param v the VIC-II
+/// @param pix the line
+/// @param fg which pixels are foreground
 static void FAST(draw_sprites)(c64_vic *v, uint8_t *pix, const uint8_t *fg) {
     uint8_t mask[C64_SCREEN_W], col[C64_SCREEN_W];
     bool any = false;
@@ -219,12 +234,18 @@ static TABLE uint32_t nibble_mask[16] = {
     0x000000ff, 0xff0000ff, 0x00ff00ff, 0xffff00ff, 0x0000ffff, 0xff00ffff, 0x00ffffff, 0xffffffff,
 };
 
+/// Stores 4 pixels at once.
+/// @param p where
+/// @param w the pixels
 static inline void put4(uint8_t *p, uint32_t w) {
     memcpy(p, &w, 4);
 }
 
 /// The 320 pixels of graphics (and the scroll's gap before them) into pix,
 /// and into fg (if not NULL) which of them are foreground, for sprites.
+/// @param v the VIC-II
+/// @param pix the line
+/// @param fg where to mark foreground pixels, or NULL
 static void FAST(draw_graphics)(c64_vic *v, uint8_t *pix, uint8_t *fg) {
     uint8_t d011 = v->reg[0x11], d016 = v->reg[0x16], d018 = v->reg[0x18];
     uint8_t bg[4] = {v->reg[0x21] & 15, v->reg[0x22] & 15, v->reg[0x23] & 15, v->reg[0x24] & 15};
@@ -327,6 +348,8 @@ int FAST(c64_vic_line_fetch)(c64_vic *v) {
 }
 
 /// The whole line with the registers as they are now.
+/// @param v the VIC-II
+/// @param pix the line
 static void FAST(render)(c64_vic *v, uint8_t *pix) {
     uint8_t fg[C64_SCREEN_W];
     bool sprites = false;
@@ -350,6 +373,8 @@ static void FAST(render)(c64_vic *v, uint8_t *pix) {
 }
 
 /// The line drawn up to x, with the registers as they are.
+/// @param v the VIC-II
+/// @param x the pixel to draw up to
 static void FAST(draw_to)(c64_vic *v, int x) {
     if (x > C64_SCREEN_W)
         x = C64_SCREEN_W;

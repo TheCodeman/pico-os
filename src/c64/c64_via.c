@@ -11,6 +11,8 @@
 
 #include <string.h>
 
+/// Sets the IRQ line from the flags and the enables.
+/// @param v the VIA
 static void update_irq(c64_via *v) {
     v->ifr &= 0x7f;
     v->irq = (v->ifr & v->ier & 0x7f) != 0;
@@ -23,6 +25,9 @@ void c64_via_flag(c64_via *v, uint8_t bits) {
     update_irq(v);
 }
 
+/// Clears interrupt flags.
+/// @param v the VIA
+/// @param bits the IFR bits
 static void clear(c64_via *v, uint8_t bits) {
     v->ifr &= ~bits;
     update_irq(v);
@@ -78,6 +83,10 @@ void c64_via_set_ca1(c64_via *v, bool level) {
         c64_via_flag(v, VIA_CA1);
 }
 
+/// A port's level: the port function's, else the outputs.
+/// @param v the VIA
+/// @param p 0 (A) or 1 (B)
+/// @return the level
 static uint8_t port(c64_via *v, int p) {
     return v->port_in ? v->port_in(v->ctx, v, p) : c64_via_out(v, p);
 }

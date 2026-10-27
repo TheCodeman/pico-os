@@ -18,13 +18,18 @@
 #include "pico.h"
 #define FAST(f) __attribute__((section("app_ov_c64." #f))) f  ///< the apps' SRAM area (app_overlay.h)
 #else
+/// PC builds: the hot functions stay where they are.
 #define FAST(f) f
 #endif
 
+/// CPU cycles per tenth of a second (the CIAs' time-of-day clocks).
 #define TOD_CYCLES (C64_CPU_HZ / 10)
 
 // ---- Memory ------------------------------------------------------------------
 
+/// The 6510's port at $0001: the bits written where they are outputs, the inputs' levels where they aren't.
+/// @param m the machine
+/// @return the port's value
 static uint8_t port_value(c64 *m) {
     // Inputs: bits 0-2 pulled up, bit 4 the cassette sense (no button
     // pressed), and bits 6 and 7 not connected (they keep what was written).
@@ -32,6 +37,10 @@ static uint8_t port_value(c64 *m) {
     return (m->port_data & m->port_dir) | (in & ~m->port_dir);
 }
 
+/// Reads $0000 (the port's direction) or $0001 (its value).
+/// @param m the machine
+/// @param addr 0 or 1
+/// @return the byte
 static uint8_t port_read(c64 *m, uint16_t addr) {
     return addr ? port_value(m) : m->port_dir;
 }
@@ -40,6 +49,7 @@ static uint8_t port_read(c64 *m, uint16_t addr) {
 /// when they are inputs; a cartridge's EXROM and GAME lines (low: on) bring
 /// in its ROML at $8000 and ROMH at $A000 (16 KB) or $E000 (Ultimax, where
 /// most of memory is left open and the CPU sees only 4 KB of RAM).
+/// @param m the machine
 static void map_memory(c64 *m) {
     uint8_t lines = (uint8_t)(m->port_data | ~m->port_dir) & 7;
     bool loram = lines & 1, hiram = lines & 2, charen = lines & 4;
@@ -92,6 +102,10 @@ static void map_memory(c64 *m) {
 /// CIA 1: the keyboard and joysticks. A key joins its port A line to its
 /// port B line, so a column driven low pulls down the rows of its pressed keys
 /// and the other way round.
+/// @param ctx the machine
+/// @param cia CIA 1
+/// @param port 0 (A) or 1 (B)
+/// @return the port's level
 static uint8_t cia1_port(void *ctx, c64_cia *cia, int port) {
     c64 *m = ctx;
     uint8_t a = c64_cia_out(cia, 0) & ~m->joy[1], b = c64_cia_out(cia, 1) & ~m->joy[0];
@@ -110,6 +124,10 @@ static uint8_t cia1_port(void *ctx, c64_cia *cia, int port) {
 /// CIA 2: port A bits 0-1 choose the VIC's bank (inverted), bits 3-5 drive
 /// the serial bus's ATN, CLOCK and DATA through inverters, and bits 6-7 read
 /// CLOCK and DATA back, as this and a 1541 (if there is one) pull them.
+/// @param ctx the machine
+/// @param cia CIA 2
+/// @param port 0 (A) or 1 (B)
+/// @return the port's level
 static uint8_t cia2_port(void *ctx, c64_cia *cia, int port) {
     c64 *m = ctx;
     uint8_t out = c64_cia_out(cia, port);
@@ -125,15 +143,23 @@ static uint8_t cia2_port(void *ctx, c64_cia *cia, int port) {
     return (out & 0x3f) | (clk_low ? 0 : 0x40) | (data_low ? 0 : 0x80);
 }
 
+/// The VIC's 16 KB bank, from CIA 2's port A.
+/// @param m the machine
 static void update_vic_bank(c64 *m) {
     m->vic.bank = (uint16_t)((~c64_cia_out(&m->cia2, 0) & 3) << 14);
 }
 
+/// Runs the readback copy of the SID's voice 3 up to now.
+/// @param m the machine
 static void sid_v3_catch_up(c64 *m) {
     c64_sid_run_voice3(&m->sid_v3, (uint32_t)(m->cycles - m->sid_v3_cycles));
     m->sid_v3_cycles = m->cycles;
 }
 
+/// A read of the SID: the paddles (none), voice 3's oscillator and envelope; the rest read 0.
+/// @param m the machine
+/// @param reg the register
+/// @return the byte
 static uint8_t sid_read(c64 *m, uint8_t reg) {
     switch (reg) {
     case 0x19: case 0x1a:
@@ -149,6 +175,10 @@ static uint8_t sid_read(c64 *m, uint8_t reg) {
     }
 }
 
+/// A read of the I/O area at $D000-$DFFF: VIC-II, SID, colour RAM, the CIAs and the cartridge.
+/// @param m the machine
+/// @param addr the address
+/// @return the byte
 static uint8_t FAST(io_read)(c64 *m, uint16_t addr) {
     switch ((addr >> 8) & 0x0f) {
     case 0x0: case 0x1: case 0x2: case 0x3:
@@ -170,6 +200,10 @@ static uint8_t FAST(io_read)(c64 *m, uint16_t addr) {
     }
 }
 
+/// A write to the I/O area at $D000-$DFFF.
+/// @param m the machine
+/// @param addr the address
+/// @param v the byte
 static void FAST(io_write)(c64 *m, uint16_t addr, uint8_t v) {
     switch ((addr >> 8) & 0x0f) {
     case 0x0: case 0x1: case 0x2: case 0x3:
@@ -215,6 +249,10 @@ void c64_cart_changed(c64 *m) {
     map_memory(m);
 }
 
+/// The CPU's read: the port, mapped memory, or I/O.
+/// @param ctx the machine
+/// @param addr the address
+/// @return the byte
 static uint8_t FAST(cpu_read)(void *ctx, uint16_t addr) {
     c64 *m = ctx;
     if (__builtin_expect(addr < 2, 0))
@@ -223,6 +261,10 @@ static uint8_t FAST(cpu_read)(void *ctx, uint16_t addr) {
     return p ? p[addr & 0xff] : io_read(m, addr);
 }
 
+/// The CPU's write: I/O, or RAM (with the colour RAM, the port and ROM areas handled).
+/// @param ctx the machine
+/// @param addr the address
+/// @param v the byte
 static void FAST(cpu_write)(void *ctx, uint16_t addr, uint8_t v) {
     c64 *m = ctx;
     if (m->io_in && (addr & 0xf000) == 0xd000) {
@@ -325,6 +367,9 @@ void c64_start_prg(c64 *m, const uint8_t *prg, int len) {
     m->ram[0xc6] = 4;
 }
 
+/// Time passing: the CIAs' timers and time-of-day clocks.
+/// @param m the machine
+/// @param n cycles
 static inline void tick(c64 *m, unsigned n) {
     m->cycles += n;
     if ((m->cia1.cra | m->cia1.crb) & 1)  // only while a timer runs
@@ -348,12 +393,16 @@ static inline void tick(c64 *m, unsigned n) {
 /// and carry clear, or carry set and the error in A.
 #define KERNAL_LOAD 0xf4a5
 
+/// Returns from a KERNAL routine the emulator did itself (an RTS).
+/// @param m the machine
 static void FAST(rts)(c64 *m) {
     uint8_t lo = m->ram[0x100 | (uint8_t)(m->cpu.s + 1)], hi = m->ram[0x100 | (uint8_t)(m->cpu.s + 2)];
     m->cpu.s += 2;
     m->cpu.pc = (uint16_t)((lo | hi << 8) + 1);
 }
 
+/// The KERNAL's LOAD done by the emulator for device 8 without a 1541: the file from the host, then RTS with the KERNAL's results.
+/// @param m the machine
 static void kernal_load(c64 *m) {
     uint8_t *ram = m->ram;
     unsigned device = ram[0xba];
@@ -398,6 +447,8 @@ static void kernal_load(c64 *m) {
 /// LOAD. It returns with carry clear, or carry set and the error in A.
 #define KERNAL_SAVE 0xf5ed
 
+/// The KERNAL's SAVE done by the emulator for device 8 without a 1541.
+/// @param m the machine
 static void kernal_save(c64 *m) {
     uint8_t *ram = m->ram;
     unsigned device = ram[0xba];
@@ -436,6 +487,8 @@ static void kernal_save(c64 *m) {
 /// test takes some 2 seconds; with fast_boot the same comes out at once.
 #define KERNAL_RAMTAS 0xfd50
 
+/// The KERNAL's RAMTAS (the RAM test at power-on) done quickly: the same zero page and pointers without testing.
+/// @param m the machine
 static void kernal_ramtas(c64 *m) {
     uint8_t *ram = m->ram;
     memset(ram + 2, 0, 0xfe);
@@ -459,6 +512,9 @@ static void kernal_ramtas(c64 *m) {
     rts(m);
 }
 
+/// Runs the CPU for some cycles, taking interrupts and doing the KERNAL's LOAD, SAVE and RAMTAS itself.
+/// @param m the machine
+/// @param cycles the cycles to run
 static void FAST(run_cpu)(c64 *m, int cycles) {
     m->budget += cycles;
     while (m->budget > 0) {
@@ -530,6 +586,7 @@ static const char key_chars[65] =
 
 /// Shifted characters and the key they are on.
 static const char shifted_from[] = "!\"#$%&'()[]<>?";
+/// The keys the shifted characters in shifted_from are on.
 static const char shifted_on[]   = "123456789:;,./";
 
 bool c64_ascii_key(char ch, unsigned *key, bool *shift) {

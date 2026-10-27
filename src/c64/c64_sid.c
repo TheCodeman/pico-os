@@ -19,10 +19,13 @@
 #define FAST(f) __attribute__((section("app_ov_c64." #f))) f  ///< the apps' SRAM area (app_overlay.h)
 #define TABLE   __attribute__((section("app_ov_c64.tables")))
 #else
+/// PC builds: the hot functions stay where they are.
 #define FAST(f) f
+/// PC builds: the tables stay in flash.
 #define TABLE   const
 #endif
 
+/// The envelope's phases.
 enum { ATTACK, DECAY_SUSTAIN, RELEASE };
 
 /// Clock cycles per envelope step for each rate setting (attack; decay and
@@ -33,6 +36,8 @@ static TABLE uint16_t rate_period[16] = {
 
 /// Decay and release slow down as the envelope falls: the 6581's divider
 /// thresholds.
+/// @param env the envelope's level
+/// @return the exponential divider's period
 static inline uint8_t exp_period(uint8_t env) {
     return env > 0x5d ? 1 : env > 0x36 ? 2 : env > 0x1a ? 4 : env > 0x0e ? 8 : env > 0x06 ? 16 : env ? 30 : 1;
 }
@@ -78,6 +83,8 @@ void c64_sid_write(c64_sid *s, uint8_t reg, uint8_t value) {
 }
 
 /// Runs a voice's oscillator and envelope on by n cycles.
+/// @param v the voice
+/// @param n cycles
 static void FAST(run_voice)(c64_sid_voice *v, uint32_t n) {
     if (!(v->ctrl & 0x08)) {
         uint32_t old = v->acc, add = (uint32_t)v->freq * n;
@@ -117,6 +124,9 @@ static void FAST(run_voice)(c64_sid_voice *v, uint32_t n) {
 }
 
 /// A voice's 12-bit waveform; ring is the modulating voice's top bit.
+/// @param v the voice
+/// @param ring_msb the ring modulating voice's top bit
+/// @return the waveform's 12 bits
 static uint32_t FAST(waveform)(const c64_sid_voice *v, bool ring_msb) {
     uint8_t w = v->ctrl >> 4;
     if (!w)
@@ -140,6 +150,8 @@ static uint32_t FAST(waveform)(const c64_sid_voice *v, bool ring_msb) {
     return out;
 }
 
+/// Works out the filter's coefficients from its registers.
+/// @param s the SID
 static void set_filter(c64_sid *s) {
     s->filter_dirty = false;
     unsigned fc = (s->regs[0x15] & 7) | s->regs[0x16] << 3;

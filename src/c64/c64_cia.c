@@ -15,16 +15,24 @@
 #include "pico.h"
 #define FAST(f) __attribute__((section("app_ov_c64." #f))) f  ///< the apps' SRAM area (app_overlay.h)
 #else
+/// PC builds: the hot functions stay where they are.
 #define FAST(f) f
 #endif
 
+/// The interrupt control register's bits.
 enum { ICR_TA = 0x01, ICR_TB = 0x02, ICR_ALARM = 0x04, ICR_SP = 0x08 };
+/// The timers' control register bits.
 enum { CR_START = 0x01, CR_ONESHOT = 0x08, CR_LOAD = 0x10 };
 
+/// Sets the IRQ line from the flags and the mask.
+/// @param c the CIA
 static void update_irq(c64_cia *c) {
     c->irq = (c->icr_data & c->icr_mask & 0x1f) != 0;
 }
 
+/// Raises interrupt flags.
+/// @param c the CIA
+/// @param bits the ICR bits
 static void event(c64_cia *c, uint8_t bits) {
     c->icr_data |= bits;
     update_irq(c);
@@ -43,6 +51,11 @@ void c64_cia_reset(c64_cia *c) {
 /// Counts a timer down n times; returns how many times it underflowed. It
 /// reloads from the latch on each underflow, so it repeats every latch + 1
 /// counts; one-shot, it stops after the first.
+/// @param t the counter
+/// @param latch its reload value
+/// @param n counts
+/// @param cr its control register (one-shot stops it)
+/// @return the underflows
 static unsigned FAST(count)(uint16_t *t, uint16_t latch, unsigned n, uint8_t *cr) {
     if (n <= *t) {
         *t -= n;
@@ -77,6 +90,9 @@ void FAST(c64_cia_tick)(c64_cia *c, unsigned n) {
     }
 }
 
+/// Adds one to a BCD byte.
+/// @param v the byte
+/// @return v + 1, in BCD
 static uint8_t bcd_inc(uint8_t v) {
     return (v & 0x0f) == 9 ? (uint8_t)((v & 0xf0) + 0x10) : (uint8_t)(v + 1);
 }
