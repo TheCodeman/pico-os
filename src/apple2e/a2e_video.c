@@ -27,7 +27,9 @@
 /// framebuffer rows per Apple line (1 or 2).
 typedef struct {
     uint8_t *fb;
+    ///@{
     int y0, ys;
+    ///@}
 } target;
 
 #define RGB(r, g, b) ((uint8_t)(((r) << 5) | ((g) << 2) | (b)))

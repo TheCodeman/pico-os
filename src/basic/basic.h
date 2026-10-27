@@ -13,5 +13,6 @@
 
 /// Runs the BASIC prompt until SYSTEM (or BYE). If `file` is given it is
 /// loaded and run first.
+/// @param file a program to load and run first, or NULL
 void basic_main(const char *file);
 

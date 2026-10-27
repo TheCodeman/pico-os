@@ -32,7 +32,9 @@ static volatile bool beep_silent;  ///< a rest from the note queue
 
 /// Notes for audio_play: a tone (or a rest, step 0) and its length in frames.
 typedef struct {
+    ///@{
     uint32_t step, frames;
+    ///@}
 } note_t;
 static queue_t notes;
 static volatile bool note_playing;  ///< the current sound came from the queue
@@ -95,7 +97,9 @@ static uint32_t sample_time;  ///< the frame being made, in time_us_64() terms (
 #define AY_QUEUE 512
 typedef struct {
     uint32_t when;
+    ///@{
     uint8_t chip, reg, value;
+    ///@}
 } ay_event_t;
 static ay_event_t *volatile ay_queue;  ///< AY_QUEUE, made by the first audio_ay_start
 static volatile uint32_t ay_head, ay_tail;
@@ -186,7 +190,9 @@ static void ay_samples(int32_t *left, int32_t *right) {
 /// In PSRAM, allocated the first time and kept (core 1 may be reading it).
 static struct sid_write {
     uint32_t when;
+    ///@{
     uint8_t reg, value;
+    ///@}
 } *sid_queue;
 static volatile uint32_t sid_head, sid_tail;
 static volatile bool sid_on, sid_reset_wanted;

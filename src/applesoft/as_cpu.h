@@ -16,7 +16,10 @@
 /// The 65C02 that runs machine code (CALL, USR, &) inside Applesoft.
 typedef struct as_cpu {
     uint16_t pc;  ///< program counter
-    uint8_t a, x, y, s, p;  ///< accumulator, index registers, stack pointer and status
+    /// accumulator, index registers, stack pointer and status
+    ///@{
+    uint8_t a, x, y, s, p;
+    ///@}
     uint32_t cycles;  ///< running total, wraps
     bool irq;         ///< the IRQ line, held by whatever wants service
     /// Memory. ctx is passed back unchanged.
@@ -32,11 +35,16 @@ enum {
 };
 
 /// Loads the reset vector, sets S and P as a reset does.
+/// @param c the CPU
 void as_cpu_reset(as_cpu *c);
 
 /// Runs one instruction, or takes the interrupt if the IRQ line is held and
 /// interrupts are enabled; returns the cycles it took.
+/// @param c the CPU
+/// @return the cycles the instruction (or interrupt) took
 int as_cpu_step(as_cpu *c);
 
 /// Pushes a byte (for setting up a call's return address).
+/// @param c the CPU
+/// @param v the byte
 void as_cpu_push(as_cpu *c, uint8_t v);

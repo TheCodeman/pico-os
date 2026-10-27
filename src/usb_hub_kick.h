@@ -33,17 +33,21 @@ void usb_hub_kick_task(void);
 
 /// Core 1: true while one of this module's control transfers is in flight.
 /// Bulk transfers must wait for it (see usb_storage_task()).
+/// @return true while a control transfer of ours is in flight
 bool usb_hub_kick_busy(void);
 
 /// Called from tuh_mount_cb() / tuh_umount_cb() for every device.
+/// @param dev_addr the device's address
 void usb_hub_kick_device_mounted(uint8_t dev_addr);
 /// Called from tuh_umount_cb() for every device.
+/// @param dev_addr the device's address
 void usb_hub_kick_device_unmounted(uint8_t dev_addr);
 
 /// Core 1: true when USB has got stuck (a request the hub never answered, or a
 /// drive transfer that never finished) and should be started again:
 /// tuh_deinit(), tuh_init(), then usb_hub_kick_reset(). Every device is then
 /// set up afresh; anything waiting on the old ones fails.
+/// @return true when USB should be started again
 bool usb_restart_wanted(void);
 /// Asks for USB to be started again (see usb_restart_wanted).
 void usb_request_restart(void);

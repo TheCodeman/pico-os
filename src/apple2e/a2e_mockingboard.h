@@ -18,16 +18,26 @@
 
 /// One 6522 VIA on the Mockingboard, driving an AY-3-8910.
 typedef struct {
-    uint8_t orb, ora, ddrb, ddra, sr, acr, pcr, ifr, ier;  ///< the VIA's registers: ports, direction, shift, control and interrupts
+    /// the VIA's registers: ports, direction, shift, control and interrupts
+    ///@{
+    uint8_t orb, ora, ddrb, ddra, sr, acr, pcr, ifr, ier;
+    ///@}
     uint16_t t1_latch;  ///< timer 1's latch
     uint8_t t2_latch_lo;  ///< timer 2's latch, low byte
     /// Each timer counts down from `value` at cycle `base`; `at` is when it
     /// next passes zero (UINT64_MAX: not counting towards an interrupt).
+    ///@{
     uint16_t t1_value, t2_value;
-    uint64_t t1_base, t2_base, t1_at, t2_at;  ///< when the timers were loaded, and when they run out
+    ///@}
+    /// when the timers were loaded, and when they run out
+    ///@{
+    uint64_t t1_base, t2_base, t1_at, t2_at;
+    ///@}
     /// The sound chip on the ports: its selected register, and its registers
     /// as written (for reads, and the PC's tests).
+    ///@{
     uint8_t ay_reg, ay_in;
+    ///@}
     uint8_t ay_regs[16];  ///< the AY chip's registers, as last written
 } a2e_via;
 
@@ -42,4 +52,7 @@ typedef struct {
 } a2e_mockingboard;
 
 /// Puts the card in a slot (4 as a rule). Set ay_write and user afterwards.
+/// @param m the machine
+/// @param mb the card
+/// @param slot its slot (1-7)
 void a2e_mockingboard_install(a2e *m, a2e_mockingboard *mb, int slot);

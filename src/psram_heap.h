@@ -21,24 +21,39 @@
 
 /// Core 0, right after the system clock is set and before core 1 starts.
 /// Returns the PSRAM size in bytes, or 0 if there is none.
+/// @return the PSRAM's size in bytes, or 0
 size_t psram_setup(void);
 
 /// Writes a pattern over [start, start + len) through the cached window and
 /// reads it back through the uncached one. Returns the first bad address, or
 /// NULL if it all matched. The memory's contents are lost.
+/// @param start the first byte
+/// @param len how many
+/// @return the first bad address, or NULL
 void *psram_test(void *start, size_t len);
 
 /// Any core. 8-byte aligned blocks; NULL if PSRAM is missing or full.
+/// @param size bytes wanted
+/// @return the block, or NULL
 void *psram_malloc(size_t size);
 /// Frees a block from psram_malloc.
+/// @param p the block (NULL is fine)
 void psram_free(void *p);
 /// A big buffer that needn't be fast: from PSRAM (NULL if it's full). With
 /// no PSRAM, from the heap, but only up to 64 KB, as malloc panics when SRAM
 /// runs out. Free with psram_buffer_free.
+/// @param size bytes wanted
+/// @return the buffer, or NULL
 void *psram_buffer_alloc(size_t size);
 /// Frees a block from psram_buffer_alloc.
+/// @param p the buffer (NULL is fine)
 void psram_buffer_free(void *p);
+/// @param p the block, or NULL
+/// @param size the new size
+/// @return the block (maybe moved), or NULL
 void *psram_realloc(void *p, size_t size);  ///< as realloc; NULL (p kept) if no room
+/// @param p the block
+/// @return its usable bytes
 size_t psram_block_size(const void *p);     ///< usable bytes of a psram_malloc block
 
 /// The PSRAM heap's figures (psram_get_stats).
@@ -48,12 +63,19 @@ typedef struct {
     size_t largest;  ///< biggest block psram_malloc can return right now
     int blocks;      ///< allocated blocks
 } psram_stats_t;
+/// @param stats filled in
 void psram_get_stats(psram_stats_t *stats);  ///< walks the whole heap: not for hot paths
 /// True if PSRAM was found at start-up.
+/// @return true if PSRAM is there
 bool psram_present(void);
+/// @return free bytes
 size_t psram_free_total(void);  ///< bytes not in allocated blocks (quick)
 
 /// Keeps [start, start + len) fresh by rewriting every word of it every
 /// period_s seconds in the background (see psram_heap.c). len 0 stops it.
+/// @param start the first byte
+/// @param len how many
+/// @param period_s seconds per full pass
 void psram_scrub(void *start, size_t len, unsigned period_s);
+/// @return the passes done
 uint32_t psram_scrub_passes(void);  ///< full passes done so far

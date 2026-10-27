@@ -17,7 +17,10 @@ void usb_log_init(void);
 void usb_log_use_psram(void);
 
 /// Any core. Also used as TinyUSB's debug printf (CFG_TUSB_DEBUG_PRINTF).
+/// @param format printf's format, and its arguments
+/// @return the characters written
 int usb_log_printf(const char *format, ...);
 
 /// Core 0: next queued character, or -1 if none.
+/// @return the character, or -1
 int usb_log_getc(void);

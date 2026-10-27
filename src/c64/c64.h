@@ -33,14 +33,20 @@ struct c64_drive;
 /// The whole C64: CPU, memory, VIC-II, SID, two CIAs, keyboard, joysticks, cartridge and drive.
 struct c64 {
     c64_cpu cpu;  ///< the 6510
-    c64_cia cia1, cia2;  ///< CIA 1 (keyboard, joysticks) and CIA 2 (serial bus, VIC bank)
+    /// CIA 1 (keyboard, joysticks) and CIA 2 (serial bus, VIC bank)
+    ///@{
+    c64_cia cia1, cia2;
+    ///@}
     c64_vic vic;  ///< the VIC-II
     uint64_t cycles;  ///< since power-on
 
     /// Memory. The caller points these anywhere (the PC uses malloc).
     uint8_t *ram;     ///< 64 KB
     uint8_t *color;   ///< 1 KB, low nybbles
-    const uint8_t *basic, *kernal, *charrom;  ///< 8 KB, 8 KB, 4 KB
+    /// 8 KB, 8 KB, 4 KB
+    ///@{
+    const uint8_t *basic, *kernal, *charrom;
+    ///@}
 
     /// A cartridge (c64_cart.c), or NULL.
     struct c64_cart *cart;
@@ -49,7 +55,9 @@ struct c64 {
     struct c64_drive *drive;
 
     /// The 6510's I/O port: $00 is the direction, $01 the data.
+    ///@{
     uint8_t port_dir, port_data;
+    ///@}
     /// Pages for the CPU: where each 256-byte page reads from and writes to,
     /// recomputed when the port changes. NULL: I/O ($D0-$DF with I/O banked
     /// in). $0000 and $0001 in RAM hold the port's direction and what reading
@@ -114,34 +122,56 @@ struct c64 {
 
 /// Sets up a machine whose memory and ROM pointers are already set, and
 /// resets it (RAM is left alone: fill it first for a cold start).
+/// @param m the machine
 void c64_init(c64 *m);
 /// The reset line.
+/// @param m the machine
 void c64_reset(c64 *m);
 /// Plugs a 1541 in as device 8 (NULL takes it out).
+/// @param m the machine
+/// @param d the drive, or NULL
 void c64_attach_drive(c64 *m, struct c64_drive *d);
 /// The cartridge's banks or lines changed: maps memory again.
+/// @param m the machine
 void c64_cart_changed(c64 *m);
 /// Switching it off and on: RAM back to its power-on pattern (stripes of $00
 /// and $FF), the colour RAM cleared, then the reset line.
+/// @param m the machine
 void c64_power_on(c64 *m);
 /// True while BASIC is at READY. waiting for a key (the KERNAL's input loop).
+/// @param m the machine
+/// @return true while the KERNAL waits for a key at READY.
 bool c64_ready(const c64 *m);
 /// Puts a program (its two address bytes first) into memory, as LOAD"...",8,1
 /// does; one at $0801 (BASIC) gets BASIC's pointers set and RUN typed into
 /// the keyboard buffer. Call it once c64_ready.
+/// @param m the machine
+/// @param prg the program, its load address first
+/// @param len its length in bytes
 void c64_start_prg(c64 *m, const uint8_t *prg, int len);
 /// Runs one raster line, or a whole frame (312 lines, 19656 cycles).
+/// @param m the machine
 void c64_run_line(c64 *m);
 /// Runs one frame (312 lines).
+/// @param m the machine
 void c64_run_frame(c64 *m);
 
 /// The CPU's view of memory, for debuggers and tests (reads have side
 /// effects in I/O, as on the machine).
+/// @param m the machine
+/// @param addr the address
+/// @return the byte there
 uint8_t c64_peek(c64 *m, uint16_t addr);
 /// Writes memory as the CPU would (I/O included).
+/// @param m the machine
+/// @param addr the address
+/// @param value the byte
 void c64_poke(c64 *m, uint16_t addr, uint8_t value);
 
 /// Keys by matrix position (port A bit * 8 + port B bit).
+/// @param m the machine
+/// @param key the matrix position (C64K_ or port A bit * 8 + port B bit)
+/// @param down pressed or let go
 void c64_key(c64 *m, unsigned key, bool down);
 /// Keyboard matrix positions for c64_key (port A bit * 8 + port B bit).
 enum {
@@ -153,6 +183,12 @@ enum {
 };
 /// The key and whether it needs Shift for an ASCII character (lower case
 /// letters are the unshifted keys); false if the C64 has no such key.
+/// @param ch the character
+/// @param key set to the matrix position
+/// @param shift set if Shift is needed
+/// @return false if the C64 has no key for it
 bool c64_ascii_key(char ch, unsigned *key, bool *shift);
 /// A screen code as the nearest ASCII character (for text dumps).
+/// @param code the screen code
+/// @return the nearest ASCII character
 char c64_screen_ascii(uint8_t code);

@@ -15,7 +15,10 @@
 
 /// A decoded picture in PSRAM, as RGB888 or RGB332.
 typedef struct {
-    int w, h;  ///< width and height in pixels
+    /// width and height in pixels
+    ///@{
+    int w, h;
+    ///@}
     uint8_t *rgb;  ///< w * h * 3 bytes, top row first
 } image_t;
 
@@ -23,23 +26,49 @@ typedef struct {
 /// baseline JPEG. A big JPEG is decoded at 1/2, 1/4 or 1/8 size if that still
 /// gives at least want_w x want_h pixels (0 = full size). On failure returns
 /// false with *err set to why.
+/// @param path the file
+/// @param want_w the width needed (0: full size); a big JPEG is decoded smaller if that still gives it
+/// @param want_h the height needed (0: full size)
+/// @param img filled in
+/// @param err set to why, on failure
+/// @return true if it loaded
 bool image_load(const char *path, int want_w, int want_h, image_t *img, const char **err);
 /// Frees the picture's pixels.
+/// @param img the picture
 void image_free(image_t *img);
 
 /// A clip rectangle for drawing pictures.
 typedef struct {
-    int x0, y0, x1, y1;  ///< x0 <= x < x1, y0 <= y < y1
+    /// x0 <= x < x1, y0 <= y < y1
+    ///@{
+    int x0, y0, x1, y1;
+    ///@}
 } image_clip_t;
 
 /// Draws `img` into the screen rectangle (x, y, w, h) of `fb` (640x480,
 /// RGB332), scaled to fill it, with ordered dithering, clipped to `clip` (NULL:
 /// the whole screen).
+/// @param img the picture
+/// @param fb the screen
+/// @param x the rectangle's left
+/// @param y its top
+/// @param w its width
+/// @param h its height
+/// @param clip what part of the screen may be drawn on, or NULL
 void image_draw(const image_t *img, uint8_t *fb, int x, int y, int w, int h,
                 const image_clip_t *clip);
 
 /// The largest rectangle with img's shape that fits in w x h, centred in it.
+/// @param img the picture
+/// @param x set to the left
+/// @param y set to the top
+/// @param w the room's width, then the picture's
+/// @param h the room's height, then the picture's
 void image_fit(const image_t *img, int *x, int *y, int *w, int *h);
 
 /// Saves the 640x480 RGB332 screen `fb` as an 8-bit BMP.
+/// @param path the file
+/// @param fb the screen
+/// @param err set to why, on failure
+/// @return true if it was saved
 bool image_save_bmp(const char *path, const uint8_t *fb, const char **err);

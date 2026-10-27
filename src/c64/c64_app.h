@@ -10,4 +10,6 @@
 
 /// c64 [-d folder] [-j 1|2] [file.prg]: runs until F10. The ROMs are found
 /// in folder (default /C64); a PRG is looked for as given and then there.
+/// @param argc the argument count
+/// @param argv the arguments, as the shell passes them
 void c64_main(int argc, char **argv);

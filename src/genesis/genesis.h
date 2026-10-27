@@ -58,28 +58,42 @@ typedef void (*genesis_line_fn)(void *ctx, int line, const uint8_t *pix, const u
 
 /// Sets the machine up in that memory. It keeps using it until the next
 /// genesis_init.
+/// @param mem GENESIS_MEM_SIZE bytes for the machine
+/// @param ym_fast GENESIS_YM_FAST_SIZE bytes, ideally in fast memory
+/// @param ym_slow GENESIS_YM_SLOW_SIZE bytes
 void genesis_init(uint8_t *mem, void *ym_fast, void *ym_slow);
 
 /// Plugs in a cartridge: rom is size bytes of a .bin/.gen/.md (or .smd)
 /// image, which the core byte-swaps (and de-interleaves) in place and then
 /// reads from where it is, so it must stay put and be writable; see
 /// GENESIS_ROM_MAX. Then powers the machine on. Returns the header's name.
+/// @param rom the ROM image (changed in place, and kept)
+/// @param size its size
+/// @return the name in its header
 const char *genesis_load(uint8_t *rom, size_t size);
 /// Resets the machine, as the reset button does.
 void genesis_reset(void);
 
 /// The buttons held on pad 0 or 1 (GENESIS_ bits).
+/// @param pad 0 or 1
+/// @param buttons the GENESIS_ bits of the buttons held
 void genesis_set_pad(int pad, unsigned buttons);
 
 /// Turns parts off to save time (all on by default): the YM2612, the Z80
 /// (and with it most music), the SN76489.
+/// @param ym2612 run the YM2612
+/// @param z80 run the Z80
+/// @param sn76489 run the SN76489
 void genesis_enable(bool ym2612, bool z80, bool sn76489);
 /// The YM2612 working out every other sample only (and repeating it): about
 /// half its time, losing the top octave (above about 13 kHz).
+/// @param on half rate on or off
 void genesis_ym_half_rate(bool on);
 
 /// Runs one frame (262 lines NTSC, 313 PAL). With line set, each visible
 /// line is drawn and passed to it; NULL skips drawing (frame skip).
+/// @param line called with each visible line drawn, or NULL to skip drawing
+/// @param ctx passed to line
 void genesis_run_frame(genesis_line_fn line, void *ctx);
 
 /// Drawing elsewhere: with worker set, genesis_run_frame only queues each
@@ -88,6 +102,7 @@ void genesis_run_frame(genesis_line_fn line, void *ctx);
 /// it by calling genesis_render_pending, which draws what is queued and
 /// returns. genesis_run_frame waits when GENESIS_DRAW_QUEUE lines are
 /// waiting. genesis_render_wait waits until all are drawn.
+/// @param worker true: lines are queued for another core to draw
 void genesis_set_worker(bool worker);
 /// Draws the queued lines (on the worker core) and returns.
 void genesis_render_pending(void);
@@ -98,26 +113,37 @@ void genesis_render_wait(void);
 /// frame adds the time spent in the 68000 (with the bus and the VDP's ports
 /// and DMA), the Z80, and drawing lines (the core's and the line callback's).
 typedef struct {
-    uint64_t m68k_us, z80_us;  ///< time in the 68000 and the Z80
-    uint64_t draw_us, put_us;  ///< drawing lines; of that, the line callback
+    /// time in the 68000 and the Z80
+    ///@{
+    uint64_t m68k_us, z80_us;
+    ///@}
+    /// drawing lines; of that, the line callback
+    ///@{
+    uint64_t draw_us, put_us;
+    ///@}
     uint64_t wait_us;          ///< genesis_run_frame waiting for the drawing to catch up
     uint64_t sound_us;         ///< the sound chips catching up (they also run at each write)
 } genesis_times;
 /// Sets the clock genesis_time measures with (microseconds).
+/// @param clock_us a clock in microseconds
 void genesis_set_clock(uint32_t (*clock_us)(void));
 /// Where the time of the last frames went (for -b benchmarks).
 extern genesis_times genesis_time;
 
 /// The picture's size: 320 or 256 wide (the line is always 320), 224 or 240
 /// high; and whether the machine is PAL (50 Hz) or NTSC (60 Hz).
+/// @return 320 or 256
 int genesis_width(void);
 /// The picture's height: 224 or 240.
+/// @return 224 or 240
 int genesis_height(void);
 /// True for a PAL (50 Hz) machine.
+/// @return true for PAL
 bool genesis_pal(void);
 
 /// The 256 colours a colour number means now, as RGB565 (64 CRAM colours,
 /// four times over: the core keeps priority bits in the top two).
+/// @return 256 RGB565 colours
 const uint16_t *genesis_palette(void);
 
 /// The frame's sound: mono, GENESIS_AUDIO_RATE samples a second, from the
@@ -127,4 +153,7 @@ const uint16_t *genesis_palette(void);
 /// Samples per second of the sound on a PAL machine.
 #define GENESIS_AUDIO_RATE_PAL  52781
 /// The frame's samples from the YM2612 and the SN76489 (see above); their count.
+/// @param ym2612 set to the YM2612's samples
+/// @param sn76489 set to the SN76489's
+/// @return how many samples each has
 int genesis_audio(const int16_t **ym2612, const int16_t **sn76489);

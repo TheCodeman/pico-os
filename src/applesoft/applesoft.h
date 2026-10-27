@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 /// Runs the ] prompt until BYE. If `file` is given it is loaded and run first.
+/// @param file a program to load and run first, or NULL
 void applesoft_main(const char *file);
 
 /// If set, called with the emulated 64 KB just before applesoft_main returns

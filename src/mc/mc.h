@@ -184,7 +184,10 @@ int menu_run(menu_t *menus, int count, int open);
 typedef struct {
     uint32_t name;  ///< offset in the panel's name pool
     FSIZE_t size;  ///< the file's size
-    WORD date, time;  ///< its date and time (FAT format)
+    /// its date and time (FAT format)
+    ///@{
+    WORD date, time;
+    ///@}
     BYTE attr;  ///< its FAT attributes
     bool marked;  ///< marked
 } entry_t;
@@ -197,13 +200,25 @@ enum { SORT_NAME, SORT_EXT, SORT_SIZE, SORT_TIME, SORT_NONE };
 /// A panel: its folder, files, cursor, view, sort and marks.
 typedef struct {
     char path[256];  ///< the folder shown
-    int mode, sort;  ///< the view (MODE_) and sort order (SORT_)
+    /// the view (MODE_) and sort order (SORT_)
+    ///@{
+    int mode, sort;
+    ///@}
     bool reverse;  ///< sort the other way round
     entry_t *ent;  ///< PSRAM
-    int count, cap;  ///< files in it, and room for
+    /// files in it, and room for
+    ///@{
+    int count, cap;
+    ///@}
     char *names;   ///< PSRAM
-    size_t names_len, names_cap;  ///< bytes used and room in the name pool
-    int cur, top;  ///< the cursor, and the first file shown
+    /// bytes used and room in the name pool
+    ///@{
+    size_t names_len, names_cap;
+    ///@}
+    /// the cursor, and the first file shown
+    ///@{
+    int cur, top;
+    ///@}
     int marked;  ///< files marked
     FSIZE_t marked_size;  ///< their total size
     char error[60];  ///< why the listing failed

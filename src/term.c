@@ -38,7 +38,9 @@
 
 typedef struct {
     unsigned baud;
+    ///@{
     int data, stop;
+    ///@}
     char parity;  ///< N, E or O
     int tx;       ///< TX pin 4, 8, 20 or 24; RX is the next pin
     bool flow;    ///< RTS/CTS on TX+2 / TX+3
@@ -205,7 +207,9 @@ static void keep_layout(void) {
 
 /// A saved copy of the screen, for pages drawn over the terminal.
 typedef struct {
+    ///@{
     uint8_t ch[CONSOLE_ROWS][CONSOLE_COLS], attr[CONSOLE_ROWS][CONSOLE_COLS];
+    ///@}
 } saved_screen_t;
 
 /// Saves the screen, cursor and colours (NULL if out of memory: the screen
@@ -583,7 +587,9 @@ static struct {
     xfer_proto_t proto;
     bool sending;
     saved_screen_t *saved;
+    ///@{
     absolute_time_t started, next_draw;
+    ///@}
     uint32_t start_done;  ///< bytes already there when the file started (resume)
     const char *last_name;
 } xf;

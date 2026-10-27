@@ -11,4 +11,5 @@
 /// Edits `path` on the USB drive (a new file is created on first save; NULL
 /// or "" asks for a name when saving). Returns when the user quits, with the
 /// screen cleared for the shell.
+/// @param path the file to edit, or NULL/"" for a new one
 void editor_run(const char *path);

@@ -424,7 +424,9 @@ static uint32_t be32(const uint8_t *p) {
 
 typedef struct {
     int8_t *data;
+    ///@{
     uint32_t len, loop_start, loop_len, rate;
+    ///@}
     bool cut;  ///< longer than a MOD sample can be
 } loaded_t;
 

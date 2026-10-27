@@ -218,7 +218,9 @@ const char *asp_file_error(void) {
 // ---- The test program ------------------------------------------------------------
 
 static struct {
+    ///@{
     unsigned start, end;
+    ///@}
     const char *file;
 } dumps[8];
 static int ndumps;

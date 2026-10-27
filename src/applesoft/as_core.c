@@ -90,8 +90,13 @@ static const char *const error_names[] = {
 enum { FR_FOR = 0x81, FR_GOSUB = 0xb0, FR_JUNK = 0 };
 
 typedef struct {
+    ///@{
     uint8_t type, bytes;
-    uint16_t line, text;   ///< where to carry on
+    ///@}
+    /// where to carry on
+    ///@{
+    uint16_t line, text;
+    ///@}
     uint16_t var;          ///< FOR: the variable's value
     as_packed limit;       ///< FOR: the limit, packed
     as_fp step;            ///< FOR: the step (unrounded copy as pushed)
@@ -685,7 +690,9 @@ static uint16_t getspa(uint8_t n) {
 /// descriptors it does it in one sorted pass; otherwise the ROM's way, one
 /// string per pass.
 typedef struct {
+    ///@{
     uint16_t desc, addr;
+    ///@}
 } gc_ref;
 
 #define GC_MAX_REFS 22000  ///< more descriptors than 64 KB can hold
@@ -716,10 +723,16 @@ static void each_descriptor(void (*fn)(uint16_t d, void *ctx), void *ctx) {
 }
 
 typedef struct {
-    uint16_t lo, hi;  ///< strings in [lo, hi) are in string space
+    /// strings in [lo, hi) are in string space
+    ///@{
+    uint16_t lo, hi;
+    ///@}
     int n;
     bool overflow;
-    uint16_t best, best_addr;  ///< the one-at-a-time search
+    /// the one-at-a-time search
+    ///@{
+    uint16_t best, best_addr;
+    ///@}
 } gc_state;
 
 static void gc_collect(uint16_t d, void *ctx) {

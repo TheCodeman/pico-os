@@ -32,20 +32,31 @@
 // ---- Where things are in a report -------------------------------------------------------------------
 
 typedef struct {
+    ///@{
     uint16_t bit, size;
+    ///@}
+    ///@{
     bool is_signed, valid;
+    ///@}
 } field_t;
 
 typedef struct {
     uint8_t report_id;    ///< 0: reports aren't numbered
-    field_t x, y, wheel;  ///< relative
+    /// relative
+    ///@{
+    field_t x, y, wheel;
+    ///@}
     uint16_t button_bit;
     uint8_t buttons;
 } layout_t;
 
 static struct {
+    ///@{
     bool mounted, report_protocol;
+    ///@}
+    ///@{
     uint8_t dev_addr, instance;
+    ///@}
     layout_t layout;
 } mice[MICE];
 
@@ -55,7 +66,9 @@ static bool parse(const uint8_t *desc, size_t len, layout_t *out) {
     typedef struct {
         uint16_t page;
         int32_t min;
+        ///@{
         uint32_t size, count, id;
+        ///@}
     } globals;
     layout_t lay;
     memset(&lay, 0, sizeof lay);

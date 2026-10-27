@@ -23,9 +23,15 @@
 typedef struct {
     uint32_t acc;        ///< 24-bit phase
     uint32_t lfsr;       ///< 23-bit noise shift register
-    uint16_t freq, pw;  ///< frequency and pulse width
+    /// frequency and pulse width
+    ///@{
+    uint16_t freq, pw;
+    ///@}
     uint8_t ctrl;        ///< $D404: noise pulse saw tri, test, ring, sync, gate
-    uint8_t ad, sr;  ///< attack/decay and sustain/release
+    /// attack/decay and sustain/release
+    ///@{
+    uint8_t ad, sr;
+    ///@}
     uint8_t env;         ///< 0-255
     uint8_t state;       ///< attack, decay/sustain, release
     uint16_t rate_count;  ///< the envelope's rate counter
@@ -41,23 +47,44 @@ typedef struct {
     uint32_t frac;            ///< the fraction carried between samples
     uint32_t rate;  ///< the output rate
     /// Filter: state-variable, Q12 coefficients.
+    ///@{
     int32_t low, band;
-    int32_t f_q12, q_q12;  ///< the filter's cutoff and resonance (Q12)
+    ///@}
+    /// the filter's cutoff and resonance (Q12)
+    ///@{
+    int32_t f_q12, q_q12;
+    ///@}
     bool filter_dirty;        ///< the coefficients need working out again
     /// Output DC blocker (keeps the volume's DC step as a click, so digis play).
+    ///@{
     int32_t dc_x, dc_y;
+    ///@}
 } c64_sid;
 
 /// Silent, all registers 0, at clock_hz making samples at rate.
+/// @param s the SID
+/// @param clock_hz its clock
+/// @param rate the sample rate made
 void c64_sid_init(c64_sid *s, uint32_t clock_hz, uint32_t rate);
 /// Writes SID register `reg` (0-24).
+/// @param s the SID
+/// @param reg the register
+/// @param value its new value
 void c64_sid_write(c64_sid *s, uint8_t reg, uint8_t value);
 /// The next sample, about +-16000 at full volume.
+/// @param s the SID
+/// @return the sample
 int16_t c64_sid_sample(c64_sid *s);
 
 /// Voice 3 alone, run on by cycles clock cycles (for the readback copy).
+/// @param s the SID
+/// @param cycles clock cycles to run voice 3 on by
 void c64_sid_run_voice3(c64_sid *s, uint32_t cycles);
 /// $D41B: voice 3's waveform's top 8 bits; $D41C: its envelope.
+/// @param s the SID
+/// @return voice 3's waveform, top 8 bits ($D41B)
 uint8_t c64_sid_osc3(const c64_sid *s);
 /// Voice 3's envelope level, as $D41C reads it.
+/// @param s the SID
+/// @return the envelope level
 uint8_t c64_sid_env3(const c64_sid *s);

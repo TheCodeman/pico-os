@@ -146,8 +146,12 @@ static struct {
 /// (A big folder takes long: see get_roms.)
 static bool read_roms(const char *dir, uint8_t *buf, bool *have_1541) {
     static const struct {
+        ///@{
         const char *a, *b, *what;
+        ///@}
+        ///@{
         uint32_t size, at;
+        ///@}
     } want[6] = {
         {"kern", "901227", "KERNAL (8 KB, e.g. kernal.bin)", 0x2000, 0},
         {"basic", "901226", "BASIC (8 KB, e.g. basic.bin)", 0x2000, 0x2000},

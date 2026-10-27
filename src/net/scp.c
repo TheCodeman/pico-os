@@ -27,10 +27,16 @@ typedef struct {
     uint8_t *buf;
     /// Progress of the current file.
     const char *name;
+    ///@{
     uint64_t start_us, last_us;
+    ///@}
+    ///@{
     uint32_t done, size;
+    ///@}
     uint32_t files;
+    ///@{
     uint64_t total_bytes, total_us;
+    ///@}
 } scp_t;
 
 // ---- Progress -----------------------------------------------------------------

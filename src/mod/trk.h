@@ -79,8 +79,14 @@ void gfx_bevel_edges(int x, int y, int w, int h, bool raised);
 
 /// Places the mouse can click, made while drawing; cleared on a full redraw.
 typedef struct {
-    int16_t x, y, w, h;  ///< the clickable rectangle
-    int16_t id, arg;  ///< what it is (HIT_), and its argument
+    /// the clickable rectangle
+    ///@{
+    int16_t x, y, w, h;
+    ///@}
+    /// what it is (HIT_), and its argument
+    ///@{
+    int16_t id, arg;
+    ///@}
 } hit_t;
 /// Forgets the clickable places (before a full redraw).
 void hit_clear(void);
@@ -144,28 +150,63 @@ typedef struct {
     xm_song_t *xm;       ///< an XM song instead (then `song` is unused)
     char path[256];      ///< "" for a new song
     bool dirty;  ///< changed since it was loaded or saved
-    int screen, focus;  ///< the screen shown and where the keys go
+    /// the screen shown and where the keys go
+    ///@{
+    int screen, focus;
+    ///@}
     /// The pattern editor
     int pos;             ///< the order position shown
     int pattern;         ///< the pattern being edited
-    int row, ch, col;    ///< the cursor: col 0 note, 1-2 sample, 3 effect, 4-5 parameter
+    /// the cursor: col 0 note, 1-2 sample, 3 effect, 4-5 parameter
+    ///@{
+    int row, ch, col;
+    ///@}
     int pat_top;         ///< the first row on the screen
-    int octave, step, sample;  ///< the octave, row step and sample keys enter
-    bool record, follow;  ///< recording notes, and the view following the player
-    int speed, bpm, separation;  ///< speed, BPM and stereo separation for playing
-    int song_field, order_top;  ///< the song field with the cursor, and the order list's first row shown
+    /// the octave, row step and sample keys enter
+    ///@{
+    int octave, step, sample;
+    ///@}
+    /// recording notes, and the view following the player
+    ///@{
+    bool record, follow;
+    ///@}
+    /// speed, BPM and stereo separation for playing
+    ///@{
+    int speed, bpm, separation;
+    ///@}
+    /// the song field with the cursor, and the order list's first row shown
+    ///@{
+    int song_field, order_top;
+    ///@}
     /// The block (marked with Alt-B and Alt-E, or dragged with the mouse)
     bool marking;        ///< begun, not ended
     bool block;  ///< a block is selected
-    int bl_ch0, bl_row0, bl_ch1, bl_row1;  ///< the block's corners
+    /// the block's corners
+    ///@{
+    int bl_ch0, bl_row0, bl_ch1, bl_row1;
+    ///@}
     mod_cell_t clip[MOD_ROWS * MOD_MAX_CH];  ///< the clipboard
-    int clip_w, clip_h;  ///< its width and height
+    /// its width and height
+    ///@{
+    int clip_w, clip_h;
+    ///@}
     /// The sample screen
+    ///@{
     int smp_field, smp_top;
-    uint32_t sel0, sel1;     ///< the selection, bytes (sel1 > sel0 if any)
-    uint32_t view0, view_len;  ///< what the waveform shows
+    ///@}
+    /// the selection, bytes (sel1 > sel0 if any)
+    ///@{
+    uint32_t sel0, sel1;
+    ///@}
+    /// what the waveform shows
+    ///@{
+    uint32_t view0, view_len;
+    ///@}
     bool wave_dirty;  ///< the sample's waveform needs drawing
-    int8_t wmin[640], wmax[640];  ///< the waveform's columns
+    /// the waveform's columns
+    ///@{
+    int8_t wmin[640], wmax[640];
+    ///@}
     /// Drawing
     bool full;           ///< everything must be drawn again
     char msg[80];  ///< the status line's message
@@ -173,7 +214,10 @@ typedef struct {
     hit_t hits[160];  ///< the clickable places on screen
     int nhits;  ///< how many
     /// Load measurement
-    unsigned load, underruns, underruns0;  ///< the sound skipped (since the tracker started)
+    /// the sound skipped (since the tracker started)
+    ///@{
+    unsigned load, underruns, underruns0;
+    ///@}
 } trk_t;
 
 /// The tracker's state while it runs.

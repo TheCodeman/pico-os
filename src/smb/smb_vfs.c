@@ -56,7 +56,9 @@ TCHAR *__real_f_gets(TCHAR *buff, int len, FIL *fp);
 typedef struct {
     bool used;
     char point[24];  ///< "/NET"
+    ///@{
     char host[64], share[80], domain[32], user[64], password[64];
+    ///@}
     uint16_t port;
     smb_t *smb;
     unsigned gen;  ///< bumped on each (re)connection: older handles are stale
@@ -89,7 +91,9 @@ static struct {
     bool root;     ///< FatFs's root: the mount points are listed after its entries
     int next;      ///< root: the next mount to list
     uint8_t *list;  ///< share folder: its entries (PSRAM)
+    ///@{
     size_t len, cap, pos;
+    ///@}
 } dirs[MAX_DIRS];
 
 // ---- Paths -------------------------------------------------------------------------------

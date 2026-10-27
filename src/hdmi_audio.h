@@ -25,14 +25,22 @@ void hdmi_audio_init(void);
 /// followed by HDMI_ISLAND_PIXELS words. Returns the end of what it wrote.
 /// Called from the scanout IRQ. The island sits inside the (active-low) hsync
 /// pulse; vsync_active says whether vsync is also asserted on this line.
+/// @param dst where the commands go
+/// @param line the scanline
+/// @param vsync_active the line is in the vertical sync
+/// @return the end of what it wrote
+/// @note runs in the scanout interrupt, from SRAM
 uint32_t *hdmi_audio_build_island(uint32_t *dst, uint32_t line, bool vsync_active);
 
 /// Producer side, for a core other than the one running the scanout IRQ:
 /// queues 4 stereo frames as one audio sample packet. Returns false while the
 /// queue is full.
+/// @param frames four stereo frames
+/// @return false while the queue is full
 bool hdmi_audio_push(const int16_t frames[4][2]);
 
 /// Producer side: true if hdmi_audio_push() would accept a packet now.
+/// @return true if a packet would be accepted
 bool hdmi_audio_has_room(void);
 
 /// How many times a packet was due but none was queued (core 1 was late).

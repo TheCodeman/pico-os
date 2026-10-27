@@ -32,7 +32,9 @@
 // ---- Keeping what is under a box ------------------------------------------------------------------
 
 typedef struct {
+    ///@{
     int x, y, w, h;
+    ///@}
     uint8_t *pixels;
 } under_t;
 
@@ -117,7 +119,9 @@ static void panel(int x, int y, int w, int h, const char *title, bool error) {
 
 /// Places to click inside a dialog.
 typedef struct {
+    ///@{
     int x, y, w, h, id;
+    ///@}
 } spot_t;
 
 static int spot_at(const spot_t *s, int n, int x, int y) {
@@ -428,7 +432,10 @@ static bool usable(const menu_item_t *it) {
 /// A drop-down's items, size and where each is.
 typedef struct {
     menu_item_t *items;
-    int n, x, y, w, h, rh;  ///< rh: an item's height (less if it wouldn't fit)
+    /// rh: an item's height (less if it wouldn't fit)
+    ///@{
+    int n, x, y, w, h, rh;
+    ///@}
     int item_y[40];
     int8_t acc[40];  ///< each item's key letter (its place in the text), -1 none
 } drop_t;

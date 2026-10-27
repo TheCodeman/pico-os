@@ -31,31 +31,51 @@ typedef struct {
     uint8_t button;   ///< DOWN and UP: the button that changed
     uint8_t buttons;  ///< all buttons held, after the event
     int8_t wheel;     ///< WHEEL: + away from you (up), - towards you
-    int16_t x, y;  ///< the pointer's position in pixels
+    /// the pointer's position in pixels
+    ///@{
+    int16_t x, y;
+    ///@}
     bool double_click;  ///< DOWN: the same button, same place, quickly again
 } mouse_event_t;
 
 /// How many mice are plugged in.
+/// @return the mice connected
 int mouse_count(void);
 /// Where the pointer is and the buttons held.
+/// @param x set to the pointer's x
+/// @param y set to its y
+/// @param buttons set to the buttons held (MOUSE_ bits)
 void mouse_get(int *x, int *y, int *buttons);
 /// The next event; false if none. Moves are merged (only the last is kept
 /// while nothing else happens).
+/// @param e filled in
+/// @return false if there was none
 bool mouse_event(mouse_event_t *e);
 void mouse_flush(void);  ///< forgets the events waiting
 /// The wheel's clicks since the last call (+ up).
+/// @return the clicks, + up
 int mouse_wheel(void);
 /// Puts the pointer somewhere.
+/// @param argc the argument count
+/// @param argv the arguments
+/// @param x the new x
+/// @param y the new y
 void mouse_warp(int x, int y);
 /// How fast the pointer moves: 1-10 (5 is half a pixel for each count the
 /// mouse sends), and whether fast moves go further.
+/// @param speed 1-10
+/// @param acceleration fast moves go further
 void mouse_set_speed(int speed, bool acceleration);
 /// The pointer speed and acceleration now.
+/// @param speed set to the speed
+/// @param acceleration set to whether acceleration is on
 void mouse_get_speed(int *speed, bool *acceleration);
 /// The shell's mouse command, and /MOUSE.CFG (read when the drive appears).
 void mouse_command(int argc, char **argv);
+/// @param mode MOUSE_POINTER_OFF, _ARROW or _TEXT
 /// Reads /MOUSE.CFG (the drive has appeared).
 void mouse_load_config(void);
+/// @return the MOUSE_POINTER_ mode
 
 /// The pointer on the screen, drawn by core 0.
 ///   MOUSE_POINTER_OFF: none (the default).
@@ -66,12 +86,25 @@ void mouse_load_config(void);
 ///   MOUSE_POINTER_TEXT: the text cell under it in reversed colours, kept up
 ///     to date by the console (the shell, mc, BASIC's text screen).
 enum { MOUSE_POINTER_OFF, MOUSE_POINTER_ARROW, MOUSE_POINTER_TEXT };
+/// @param dev_addr the USB device
+/// @param instance its HID interface
+/// @param boot_protocol the interface is in boot protocol
+/// @param desc its report descriptor
+/// @param desc_len the descriptor's length
+/// @return true if it is a mouse
 /// Sets how the pointer is shown (MOUSE_POINTER_ modes).
 void mouse_pointer(int mode);
 /// How the pointer is shown now.
+/// @param dev_addr the USB device
+/// @param instance its HID interface
 int mouse_pointer_mode(void);
 /// Kept for programs that hide the arrow while drawing: the video output draws it, so there is nothing to do.
 void mouse_pointer_hide(void);
+/// @param dev_addr the USB device
+/// @param instance its HID interface
+/// @param report the report
+/// @param len its length
+/// @return true if it was a mouse's
 /// Brings the arrow up to date (see mouse_pointer_update).
 void mouse_pointer_show(void);
 /// Moves the arrow to the mouse's position (call it in a program's loop).

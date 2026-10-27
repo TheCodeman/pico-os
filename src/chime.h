@@ -16,4 +16,7 @@
 void chime_begin(void);
 /// The next 48 kHz stereo frame, added to *left and *right; false once it
 /// has faded out.
+/// @param left added to: the left sample
+/// @param right added to: the right sample
+/// @return false once the chime has faded out
 bool chime_sample(int32_t *left, int32_t *right);

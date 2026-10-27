@@ -496,53 +496,106 @@ typedef struct {
     const xm_sample_t *smp;
     uint64_t pos;        ///< 32.32
     uint32_t step;       ///< 16.16 samples per frame
+    ///@{
     bool active, backwards;
-    int vol_l, vol_r;    ///< this tick's, 0..65536-ish
+    ///@}
+    /// this tick's, 0..65536-ish
+    ///@{
+    int vol_l, vol_r;
+    ///@}
     /// What the row asked for
     int note;            ///< 1..96 last note played (without relnote)
     int instrument;      ///< 1-based, 0 none
+    ///@{
     int period, target, out_period;
+    ///@}
+    ///@{
     int volume, out_volume, pan, out_pan;
+    ///@}
+    ///@{
     int finetune, relnote;
+    ///@}
     bool key_on;
     int fade;            ///< 0..32768
+    ///@{
     int venv_tick, penv_tick;
-    int env_vol, env_pan; ///< 0..64
-    int av_pos, av_amp;   ///< instrument auto-vibrato
+    ///@}
+    /// 0..64
+    ///@{
+    int env_vol, env_pan;
+    ///@}
+    /// instrument auto-vibrato
+    ///@{
+    int av_pos, av_amp;
+    ///@}
     /// Effects
+    ///@{
     int effect, param, vcmd;
+    ///@}
+    ///@{
     int porta_up, porta_down, fporta_up, fporta_down, xfporta_up, xfporta_down, porta_speed;
+    ///@}
+    ///@{
     int vib_speed, vib_depth, vib_pos, vib_wave;
+    ///@}
+    ///@{
     int trem_speed, trem_depth, trem_pos, trem_wave;
+    ///@}
+    ///@{
     int vslide, fvslide_up, fvslide_down, gvslide, pslide, offset;
+    ///@}
+    ///@{
     int retrig, retrig_vol, retrig_count;
+    ///@}
     int level;           ///< for meters, 0..64
+    ///@{
     int tremor, tremor_pos;
+    ///@}
+    ///@{
     bool tremor_off, gliss;
+    ///@}
+    ///@{
     int loop_row, loop_count;
+    ///@}
+    ///@{
     int delay_tick, cut_tick, keyoff_tick;
+    ///@}
     xm_cell_t delayed;
 } voice_t;
 
 static struct {
     xm_song_t *song;
+    ///@{
     volatile bool playing, paused;
+    ///@}
     bool loop;
+    ///@{
     int order, row, tick, speed, bpm, gvol;
+    ///@}
     int frames_left;
+    ///@{
     int next_order, next_row;
+    ///@}
     bool jump;
+    ///@{
     int pattern_delay, delay_count;
+    ///@}
     int master;          ///< 0..256
     voice_t *v;          ///< XM_MAX_CH of them, from the first play to xm_release (8 KB)
     int fixed_pattern;   ///< >= 0: that pattern over and over (the editor)
     bool muted[XM_MAX_CH];
     /// Requests from core 0
     volatile int req;    ///< 1 play, 2 stop, 3 jam
+    ///@{
     volatile unsigned req_seq, done_seq;
+    ///@}
     xm_song_t *req_song;
+    ///@{
     int req_order, req_row, req_pattern;
+    ///@}
+    ///@{
     int jam_ch, jam_ins, jam_note;
+    ///@}
 } X = {.loop = true, .master = 256, .fixed_pattern = -1};
 
 /// FT2 periods: 64 a semitone; C-4 (note 49, finetune 0) is 4608 in the linear table.

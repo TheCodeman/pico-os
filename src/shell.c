@@ -181,7 +181,9 @@ static bool more(void) {
 /// One entry per command: its name, other names, a line for the overview, and
 /// the usage and details `help name` prints.
 typedef struct {
+    ///@{
     const char *name, *aliases, *summary, *usage;
+    ///@}
 } help_t;
 
 static const help_t help_files[] = {
@@ -538,9 +540,14 @@ static void cmd_mkdir(int argc, char **argv) {
 
 /// What a copy (or delete) of several files has done so far.
 typedef struct {
-    bool ask, all;  ///< ask before overwriting; "a" was answered
+    /// ask before overwriting; "a" was answered
+    ///@{
+    bool ask, all;
+    ///@}
     bool stop;      ///< Esc or Ctrl-C
+    ///@{
     int files, dirs;
+    ///@}
     long long bytes;
 } batch_t;
 
@@ -1064,7 +1071,9 @@ static void cmd_mem(int argc, char **argv) {
 static struct {
     uint32_t *p;           ///< cached address of the block under test
     size_t words;
+    ///@{
     uint32_t start_ms, end_ms, next_check_ms;
+    ///@}
     uint32_t bad_total;    ///< words found wrong, all checks together
     uint8_t scrub_s;
 } soak;

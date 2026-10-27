@@ -41,7 +41,10 @@ typedef struct {
     char error[96];       ///< why it stopped (RADIO_ERROR, RADIO_ENDED)
     char codec[8];        ///< "MP3", "AAC" or "HE-AAC" (24 kHz or less: its core)
     int bitrate;          ///< kbit/s from the stream
-    int samplerate, channels;  ///< the stream's sample rate and channels
+    /// the stream's sample rate and channels
+    ///@{
+    int samplerate, channels;
+    ///@}
     int buffer_ms;        ///< compressed audio waiting
     int buffer_pct;       ///< of the buffer
     uint32_t underruns;   ///< times the buffer ran dry
@@ -54,18 +57,27 @@ typedef struct {
 /// Connects to a stream (following redirects and .pls/.m3u playlists) and
 /// starts it playing. Blocks while connecting; Esc gives up. False (with
 /// st.error set) if it can't.
+/// @param url the stream's or playlist's address
+/// @param name the station's name, or NULL
+/// @return false if it couldn't start (why is in the status)
 bool radio_play(const char *url, const char *name);
 /// Stops the radio and frees its memory.
 void radio_stop(void);
+/// @return true while connecting, buffering or playing
 bool radio_active(void);  ///< connecting, buffering or playing
 /// What the radio is doing now.
+/// @param st filled in
 void radio_get_status(radio_status_t *st);
 /// Sets the volume, 0-100%.
+/// @param percent 0-100
 void radio_set_volume(int percent);
 /// The volume, 0-100%.
+/// @return 0-100
 int radio_volume(void);
+/// @param on mute on or off
 void radio_set_mute(bool on);  ///< silent, but still playing (the volume is kept)
 /// True if the radio is muted.
+/// @return true if muted
 bool radio_muted(void);
 /// Ctrl+Alt+M from the keyboard (core 1): toggles mute if the radio is
 /// playing. radio_note_poll (core 0, from the keyboard's input) shows a note
@@ -77,12 +89,24 @@ void radio_note_poll(void);
 /// Fetches a small HTTP(S) document (a playlist, a station search) into out
 /// (up to max - 1 bytes, 0-terminated). The body's length, or -1 with why in
 /// *err.
+/// @param url the address
+/// @param out where the body goes
+/// @param max its size
+/// @param err set to why, on failure
+/// @return the body's length, or -1
 int radio_http_get(const char *url, char *out, int max, const char **err);
 
 /// radio_browser.c: searches radio-browser.info (MP3 and AAC stations, most listened
 /// first). `what` is a name, or "tag:jazz", "country:DE", "lang:french".
 /// Returns the number found (at most max), or -1 with why in *err.
+/// @param what a name, or "tag:", "country:", "lang:" and a value
+/// @param out where the stations go
+/// @param max room in out
+/// @param err set to why, on failure
+/// @return the stations found, or -1
 int radio_search(const char *what, radio_station_t *out, int max, const char **err);
 
 /// radio_ui.c: the shell command.
+/// @param argc the argument count
+/// @param argv the arguments
 void radio_command(int argc, char **argv);

@@ -28,8 +28,13 @@
 #define CELLS (SCR_W * SCR_H)
 
 typedef struct {
+    ///@{
     uint8_t ch[CELLS], at[CELLS];
-    int row, col;  ///< the cursor
+    ///@}
+    /// the cursor
+    ///@{
+    int row, col;
+    ///@}
 } screen_t;
 
 static screen_t *want, *have, *user;

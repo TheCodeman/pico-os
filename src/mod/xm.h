@@ -43,7 +43,10 @@ typedef struct {
     char name[23];  ///< the sample's name
     int16_t *data;        ///< 16-bit, whatever the file had (8-bit is scaled up)
     uint32_t length;      ///< in samples
-    uint32_t loop_start, loop_len;  ///< the loop's start and length, in samples
+    /// the loop's start and length, in samples
+    ///@{
+    uint32_t loop_start, loop_len;
+    ///@}
     uint8_t loop;         ///< 0 none, 1 forward, 2 ping-pong
     bool bits16;          ///< as stored in the file (for saving it back)
     uint8_t volume;       ///< 0..64
@@ -55,13 +58,19 @@ typedef struct {
 
 /// A point of an envelope: tick and value.
 typedef struct {
-    uint16_t x, y;        ///< tick, value 0..64
+    /// tick, value 0..64
+    ///@{
+    uint16_t x, y;
+    ///@}
 } xm_point_t;
 
 /// An envelope: its points, sustain and loop.
 typedef struct {
     xm_point_t points[12];  ///< the envelope's points
-    uint8_t count, sustain, loop_start, loop_end;  ///< points used, the sustain point and the loop's ends
+    /// points used, the sustain point and the loop's ends
+    ///@{
+    uint8_t count, sustain, loop_start, loop_end;
+    ///@}
     uint8_t flags;        ///< 1 on, 2 sustain, 4 loop
 } xm_env_t;
 
@@ -71,16 +80,28 @@ typedef struct {
     uint8_t keymap[96];   ///< the sample for each note (0-based)
     int nsamples;  ///< its samples
     xm_sample_t *samples; ///< nsamples of them (from xm_alloc)
-    xm_env_t venv, penv;  ///< its volume and panning envelopes
-    uint8_t vib_type, vib_sweep, vib_depth, vib_rate;  ///< its vibrato: type, sweep, depth and rate
+    /// its volume and panning envelopes
+    ///@{
+    xm_env_t venv, penv;
+    ///@}
+    /// its vibrato: type, sweep, depth and rate
+    ///@{
+    uint8_t vib_type, vib_sweep, vib_depth, vib_rate;
+    ///@}
     uint16_t fadeout;  ///< how fast notes fade after release
     uint8_t type;         ///< as the file had them, to write back the same
-    uint32_t header_size, sample_header_size;  ///< the sizes its file gave (kept for saving)
+    /// the sizes its file gave (kept for saving)
+    ///@{
+    uint32_t header_size, sample_header_size;
+    ///@}
 } xm_instrument_t;
 
 /// One cell of an XM pattern: note, instrument, volume column, effect and parameter.
 typedef struct {
-    uint8_t note, instrument, volume, effect, param;  ///< note, instrument, volume column, effect and parameter
+    /// note, instrument, volume column, effect and parameter
+    ///@{
+    uint8_t note, instrument, volume, effect, param;
+    ///@}
 } xm_cell_t;
 
 /// An XM pattern: its rows of cells.
@@ -94,9 +115,15 @@ typedef struct {
     char title[21];  ///< the song's title
     char tracker[21];  ///< the tracker that wrote it
     uint16_t version;  ///< the file's version
-    int length, restart, channels, npatterns, ninstruments;  ///< the order list's length, restart position, channels, patterns and instruments
+    /// the order list's length, restart position, channels, patterns and instruments
+    ///@{
+    int length, restart, channels, npatterns, ninstruments;
+    ///@}
     bool linear;          ///< linear frequencies (else Amiga periods)
-    int speed, bpm;  ///< the starting speed and BPM
+    /// the starting speed and BPM
+    ///@{
+    int speed, bpm;
+    ///@}
     uint8_t orders[256];  ///< the order list
     xm_pattern_t patterns[XM_MAX_PATTERNS];  ///< the patterns
     xm_instrument_t *instruments;  ///< ninstruments of them (from xm_alloc)
@@ -130,7 +157,10 @@ void xm_xi_save(const xm_instrument_t *in, uint8_t *out);
 /// What the XM player is doing, for the screen.
 typedef struct {
     bool playing;  ///< playing now
-    int order, pattern, row, speed, bpm;  ///< where it is, and the speed and BPM
+    /// where it is, and the speed and BPM
+    ///@{
+    int order, pattern, row, speed, bpm;
+    ///@}
     int global_volume;     ///< 0..64
     int active;            ///< voices sounding
     uint8_t level[XM_MAX_CH];  ///< each channel's level now, 0..64

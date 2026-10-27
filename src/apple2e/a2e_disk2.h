@@ -40,7 +40,10 @@ typedef struct {
     a2e_drive drive[2];  ///< the controller's two drives
     int sel;             ///< 0 or 1
     uint8_t phases;      ///< stepper magnets on, bits 0-3
-    bool motor, q6, q7;  ///< motor: the switch ($C0E9 on, $C0E8 off)
+    /// motor: the switch ($C0E9 on, $C0E8 off)
+    ///@{
+    bool motor, q6, q7;
+    ///@}
     uint8_t latch;  ///< the data latch the CPU reads and writes
     bool shifting;       ///< the next read sees the latch filling, not a nibble
     /// A drive keeps spinning for about a second after the motor is switched
@@ -53,20 +56,38 @@ typedef struct {
 /// The P5 boot ROM (341-0027). Some dumps have data lines D4-D7 reversed
 /// and address lines A5 and A7 swapped; this puts them right. False if it
 /// isn't the boot ROM either way.
+/// @param p5 the 256-byte ROM, put right in place if its lines are swapped
+/// @return true if it is (now) the P5 boot ROM
 bool a2e_disk2_check_rom(uint8_t p5[256]);
 /// Puts the card in a slot (6 as a rule) with its boot ROM.
+/// @param m the machine
+/// @param c the card
+/// @param slot its slot (1-7)
+/// @param p5 the boot ROM
 void a2e_disk2_install(a2e *m, a2e_disk2 *c, int slot, const uint8_t p5[256]);
 /// Inserts an image into drive 0 or 1 (NULL removes it, flushing first).
+/// @param c the card
+/// @param drive 0 or 1
+/// @param image the 140 KB image (kept where it is), or NULL
+/// @param prodos_order the image is in ProDOS sector order (.po)
+/// @param write_protect the disk can't be written
 void a2e_disk2_insert(a2e_disk2 *c, int drive, uint8_t *image, bool prodos_order,
                       bool write_protect);
 /// Decodes anything written to the current track back into the image. Call
 /// before saving it.
+/// @param c the card
+/// @param drive 0 or 1
 void a2e_disk2_flush(a2e_disk2 *c, int drive);
 /// Whether the selected drive's disk is turning.
+/// @param c the card
+/// @return true while the selected drive's motor is on
 static inline bool a2e_disk2_spinning(const a2e_disk2 *c) {
     return c->motor || *c->now < c->spin_until;
 }
 /// Whether the drive's light is on.
+/// @param c the card
+/// @param drive 0 or 1
+/// @return true while the drive's light is on
 static inline bool a2e_disk2_active(const a2e_disk2 *c, int drive) {
     return a2e_disk2_spinning(c) && c->sel == drive;
 }

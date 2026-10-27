@@ -120,7 +120,9 @@ typedef struct {
     int nfields;
     struct {
         char **slot;      ///< the FIELD variable
+        ///@{
         uint16_t off, len;
+        ///@}
     } fields[MAX_FIELDS];
     bool com_lf;          ///< COM1: send LF after each CR (the LF option)
     char name[64];
@@ -807,7 +809,9 @@ typedef struct fn {
     const char *body;    ///< text after '='
     /// Across CHAIN ... ALL (see keep_fns_for_chain): the line number, where
     /// the body was in it, and a copy of it.
+    ///@{
     int line_num, body_off;
+    ///@}
     char *saved;
 } fn_t;
 
@@ -1016,7 +1020,9 @@ static pos_t data_pos;  ///< next DATA item
 
 typedef struct {
     var_t *var;
+    ///@{
     double limit, step;
+    ///@}
     pos_t body;
 } for_frame_t;
 static for_frame_t *for_stack;  ///< STACK_MAX each, while BASIC runs (SRAM is short)
@@ -1026,7 +1032,9 @@ static int for_depth;
 /// touch the caller's loops (a FOR X inside a FOR X loop's subroutine).
 typedef struct {
     pos_t ret;
+    ///@{
     int for_base, while_base;
+    ///@}
     int event;  ///< the trapped event this GOSUB handles, or -1
 } gosub_frame_t;
 static gosub_frame_t *gosub_stack;
@@ -2679,7 +2687,9 @@ static void do_print(void) {
 typedef struct {
     int digits;       ///< positions before the point, including ** and $$ ones
     int decimals;     ///< digits after the point
+    ///@{
     bool point, comma, star, dollar, plus_lead, plus_trail, minus_trail;
+    ///@}
     int exp_digits;   ///< 0, or 2/3 for ^^^^ / ^^^^^
 } num_field_t;
 
@@ -3191,7 +3201,9 @@ enum { EV_OFF, EV_ON, EV_STOP };
 typedef struct {
     int line;     ///< the handler, 0 none
     int state;
+    ///@{
     bool pending, in_handler;
+    ///@}
 } event_t;
 static event_t (*events_p)[EV_COUNT];  ///< (basic_ram, while BASIC runs)
 #define events (*events_p)
@@ -5211,17 +5223,29 @@ static void do_gput(void) {
 #define SHAPES  64
 
 typedef struct {
+    ///@{
     int w, h;
+    ///@}
     uint8_t *px;    ///< colours (RGB332), w * h
     uint8_t *mask;  ///< 1 where the shape isn't see-through
 } shape_t;
 
 typedef struct {
+    ///@{
     bool on, drawn;
+    ///@}
     int shape;
+    ///@{
     double x, y, dx, dy;
-    int ox, oy, oshape;  ///< where and as what it was drawn,
-    int bx, by, bw, bh;  ///< the part on screen, and what was there:
+    ///@}
+    /// where and as what it was drawn,
+    ///@{
+    int ox, oy, oshape;
+    ///@}
+    /// the part on screen, and what was there:
+    ///@{
+    int bx, by, bw, bh;
+    ///@}
     uint8_t *bg;
     int bg_cap;
 } sprite_t;
@@ -5708,13 +5732,20 @@ static value_t spi_function(void) {
 #define MAX_FONTS 9
 
 typedef struct {
+    ///@{
     bool loaded, prop;
+    ///@}
     char path[64];
+    ///@{
     int cw, ch, first, count, perrow, gap;
+    ///@}
     int key;           ///< the see-through colour (RGB332), -1 none, -2 the top-left pixel's
     uint8_t *pix;      ///< count glyphs of cw x ch: RGB332
     uint8_t *solid;    ///< 1 where drawn
-    uint8_t *left, *width;  ///< each glyph's drawn columns (for proportional spacing)
+    /// each glyph's drawn columns (for proportional spacing)
+    ///@{
+    uint8_t *left, *width;
+    ///@}
     uint16_t *sum;     ///< each glyph's checksum
 } font_t;
 

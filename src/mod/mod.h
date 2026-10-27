@@ -67,7 +67,10 @@ typedef struct {
 /// A cell, decoded: period 0 = no note; sample 0 = none.
 typedef struct {
     uint16_t period;  ///< the note, as an Amiga period
-    uint8_t sample, effect, param;  ///< the sample number, effect and its parameter
+    /// the sample number, effect and its parameter
+    ///@{
+    uint8_t sample, effect, param;
+    ///@}
 } mod_cell_t;
 
 /// From the port: memory for songs and samples (PSRAM on the board).
@@ -104,8 +107,14 @@ enum { MOD_STOPPED, MOD_SONG, MOD_PATTERN };
 /// What the player is doing, for the screen.
 typedef struct {
     int state;                 ///< MOD_STOPPED / MOD_SONG / MOD_PATTERN
-    int order, pattern, row;   ///< where it is
-    int speed, tempo;  ///< ticks per row, and BPM
+    /// where it is
+    ///@{
+    int order, pattern, row;
+    ///@}
+    /// ticks per row, and BPM
+    ///@{
+    int speed, tempo;
+    ///@}
     uint8_t level[MOD_MAX_CH]; ///< for VU meters, 0..64
     bool muted[MOD_MAX_CH];  ///< muted channels
     uint8_t sample[MOD_MAX_CH];  ///< what each channel plays (0: nothing), and where

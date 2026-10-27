@@ -35,9 +35,15 @@ enum { APP_OV_NONE, APP_OV_C64, APP_OV_APPLESOFT, APP_OV_APPLE2E, APP_OV_GENESIS
 
 /// Makes the area the app's: stops whoever had it (the radio), then copies
 /// the app's code and data in (zeroed variables included).
+/// @param app the app (APP_OV_ value) whose code and data to copy in
 void app_overlay_load(int app);
 /// The area as raw memory for `app` (the radio), and its size. `release` is
 /// called if another app wants it.
+/// @param app the app claiming the area (APP_OV_RADIO)
+/// @param size set to the area's size in bytes
+/// @param release called if another app takes the area
+/// @return the area's start
 void *app_overlay_claim(int app, size_t *size, void (*release)(void));
 /// The app the shared area belongs to now (APP_OV_NONE if none).
+/// @return the APP_OV_ value of the app holding the area
 int app_overlay_owner(void);

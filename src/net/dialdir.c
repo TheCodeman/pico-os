@@ -30,7 +30,9 @@ static bool attr(const char *p, const char *end, const char *key, char *out, siz
             char c = *q;
             if (c == '&') {
                 static const struct { const char *e; char c; } ents[] = {
+                    ///@{
                     {"&amp;", '&'}, {"&lt;", '<'}, {"&gt;", '>'}, {"&quot;", '"'}, {"&apos;", '\''}};
+                    ///@}
                 for (unsigned i = 0; i < sizeof ents / sizeof *ents; ++i) {
                     size_t el = strlen(ents[i].e);
                     if (q + el <= end && !memcmp(q, ents[i].e, el)) {

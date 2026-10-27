@@ -30,12 +30,20 @@ bool confirm_delete = true, confirm_overwrite = true, confirm_exit = false;
 enum { OW_ASK, OW_ALL, OW_NONE, OW_OLDER };
 
 typedef struct {
+    ///@{
     bool move, abort;
+    ///@}
     int overwrite;
+    ///@{
     uint64_t total_bytes, done_bytes;
+    ///@}
+    ///@{
     int total_files, done_files;
+    ///@}
     uint8_t *buf;   ///< PSRAM, with the two files
+    ///@{
     FIL *src, *dst;
+    ///@}
 } job_t;
 
 /// The names in a folder, folders marked with a leading '/'.
@@ -335,7 +343,10 @@ void op_copy(bool move) {
 // ---- Delete --------------------------------------------------------------------------------------
 
 typedef struct {
-    bool all, abort;  ///< delete non-empty folders without asking; stop
+    /// delete non-empty folders without asking; stop
+    ///@{
+    bool all, abort;
+    ///@}
     int done;
 } del_t;
 
@@ -452,7 +463,9 @@ void op_mkdir(void) {
 // ---- Find file -------------------------------------------------------------------------------------
 
 typedef struct {
+    ///@{
     const char *pattern, *text;
+    ///@}
     char **found;
     int n;
     bool abort;

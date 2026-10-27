@@ -68,11 +68,19 @@ enum { IT_LOAD = 1, IT_ADD, IT_DEL, IT_NEWINS, IT_PATTERNS };
 
 static struct {
     int smp;          ///< the sample chosen in the instrument (0-based)
+    ///@{
     int field, ins_top;
-    int drag_env, drag_point;  ///< dragging an envelope point (env 0 vol, 1 pan)
+    ///@}
+    /// dragging an envelope point (env 0 vol, 1 pan)
+    ///@{
+    int drag_env, drag_point;
+    ///@}
     int drag_loop;    ///< 1 loop start, 2 loop end
     bool selecting;   ///< dragging out a selection on the waveform
-    uint32_t sel0, sel1;  ///< the selection, in samples (sel1 > sel0 if any)
+    /// the selection, in samples (sel1 > sel0 if any)
+    ///@{
+    uint32_t sel0, sel1;
+    ///@}
 } I;
 
 static xm_song_t *S(void) {
@@ -790,7 +798,9 @@ static void envelope_preset(void) {
         "Panning: off",
     };
     static const struct {
+        ///@{
         uint8_t count, sus, ls, le, flags;
+        ///@}
         xm_point_t p[6];
         uint16_t fadeout;
     } presets[] = {

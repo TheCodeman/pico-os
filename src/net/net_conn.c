@@ -33,7 +33,10 @@ struct net_conn {
     struct tcp_pcb *pcb;
     volatile int state;
     volatile err_t err;
-    volatile size_t head, tail;  ///< ring: lwIP writes at head, we read at tail
+    /// ring: lwIP writes at head, we read at tail
+    ///@{
+    volatile size_t head, tail;
+    ///@}
     uint8_t ring[RING_SIZE];
 };
 

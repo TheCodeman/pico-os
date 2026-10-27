@@ -272,13 +272,23 @@ typedef struct {
     int out_volume;        ///< this tick (tremolo)
     int finetune;
     /// Effects and their memories
+    ///@{
     int effect, param;
+    ///@}
+    ///@{
     int porta_target, porta_speed;
+    ///@}
+    ///@{
     int vib_pos, vib_speed, vib_depth, vib_wave;
+    ///@}
+    ///@{
     int trem_pos, trem_speed, trem_depth, trem_wave;
+    ///@}
     int offset_mem;
     bool gliss;            ///< E3x: tone portamento in semitones
+    ///@{
     int loop_row, loop_count;
+    ///@}
     int delay_tick;        ///< EDx: the note waits
     mod_cell_t delayed;
     int pan;               ///< 0 left .. 256 right
@@ -290,12 +300,21 @@ typedef struct {
 static struct {
     mod_song_t *song;
     volatile int state;
+    ///@{
     int order, pattern, row, tick;
+    ///@}
+    ///@{
     int speed, tempo;
+    ///@}
     int frames_left;          ///< until the next tick
-    int next_order, next_row; ///< set by B/D
+    /// set by B/D
+    ///@{
+    int next_order, next_row;
+    ///@}
     bool jump;
+    ///@{
     int pattern_delay, delay_count;
+    ///@}
     channel_t ch[MOD_MAX_CH];
     bool muted[MOD_MAX_CH];
     int separation;           ///< 0..100
@@ -304,12 +323,20 @@ static struct {
     int volume;               ///< 0..256
     /// Requests from core 0, taken by the player at its next frame.
     volatile int req;         ///< 0 none, 1 play, 2 stop, 3 jam
+    ///@{
     int req_order, req_row, req_pattern_only;
+    ///@}
     mod_song_t *req_song;
+    ///@{
     int jam_ch, jam_sample, jam_note;
+    ///@}
     int fixed_pattern;        ///< MOD_PATTERN: the pattern looped
+    ///@{
     int start_speed, start_tempo;
+    ///@}
+    ///@{
     volatile unsigned req_seq, done_seq;
+    ///@}
     int8_t (*scope)[256];     ///< each channel's last mixed values (from mod_alloc)
 } P = {.separation = 70, .start_speed = 6, .start_tempo = 125, .volume = 256};
 

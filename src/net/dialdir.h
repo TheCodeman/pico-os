@@ -24,4 +24,9 @@ typedef struct {
 /// The entries in text (0-terminated) into out (up to max; out NULL: just
 /// counts them). Ones that aren't telnet or SSH, or have no host, are left
 /// out and counted in *skipped.
+/// @param text the XML, 0-terminated
+/// @param out where the entries go, or NULL to count them
+/// @param max room in out
+/// @param skipped set to the entries left out, or NULL
+/// @return the entries found
 int dialdir_parse(const char *text, dial_entry_t *out, int max, int *skipped);

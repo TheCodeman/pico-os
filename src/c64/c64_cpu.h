@@ -19,7 +19,10 @@
 /// The C64's 6510 CPU: registers and cycle count.
 typedef struct c64_cpu {
     uint16_t pc;  ///< program counter
-    uint8_t a, x, y, s, p;  ///< accumulator, index registers, stack pointer and status
+    /// accumulator, index registers, stack pointer and status
+    ///@{
+    uint8_t a, x, y, s, p;
+    ///@}
     bool irq;         ///< the IRQ line (level), held by whatever wants service
     bool nmi;         ///< an NMI edge waiting to be taken
     bool jammed;      ///< a JAM opcode stopped the CPU; only reset restarts it
@@ -41,9 +44,12 @@ enum {
 };
 
 /// Loads the reset vector, sets S and P as a reset does.
+/// @param c the CPU
 void c64_cpu_reset(c64_cpu *c);
 
 /// Runs one instruction, or takes an NMI, or the IRQ if the line is held and
 /// interrupts are enabled; returns the cycles it took (2 while jammed, so
 /// time still passes).
+/// @param c the CPU
+/// @return the cycles it took
 int c64_cpu_step(c64_cpu *c);

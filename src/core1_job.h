@@ -10,6 +10,8 @@
 
 /// Core 0: core 1 calls fn each time round its loop until core1_job_stop. fn
 /// must return soon (well under a millisecond): USB waits while it runs.
+/// @param fn the job
+/// @note fn runs on core 1 between USB tasks: keep each call well under a millisecond
 void core1_job_start(void (*fn)(void));
 /// Core 0: stops calling it, and returns once core 1 is out of it.
 void core1_job_stop(void);

@@ -97,8 +97,12 @@ static struct {
     radio_station_t *found;     ///< search results (PSRAM)
     int nfound;
     char search[64];
+    ///@{
     int tab, sel[NTABS], top[NTABS];
+    ///@}
+    ///@{
     char last_url[200], last_name[64];
+    ///@}
     char msg[96];
     uint32_t msg_until;
     bool dragging_volume;
@@ -168,7 +172,9 @@ static void show(int x, int y, int w, int h) {
 enum { HIT_TAB = 1, HIT_ROW, HIT_STAR, HIT_STOP, HIT_PLAY, HIT_FAV, HIT_VOLUME, HIT_MUTE, HIT_SEARCH, HIT_URL, HIT_QUIT };
 
 typedef struct {
+    ///@{
     int16_t x, y, w, h, id, arg;
+    ///@}
 } hit_t;
 static hit_t *hits;  ///< 64 of them, while the browser is open (PSRAM)
 static int nhits;

@@ -11,4 +11,6 @@
 /// apple2e [-d folder] [disk1 [disk2]]: runs until F10. The ROMs are found in
 /// folder (default /APPLE2E); disks are .dsk/.do (DOS order) or .po (ProDOS
 /// order) 140 KB images, looked for as given and then in folder.
+/// @param argc the argument count
+/// @param argv the arguments, as the shell passes them
 void apple2e_main(int argc, char **argv);

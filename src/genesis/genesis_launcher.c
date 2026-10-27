@@ -133,7 +133,9 @@ static void join(char *out, size_t n, const char *dir, const char *name) {
 
 typedef struct {
     bool ok;
+    ///@{
     char system[17], title[49], domestic[49], serial[15], region[24];
+    ///@}
 } rom_info;
 
 /// A header field: printable, runs of spaces made one, trimmed.
@@ -286,7 +288,9 @@ static void draw_info(const char *dir, int cur) {
     read_info(path, &ri);
     // A label, and its text over as many lines as it needs (at most max).
     struct {
+        ///@{
         const char *label, *text;
+        ///@}
         uint8_t colour;
         int max;
     } rows[] = {

@@ -21,9 +21,13 @@ enum {
 
 typedef struct {
     uint16_t page;
+    ///@{
     int32_t min, max;
+    ///@}
     uint32_t max_raw;  ///< the maximum's bytes as unsigned
+    ///@{
     uint32_t size, count, id;
+    ///@}
 } globals;
 
 /// The bits used so far in each numbered report.

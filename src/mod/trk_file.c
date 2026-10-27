@@ -121,10 +121,14 @@ enum { FB_NONE, FB_PARENT, FB_ROOT, FB_SHARE, FB_FILTER, FB_OK, FB_CANCEL, FB_UP
        FB_TRACK, FB_LIST, FB_NAME };
 
 typedef struct {
+    ///@{
     const char *title, *exts;
+    ///@}
     bool save;
     fp_entry_t *ent;
+    ///@{
     int n, sel, top;
+    ///@}
     char name[128];
     int cur;          ///< the cursor in the name
     char shares[2][24];

@@ -9,4 +9,6 @@
 #pragma once
 
 /// The term / serial shell command: term [baud] [format, e.g. 8N1].
+/// @param argc the argument count
+/// @param argv the arguments
 void term_command(int argc, char **argv);

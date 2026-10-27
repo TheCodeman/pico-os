@@ -34,7 +34,10 @@ typedef struct c64_drive c64_drive;
 /// The 1541: its 6502, two VIAs, RAM, ROM, head and the GCR data of the disk.
 struct c64_drive {
     c64_cpu cpu;  ///< the drive's 6502
-    c64_via via1, via2;  ///< VIA 1 (the serial bus) and VIA 2 (the head and motor)
+    /// VIA 1 (the serial bus) and VIA 2 (the head and motor)
+    ///@{
+    c64_via via1, via2;
+    ///@}
     uint8_t *ram;          ///< 2 KB
     const uint8_t *rom;    ///< 16 KB, $C000-$FFFF
     const uint8_t *rd[256];  ///< each 256-byte page's memory for reading
@@ -61,7 +64,9 @@ struct c64_drive {
 
     /// Time: the drive's cycles; while it idles, the VIAs are only run up to
     /// via_at, and nothing need happen before wake_at (a timer's interrupt).
+    ///@{
     uint64_t cycles, via_at, wake_at;
+    ///@}
 
     /// The serial bus: the C64's CIA 2 (whose port A drives ATN, CLOCK and
     /// DATA through inverters).
@@ -70,17 +75,39 @@ struct c64_drive {
 };
 
 /// Sets up a drive whose ram, rom and gcr are already pointed to; resets it.
+/// @param d the drive
+/// @param cia2 the C64's CIA 2 (the serial bus)
 void c64_drive_init(c64_drive *d, const c64_cia *cia2);
 /// Resets the drive (as at power-on).
+/// @param d the drive
 void c64_drive_reset(c64_drive *d);
 /// Puts a .d64 in (NULL takes the disk out). The drive writes into it only
 /// at c64_drive_flush.
+/// @param d the drive
+/// @param d64 the image, or NULL
+/// @param size its size
+/// @param write_protect the disk can't be written
 void c64_drive_insert(c64_drive *d, uint8_t *d64, size_t size, bool write_protect);
 /// Writes the tracks changed back into the .d64; true if any were.
+/// @param d the drive
+/// @param clk_low set if the drive holds CLOCK low
+/// @param data_low set if it holds DATA low
+/// @param d the drive
+/// @return true if any track was written back
+/// @param d the drive
+/// @return true while the LED is lit
 bool c64_drive_flush(c64_drive *d);
 /// Starts the drive's clock at the C64's cycle count (when plugging it in).
+/// @param d the drive
+/// @return true while the motor runs
+/// @param d the drive
+/// @param c64_cycles the C64's cycle count
+/// @param d the drive
+/// @return the track (1-35), or 0 between tracks
 void c64_drive_sync(c64_drive *d, uint64_t c64_cycles);
 /// Runs the drive until it has caught up with the C64's cycle count.
+/// @param d the drive
+/// @param c64_cycles the C64's cycle count to catch up to
 void c64_drive_run_to(c64_drive *d, uint64_t c64_cycles);
 /// The serial bus's CLOCK and DATA lines as the drive pulls them (true:
 /// held low), for the C64's CIA 2 to read.

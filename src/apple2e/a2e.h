@@ -47,15 +47,25 @@ struct a2e {
     uint8_t *wr[256];  ///< where each 256-byte page is written (NULL: not writable)
 
     /// MMU switches.
+    ///@{
     bool store80, ramrd, ramwrt, intcxrom, altzp, slotc3rom, intc8rom;
-    bool lc_bank2, lc_read_ram, lc_write_ram, lc_prewrite;  ///< language card banking: bank 2, reading RAM, writing RAM, write armed
+    ///@}
+    /// language card banking: bank 2, reading RAM, writing RAM, write armed
+    ///@{
+    bool lc_bank2, lc_read_ram, lc_write_ram, lc_prewrite;
+    ///@}
     /// IOU switches.
+    ///@{
     bool text, mixed, page2, hires, col80, altchar, dhires, ioudis;
+    ///@}
     bool an[4];  ///< the four annunciator outputs
 
     /// Keyboard: the last key (7 bits) and the strobe (bit 7 of $C000).
     uint8_t key;
-    bool strobe, key_down;  ///< the keyboard strobe, and whether a key is held
+    /// the keyboard strobe, and whether a key is held
+    ///@{
+    bool strobe, key_down;
+    ///@}
     /// Game port: Open Apple, Solid Apple (buttons 0 and 1) and button 2;
     /// paddles 0-255.
     bool button[3];

@@ -12,4 +12,6 @@
 /// games in folder (default /GENESIS) to pick from (genesis_launcher.h),
 /// coming back to the list after each until Esc or F10 there. F9 in a game
 /// goes to the list. The ROM is looked for as given and then in folder.
+/// @param argc the argument count
+/// @param argv the arguments, as the shell passes them
 void genesis_main(int argc, char **argv);

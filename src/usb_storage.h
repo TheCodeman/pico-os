@@ -20,10 +20,13 @@ void usb_storage_task(void);
 /// Core 1: true while a drive transfer is queued or running. Control
 /// transfers must wait: on the RP2350 host they share one endpoint with bulk
 /// transfers.
+/// @return true while a transfer is queued or running
 bool usb_storage_busy(void);
 
 /// Any core: true while a drive is attached and ready.
+/// @return true while a drive is ready
 bool usb_storage_ready(void);
 
 /// Any core: capacity of the attached drive in 512-byte sectors (0 if none).
+/// @return the sectors, or 0
 uint32_t usb_storage_sectors(void);

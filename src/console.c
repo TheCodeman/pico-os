@@ -50,10 +50,16 @@ static bool autowrap = true;
 static int scroll_top, scroll_bottom = CONSOLE_ROWS - 1;  ///< scroll region, inclusive
 
 static struct {
+    ///@{
     int col, row;
+    ///@}
+    ///@{
     uint8_t fg, bg;
+    ///@}
     int fg_idx;
+    ///@{
     bool bold, reverse;
+    ///@}
 } saved;
 
 /// Escape sequence parser.
@@ -72,8 +78,12 @@ static bool g0_lines, g1_lines, shift_out;
 static bool app_cursor;
 static void (*reply_fn)(const char *text, int len);
 static struct alt_screen {
+    ///@{
     uint8_t ch[CONSOLE_ROWS][CONSOLE_COLS], attr[CONSOLE_ROWS][CONSOLE_COLS];
+    ///@}
+    ///@{
     int col, row;
+    ///@}
 } *alt_saved;  ///< the main screen while the alternate one is up
 
 /// The blink timer runs in an IRQ, so it skips its turn while a write is

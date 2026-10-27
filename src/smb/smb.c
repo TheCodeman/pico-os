@@ -63,7 +63,9 @@ enum {
 struct smb {
     net_conn_t *conn;
     uint8_t *buf;  ///< PSRAM
+    ///@{
     uint64_t msg_id, session_id;
+    ///@}
     uint32_t tree_id;
     uint16_t dialect;
     bool sign;  ///< requests are signed (and signed answers checked)
@@ -71,7 +73,9 @@ struct smb {
     bool dead;
     uint8_t signing_key[16];
     uint8_t preauth[64];  ///< 3.1.1: hash of the negotiate and login messages
+    ///@{
     uint32_t max_read, max_write, max_trans;
+    ///@}
     size_t resp_len;  ///< the last answer's SMB2 message length
 };
 

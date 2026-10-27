@@ -36,7 +36,9 @@ enum {
 typedef struct {
     uint8_t kind;
     int16_t index;
+    ///@{
     uint32_t size, sum;
+    ///@}
     uint8_t *data;
 } rec_t;
 
@@ -49,7 +51,9 @@ static int nundo, nredo;
 static uint32_t used;
 
 typedef struct {
+    ///@{
     int kind, index;
+    ///@}
     uint32_t size;
     uint8_t *buf;
     bool valid;
@@ -60,7 +64,9 @@ static uint8_t *scratch;
 typedef struct {
     char title[21];
     uint8_t orders[256];
+    ///@{
     int length, restart, speed, bpm;
+    ///@}
 } song_state_t;
 
 static uint32_t checksum(const uint8_t *p, uint32_t n) {

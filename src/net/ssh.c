@@ -65,7 +65,9 @@ enum {
 typedef struct {
     bool on;
     mbedtls_aes_context aes;
+    ///@{
     uint8_t counter[16], stream[16];
+    ///@}
     size_t stream_off;
     mbedtls_md_context_t mac;
     uint32_t seq;
@@ -73,17 +75,27 @@ typedef struct {
 
 struct ssh {
     net_conn_t *conn;
+    ///@{
     uint8_t *rx, *tx;
+    ///@}
+    ///@{
     dir_t in, out;
+    ///@}
     uint8_t session_id[32];
     bool have_session_id;
     /// The channel.
+    ///@{
     uint32_t remote_id, remote_window, remote_max;
+    ///@}
+    ///@{
     bool open, got_eof, got_close, sent_close;
+    ///@}
     bool dead;             ///< the connection failed: don't try to say goodbye
     int exit_status;
     uint8_t *inq;          ///< received data waiting for ssh_read
+    ///@{
     size_t inq_head, inq_len;
+    ///@}
     size_t window_given;   ///< bytes the server may still send us
     int reply;             ///< channel request answer: 0 none yet, 1 ok, -1 refused
     bool interactive;      ///< a terminal session: stderr joins stdout, keys aren't "stop"
@@ -115,7 +127,9 @@ static int rng(void *ctx, unsigned char *buf, size_t len) {
 
 typedef struct {
     uint8_t *p;
+    ///@{
     size_t len, cap;
+    ///@}
     bool full;
 } out_t;
 

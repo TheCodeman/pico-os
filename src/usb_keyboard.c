@@ -29,7 +29,9 @@
 static queue_t chars;  ///< multicore-safe: core 1 adds, core 0 removes
 
 static struct {
+    ///@{
     uint8_t dev_addr, instance;
+    ///@}
 } keyboards[CFG_TUH_HID];
 static volatile int keyboard_count;
 
@@ -56,7 +58,9 @@ static volatile uint8_t held_keys[6], held_keys_mods;
 #define PADS 2
 static struct {
     bool mounted;
+    ///@{
     uint8_t dev_addr, instance;
+    ///@}
     hid_gamepad_layout layout;
 } pad[PADS];
 static volatile uint32_t pad_state[PADS];  ///< x | y << 8 | buttons << 16, for core 0

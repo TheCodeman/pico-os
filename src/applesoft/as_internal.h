@@ -149,7 +149,10 @@ void gfx_draw(int shape, bool xdraw, bool at, int x, int y);
 
 /// The soft switches that pick what is shown.
 extern struct as_video {
-    bool text, mixed, page2, hires, col80, altchar, store80, dhires;  ///< the soft switches: text, mixed, page 2, hi-res, 80 columns, alternate characters, 80STORE, double hi-res
+    /// the soft switches: text, mixed, page 2, hi-res, 80 columns, alternate characters, 80STORE, double hi-res
+    ///@{
+    bool text, mixed, page2, hires, col80, altchar, store80, dhires;
+    ///@}
 } vid;
 /// Sets up the video emulation.
 void video_init(void);

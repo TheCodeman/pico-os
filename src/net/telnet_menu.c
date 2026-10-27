@@ -49,12 +49,19 @@ static const int seps[] = {COL_HOST - 1, COL_PORT - 1, COL_VIA - 1};
 
 typedef struct {
     dial_entry_t *e;  ///< the directory
+    ///@{
     int n, nssh;
+    ///@}
     int *shown;       ///< the entries the filter lets through
     int nshown;
-    int cur, top;     ///< in shown
+    /// in shown
+    ///@{
+    int cur, top;
+    ///@}
     char filter[32];
+    ///@{
     bool favs_only, quit;
+    ///@}
     char source[64];
     char last[64];    ///< "host:port" of the last BBS called
     char note[64];    ///< said on the bottom line until the next key
@@ -214,7 +221,9 @@ static void fix_scroll(void) {
 // ---- Drawing --------------------------------------------------------------------------------------
 
 static const struct {
+    ///@{
     const char *key, *text;
+    ///@}
     int code;
 } keys[] = {{"Enter", "Connect", '\r'}, {"F2", "Favourite", KEY_F2}, {"Tab", "All/Favs", '\t'},
             {"Esc", "Clear/Quit", KEY_ESC}, {"F10", "Quit", KEY_F10}};

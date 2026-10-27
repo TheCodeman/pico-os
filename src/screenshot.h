@@ -19,12 +19,20 @@ void screenshot_request(void);
 /// Core 0, where keys are read: takes it and asks, if one was requested.
 /// getc gives the next key byte or -1 (straight from the keyboard, so the
 /// program doesn't see them).
+/// @param getc gives the next key byte, or -1
 void screenshot_poll(int (*getc)(void));
 
 /// The next free /SCREENSHOTS/SHOTnnnn.PNG (the folder is made if needed).
+/// @param out where the name goes
+/// @param size its size
 void screenshot_next_name(char *out, int size);
 /// Saves a 640x480 RGB332 picture as PNG or BMP (by the name's extension);
 /// pixels NULL: the screen as it shows now.
+/// @param path the file (.PNG or .BMP)
+/// @param pixels the picture, or NULL for the screen
+/// @param err set to why, on failure
+/// @return true if saved
 bool screenshot_save(const char *path, const uint8_t *pixels, const char **err);
 /// The picture as shown now (line-doubled modes made full height) into out.
+/// @param out 640x480 bytes for the picture
 void screenshot_capture(uint8_t *out);

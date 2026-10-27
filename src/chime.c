@@ -24,9 +24,14 @@
 static int16_t sine[257];  ///< one cycle, and the first value again at the end
 
 static struct voice {
+    ///@{
     uint32_t phase[3], step[3];
+    ///@}
     int32_t env[3];      ///< amplitude << 15
-    int start, pan;      ///< frame it starts; 0 left .. 256 right
+    /// frame it starts; 0 left .. 256 right
+    ///@{
+    int start, pan;
+    ///@}
 } v[VOICES];
 static int t;
 static bool running;

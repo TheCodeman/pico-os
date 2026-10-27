@@ -62,13 +62,27 @@ enum {
 };
 
 static struct {
-    int pos, pattern, row, ch, col, first;  ///< the cursor; the first channel shown
-    int octave, field, focus;   ///< focus 0 pattern, 1 orders, 2 song (the instrument: T->sample)
+    /// the cursor; the first channel shown
+    ///@{
+    int pos, pattern, row, ch, col, first;
+    ///@}
+    /// focus 0 pattern, 1 orders, 2 song (the instrument: T->sample)
+    ///@{
+    int octave, field, focus;
+    ///@}
+    ///@{
     int order_top, ins_top, pat_top;
+    ///@}
+    ///@{
     bool marking, block;
+    ///@}
+    ///@{
     int bc0, br0, bc1, br1;
+    ///@}
     xm_cell_t *clip;
+    ///@{
     int clip_w, clip_h;
+    ///@}
 } E = {.octave = 4};
 
 static xm_song_t *S(void) {

@@ -33,7 +33,10 @@ extern volatile bool dvi_line_double;
 /// starting dvi_double_top rows down the 240; the lines above and below are
 /// black and the rest of the framebuffer is free too. The defaults (0 and
 /// 240) show the whole first half; set them back after changing them.
+/// The lines drawn twice (from the top, how many): a 320x240 picture shown at 640x480.
+///@{
 extern volatile uint16_t dvi_double_top, dvi_double_rows;
+///@}
 /// And with it: each pixel is shown twice across too. Framebuffer rows are
 /// then 320 bytes (row r at dvi_framebuf + r * 320), so the picture takes a
 /// quarter of the framebuffer and the rest is free. Clear it after setting
@@ -44,7 +47,10 @@ extern volatile bool dvi_pixel_double;
 /// touches dvi_framebuf, so drawing under it can't leave a ghost of it and
 /// it doesn't flicker. Its tip is at framebuffer pixel (x, y).
 extern volatile bool dvi_arrow_on;
+/// Where the video output draws the mouse arrow (its tip, in pixels).
+///@{
 extern volatile int16_t dvi_arrow_x, dvi_arrow_y;
+///@}
 
 /// Starts scanning out dvi_framebuf. Expects clk_sys (and so clk_hstx) at
 /// 126 MHz, which gives the exact 25.2 MHz pixel clock for 640x480.
@@ -54,4 +60,7 @@ void dvi_init(void);
 /// because an interrupt came too late), and the longest gap seen between the
 /// scanout's interrupts in microseconds (normally 190, one per six lines).
 /// Also the longest the interrupt took to build its six lines.
+/// Counters for testing (read over SWD): restarts, late lines, the worst gap and line build time.
+///@{
 extern volatile uint32_t dvi_restarts, dvi_late, dvi_worst_gap_us, dvi_worst_build_us;
+///@}
