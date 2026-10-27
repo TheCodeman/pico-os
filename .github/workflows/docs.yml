@@ -1,0 +1,39 @@
+# Builds the Doxygen API documentation (docs/api/html) and publishes it to
+# GitHub Pages on each push to github-main (or by hand). Fails if doxygen
+# warns about our code. Pages must be set to "GitHub Actions" in the
+# repository's Settings > Pages once.
+name: docs
+on:
+  push:
+    branches: [github-main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Doxygen and Graphviz
+        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
+      - name: Doxygen
+        run: |
+          doxygen Doxyfile
+          if [ -s docs/api/warnings.txt ]; then cat docs/api/warnings.txt; exit 1; fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/api/html
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
