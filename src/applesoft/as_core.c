@@ -36,10 +36,12 @@ static uint8_t subflg;   ///< $14: no arrays or % (FOR, DEF FN), or arrays only
 static jmp_buf restart_jmp APP_OV_DATA(apple2);  ///< back to the ] prompt
 static jmp_buf newstt_jmp APP_OV_DATA(apple2);  ///< carry on at TXTPTR (ONERR, RESUME)
 static jmp_buf quit_jmp APP_OV_DATA(apple2);    ///< BYE
+/// newstt_jmp is set up (a program is running).
 static bool newstt_jmp_valid;
 
 // ---- Tokens ----------------------------------------------------------------------
 
+/// Applesoft's tokens, $80 to $EA, in the ROM's order.
 enum {
     T_END = 0x80, T_FOR, T_NEXT, T_DATA, T_INPUT, T_DEL, T_DIM, T_READ, T_GR, T_TEXT,
     T_PRNUM, T_INNUM, T_CALL, T_PLOT, T_HLIN, T_VLIN, T_HGR2, T_HGR, T_HCOLOR, T_HPLOT,
@@ -55,6 +57,7 @@ enum {
     T_LAST = T_MIDS,
 };
 
+/// The keywords, in token order.
 static const char *const keywords[] = {
     "END", "FOR", "NEXT", "DATA", "INPUT", "DEL", "DIM", "READ", "GR", "TEXT", "PR#",
     "IN#", "CALL", "PLOT", "HLIN", "VLIN", "HGR2", "HGR", "HCOLOR=", "HPLOT", "DRAW",
@@ -68,6 +71,7 @@ static const char *const keywords[] = {
     "LEN", "STR$", "VAL", "ASC", "CHR$", "LEFT$", "RIGHT$", "MID$",
 };
 
+/// The error messages, by error code.
 static const char *const error_names[] = {
     [0] = "NEXT WITHOUT FOR", [16] = "SYNTAX", [22] = "RETURN WITHOUT GOSUB",
     [42] = "OUT OF DATA", [53] = "ILLEGAL QUANTITY", [69] = "OVERFLOW",
@@ -83,13 +87,19 @@ static const char *const error_names[] = {
 // leaves junk on it). We keep the records in C but count the bytes the ROM
 // would use, so the same programs run out of memory.
 
+/// The emulated stack pointer's top (below the ROM's own use).
 #define STACK_TOP  0xf8
+/// Stack bytes a FOR uses on the Apple.
 #define FOR_BYTES  18
+/// Stack bytes a GOSUB uses.
 #define GOSUB_BYTES 7
 
+/// Kinds of stack frame.
 enum { FR_FOR = 0x81, FR_GOSUB = 0xb0, FR_JUNK = 0 };
 
+/// A FOR or GOSUB record on the (emulated) stack.
 typedef struct {
+    /// the frame's kind (FR_) and the bytes it takes on the Apple's stack
     ///@{
     uint8_t type, bytes;
     ///@}
@@ -100,30 +110,40 @@ typedef struct {
     uint16_t var;          ///< FOR: the variable's value
     as_packed limit;       ///< FOR: the limit, packed
     as_fp step;            ///< FOR: the step (unrounded copy as pushed)
-    int8_t step_sign;
+    int8_t step_sign;  ///< FOR: the step's sign
 } frame_t;
 
+/// The most frames kept.
 #define MAX_FRAMES 80
 static frame_t frames[MAX_FRAMES] APP_OV_DATA(apple2);  ///< (the apps' SRAM area, while it runs)
+/// Frames on the stack.
 static int nframes;
 static uint8_t vsp = STACK_TOP;  ///< the S register at the start of a statement
 static int vs = STACK_TOP;       ///< S as it would be now, inside a statement
 
 /// The bytes the ROM would have on the stack (return addresses, operands)
 /// while evaluating; stack_check is its test before each level.
+/// @param n bytes
 static inline void vpush(int n) {
     vs -= n;
 }
 
+/// Takes back bytes vpush counted.
+/// @param n bytes
 static inline void vpop(int n) {
     vs += n;
 }
 
+/// Empties the stack.
 static void stack_reset(void) {
     nframes = 0;
     vsp = STACK_TOP;
 }
 
+/// Pushes a FOR or GOSUB frame (starting afresh if the stack would wrap).
+/// @param type FR_FOR or FR_GOSUB
+/// @param bytes the Apple's stack bytes it takes
+/// @return the frame
 static frame_t *push_frame(uint8_t type, uint8_t bytes) {
     if (nframes == MAX_FRAMES || bytes > vsp) {
         // Only an ONERR loop that never tidies up gets here: on the Apple
@@ -138,6 +158,8 @@ static frame_t *push_frame(uint8_t type, uint8_t bytes) {
     return f;
 }
 
+/// Pops frames down to n.
+/// @param n the frames to keep
 static void pop_frames_to(int n) {
     while (nframes > n)
         vsp += frames[--nframes].bytes;
@@ -145,10 +167,16 @@ static void pop_frames_to(int n) {
 
 // ---- Small helpers -------------------------------------------------------------
 
+/// Whether c is a digit.
+/// @param c the character
+/// @return true if it is
 static inline bool is_digit(uint8_t c) {
     return c >= '0' && c <= '9';
 }
 
+/// Whether c is an upper case letter.
+/// @param c the character
+/// @return true if it is
 static inline bool is_letter(uint8_t c) {
     return c >= 'A' && c <= 'Z';
 }
@@ -185,6 +213,7 @@ bool as_running(void) {
     return M[Z_CURLIN + 1] != 0xff;
 }
 
+/// ?ILLEGAL DIRECT ERROR if no program is running.
 static void err_direct(void) {
     if (!as_running())
         as_error(ERR_ILLEGAL_DIRECT);
@@ -225,6 +254,8 @@ void as_print(const char *s) {
         as_outdo((uint8_t)*s++);
 }
 
+/// Prints an unsigned 16-bit number as the ROM's LINPRT does.
+/// @param v the number
 static void print_uint(unsigned v) {
     as_fp f = fp_from_int16(0);
     // LINPRT: an unsigned 16-bit number through FOUT.
@@ -247,10 +278,14 @@ static void print_uint(unsigned v) {
 
 // ---- Errors -----------------------------------------------------------------------
 
+/// The float code's errors raised as Applesoft errors.
+/// @param code the error code
 static void fp_error_hook(int code) {
     as_error(code);
 }
 
+/// ONERR GOTO's jump: the error's number, line and place noted, then on at the handler.
+/// @param code the error code
 static void onerr_handler(int code) {
     M[Z_ERRNUM] = (uint8_t)code;
     M[Z_ERRSTK] = M[Z_REMSTK];
@@ -271,6 +306,7 @@ static void onerr_handler(int code) {
     longjmp(newstt_jmp, 1);
 }
 
+/// STKINI: the stack and temporaries emptied (CONT then can't).
 static void stkini(void) {
     M[Z_TEMPPT] = Z_TEMPST;
     M[Z_OLDTEXT + 1] = 0;  // CONT can't
@@ -279,8 +315,11 @@ static void stkini(void) {
     vs = vsp;
 }
 
+/// The address a CALL went to that isn't supported.
 static uint16_t unsupported_addr;
 
+/// ?UNSUPPORTED for a CALL to ROM code that isn't emulated.
+/// @param addr the address called
 void as_unsupported_call(uint16_t addr) {
     unsupported_addr = addr;
     as_error(ERR_UNSUPPORTED);
@@ -353,6 +392,7 @@ void as_chain(const char *name) {
 static void gc(void);
 
 /// REASON: is there room for something to end at addr? Collects garbage once.
+/// @param addr where the new thing would end
 static void reason(uint16_t addr) {
     if (addr < w16(Z_FRETOP))
         return;
@@ -362,6 +402,9 @@ static void reason(uint16_t addr) {
 }
 
 /// Moves [from, end) up or down by delta (memmove).
+/// @param from the block's start
+/// @param end its end
+/// @param delta how far to move it
 static void move_block(uint16_t from, uint16_t end, int delta) {
     if (end > from)
         memmove(&M[(uint16_t)(from + delta)], &M[from], end - from);
@@ -371,6 +414,10 @@ static void move_block(uint16_t from, uint16_t end, int delta) {
 
 /// FNDLIN: the address of the first line numbered >= num, searching from
 /// `from`. Returns true if that line is numbered exactly num.
+/// @param from the line to start from
+/// @param num the line number
+/// @param where set to the line's address
+/// @return true for an exact match
 static bool fndlin_from(uint16_t from, uint16_t num, uint16_t *where) {
     uint16_t p = from;
     for (;;) {
@@ -387,6 +434,10 @@ static bool fndlin_from(uint16_t from, uint16_t num, uint16_t *where) {
     }
 }
 
+/// FNDLIN from the start of the program.
+/// @param num the line number
+/// @param where set to the line's address
+/// @return true for an exact match
 static bool fndlin(uint16_t num, uint16_t *where) {
     return fndlin_from(w16(Z_TXTTAB), num, where);
 }
@@ -419,6 +470,7 @@ void linget(void) {
 }
 
 /// Stores the crunched line at $200 (length len, with its NUL) as line LINNUM.
+/// @param len the crunched line's length
 static void insert_line(int len) {
     uint16_t num = w16(Z_LINNUM);
     sw16(Z_VARTAB, w16(Z_PRGEND));
@@ -448,11 +500,18 @@ static void insert_line(int len) {
 
 // ---- PARSE: tokenising a line ------------------------------------------------------
 
+/// Upper case.
+/// @param c the character
+/// @return its upper case
 static uint8_t upper(uint8_t c) {
     return c >= 0x61 ? (uint8_t)(c & 0x5f) : c;
 }
 
 /// Tries the keywords at in[x]; returns the token and sets *end, or 0.
+/// @param in the line
+/// @param x where to try
+/// @param end set past the keyword
+/// @return the token, or 0
 static uint8_t match_keyword(const uint8_t *in, int x, int *end) {
     for (int t = 0; t <= T_LAST - 0x80; ++t) {
         const char *k = keywords[t];
@@ -558,6 +617,7 @@ int as_crunch(void) {
 
 // ---- LIST ------------------------------------------------------------------------
 
+/// LIST's line wrapping, as the ROM does it.
 static void list_wrap(void) {
     extern int text_column(void);
     extern int text_list_wrap(void);
@@ -567,6 +627,7 @@ static void list_wrap(void) {
     }
 }
 
+/// LIST [from][,-to].
 static void stmt_list(void) {
     uint8_t c = chrgot();
     if (!(is_digit(c) || is_end(c) || c == T_MINUS || c == ','))
@@ -662,15 +723,22 @@ int as_detok_line(uint16_t line, char *out, int max) {
 // ---- Strings ------------------------------------------------------------------------
 
 /// Descriptor at d: length, address.
+/// @param d the descriptor's address
+/// @return the string's length
 static inline uint8_t desc_len(uint16_t d) {
     return M[d];
 }
 
+/// A descriptor's string address.
+/// @param d the descriptor's address
+/// @return the string's address
 static inline uint16_t desc_addr(uint16_t d) {
     return w16(d + 1);
 }
 
 /// GETSPA: n bytes of string space (collecting garbage once if need be).
+/// @param n bytes wanted
+/// @return their address
 static uint16_t getspa(uint8_t n) {
     for (int tries = 0;; ++tries) {
         uint16_t top = (uint16_t)(w16(Z_FRETOP) - n);
@@ -690,14 +758,20 @@ static uint16_t getspa(uint8_t n) {
 /// descriptors it does it in one sorted pass; otherwise the ROM's way, one
 /// string per pass.
 typedef struct {
+    /// the descriptor and the string's address
     ///@{
     uint16_t desc, addr;
     ///@}
 } gc_ref;
 
 #define GC_MAX_REFS 22000  ///< more descriptors than 64 KB can hold
+/// The descriptors sorted for the garbage collection (PSRAM).
 static gc_ref *gc_refs;
 
+/// qsort's order: highest string first.
+/// @param a one
+/// @param b the other
+/// @return <0, 0 or >0
 static int gc_cmp(const void *a, const void *b) {
     const gc_ref *x = a, *y = b;
     return (int)y->addr - (int)x->addr;
@@ -705,6 +779,8 @@ static int gc_cmp(const void *a, const void *b) {
 
 /// Calls fn for every string descriptor: temporaries, simple variables,
 /// string arrays.
+/// @param fn called with each descriptor's address
+/// @param ctx passed to fn
 static void each_descriptor(void (*fn)(uint16_t d, void *ctx), void *ctx) {
     for (uint16_t d = Z_TEMPST; d < M[Z_TEMPPT]; d += 3)
         fn(d, ctx);
@@ -722,19 +798,23 @@ static void each_descriptor(void (*fn)(uint16_t d, void *ctx), void *ctx) {
     }
 }
 
+/// The garbage collection's state.
 typedef struct {
     /// strings in [lo, hi) are in string space
     ///@{
     uint16_t lo, hi;
     ///@}
-    int n;
-    bool overflow;
+    int n;  ///< descriptors collected
+    bool overflow;  ///< too many for gc_refs
     /// the one-at-a-time search
     ///@{
     uint16_t best, best_addr;
     ///@}
 } gc_state;
 
+/// each_descriptor's function: collects the strings in string space.
+/// @param d the descriptor
+/// @param ctx the gc_state
 static void gc_collect(uint16_t d, void *ctx) {
     gc_state *g = ctx;
     uint16_t a = desc_addr(d);
@@ -746,6 +826,9 @@ static void gc_collect(uint16_t d, void *ctx) {
         g->overflow = true;
 }
 
+/// each_descriptor's function: finds the highest string still to move.
+/// @param d the descriptor
+/// @param ctx the gc_state
 static void gc_highest(uint16_t d, void *ctx) {
     gc_state *g = ctx;
     uint16_t a = desc_addr(d);
@@ -757,6 +840,7 @@ static void gc_highest(uint16_t d, void *ctx) {
     }
 }
 
+/// GARBAG: moves the strings in use to the top of string space, freeing the rest.
 static void gc(void) {
     gc_state g = {w16(Z_STREND), w16(Z_MEMSIZ), 0, false, 0, 0};
     uint16_t top = g.hi;
@@ -791,6 +875,8 @@ static void gc(void) {
 }
 
 /// FRETMS: if d is the last temporary, drop it.
+/// @param d the descriptor
+/// @return true if it was dropped
 static bool fretms(uint16_t d) {
     if (d == M[Z_LASTPT] && M[Z_LASTPT + 1] == 0) {
         M[Z_TEMPPT] = (uint8_t)d;
@@ -802,6 +888,9 @@ static bool fretms(uint16_t d) {
 
 /// FRETMP: releases a string that is being used up; if it was a temporary at
 /// the bottom of string space, gives the space back. Returns its address.
+/// @param d the descriptor
+/// @param len set to the string's length
+/// @return the string's address
 static uint16_t fretmp(uint16_t d, uint8_t *len) {
     bool was_temp = fretms(d);
     *len = M[d];
@@ -812,6 +901,8 @@ static uint16_t fretmp(uint16_t d, uint8_t *len) {
 }
 
 /// PUTNEW: a new temporary descriptor (len, addr) becomes the FAC's value.
+/// @param len the length
+/// @param addr the string's address
 static void putnew(uint8_t len, uint16_t addr) {
     uint8_t x = M[Z_TEMPPT];
     if (x == Z_TEMPST + 9)
@@ -828,6 +919,10 @@ static void putnew(uint8_t len, uint16_t addr) {
 /// STRLIT/STRLT2: a string from addr up to t1, t2 or a NUL. Strings in zero
 /// page or the input buffer are copied into string space; others are used
 /// where they are. Returns the address after it (past a closing quote).
+/// @param addr the string's start
+/// @param t1 one end character
+/// @param t2 the other
+/// @return the descriptor
 static uint16_t strlit(uint16_t addr, uint8_t t1, uint8_t t2) {
     int n = 0;
     uint8_t c;
@@ -846,11 +941,13 @@ static uint16_t strlit(uint16_t addr, uint8_t t1, uint8_t t2) {
     return after;
 }
 
+/// ?TYPE MISMATCH unless the FAC holds a string.
 static void chkstr(void) {
     if (!fac_string)
         as_error(ERR_TYPE_MISMATCH);
 }
 
+/// ?TYPE MISMATCH unless the FAC holds a number.
 static void chknum(void) {
     if (fac_string)
         as_error(ERR_TYPE_MISMATCH);
@@ -861,6 +958,7 @@ static void chknum(void) {
 /// Where a variable that doesn't exist reads from: five zero bytes in the
 /// ROM area (as the ROM points such variables at zeros in itself).
 #define ZERO_VALUE 0xe09a
+/// Five zero bytes: an unset variable's value.
 static const uint8_t zero5[5];
 static bool fn_mode;  ///< PTRGET for an FN name
 
@@ -870,12 +968,17 @@ static bool fn_mode;  ///< PTRGET for an FN name
 /// or empty, and isn't created).
 static uint16_t ptrget_ex(bool reading, bool *missing);
 
+/// PTRGET for assigning.
+/// @return the value's address
 static uint16_t ptrget(void) {
     return ptrget_ex(false, NULL);
 }
 
 static uint16_t find_or_make_array(uint8_t n1, uint8_t n2, int ndims, const uint16_t *subs);
 
+/// @param reading reading it (a missing simple variable isn't made)
+/// @param missing set if it doesn't exist
+/// @return the value's address
 static uint16_t ptrget_ex(bool reading, bool *missing) {
     uint8_t c = chrgot();
     if (!is_letter(c))
@@ -968,6 +1071,12 @@ static uint16_t ptrget_ex(bool reading, bool *missing) {
 
 /// Arrays: name (2), size of the whole array (2), number of dimensions (1),
 /// the dimensions (2 each, high byte first, last subscript first), elements.
+/// @param n1 the name's first byte
+/// @param n2 its second
+/// @param nd the dimensions
+/// @param subs the subscripts
+/// @return the element's address
+/// @param ndims the dimensions (the forward declaration's name for nd)
 static uint16_t find_or_make_array(uint8_t n1, uint8_t n2, int nd, const uint16_t *subs) {
     uint16_t a = w16(Z_ARYTAB), end = w16(Z_STREND);
     int esize = (n1 & 0x80) ? 2 : (n2 & 0x80) ? 3 : 5;
@@ -1032,6 +1141,8 @@ static uint16_t find_or_make_array(uint8_t n1, uint8_t n2, int nd, const uint16_
 }
 
 /// Reads the value at v into the FAC (a string: the FAC holds its descriptor).
+/// @param v the value's address
+/// @param missing the variable doesn't exist (its value is zero)
 static void load_value(uint16_t v, bool missing) {
     (void)missing;
     if (fac_string) {
@@ -1046,6 +1157,9 @@ static void load_value(uint16_t v, bool missing) {
 }
 
 /// LET's store: the FAC into the variable at v.
+/// @param v the value's address
+/// @param is_string a string variable
+/// @param is_int an integer variable
 static void let_store(uint16_t v, bool is_string, uint8_t is_int) {
     if (is_string) {
         uint16_t d = fac_desc;
@@ -1079,6 +1193,7 @@ static void let_store(uint16_t v, bool is_string, uint8_t is_int) {
 
 // ---- Expressions ----------------------------------------------------------------
 
+/// The operators' precedences, as the ROM's table has them.
 enum { P_OR = 0x46, P_AND = 0x50, P_REL = 0x64, P_ADD = 0x79, P_MUL = 0x7b, P_POW = 0x7d,
        P_UNARY = 0x7f };
 
@@ -1100,6 +1215,7 @@ void frmnum(void) {
 }
 
 /// The ROM's check that the stack has room for 2A + $36 bytes more.
+/// @param a the levels about to be used
 static void stack_check(int a) {
     if (vs - 2 < 2 * a + 0x36)
         as_error(ERR_OUT_OF_MEMORY);
@@ -1107,6 +1223,10 @@ static void stack_check(int a) {
         as_error(ERR_OUT_OF_MEMORY);
 }
 
+/// Compares two strings (releasing temporaries).
+/// @param left the left descriptor
+/// @param right the right one
+/// @return <0, 0 or >0
 static int string_compare(uint16_t left, uint16_t right) {
     uint8_t ll, rl;
     uint16_t ra = fretmp(right, &rl);
@@ -1120,6 +1240,8 @@ static int string_compare(uint16_t left, uint16_t right) {
     return ll == rl ? 0 : ll < rl ? -1 : 1;
 }
 
+/// FRMEVL's loop: an element, then operators of higher precedence than min_prec.
+/// @param min_prec the lowest precedence taken
 static void eval(uint8_t min_prec) {
     vpush(1);  // the pending precedence
     stack_check(1);
@@ -1220,6 +1342,7 @@ static void eval(uint8_t min_prec) {
     vpop(1);
 }
 
+/// A parenthesised expression.
 static void paren_expr(void) {
     synchr('(');
     frmevl();
@@ -1227,6 +1350,7 @@ static void paren_expr(void) {
 }
 
 /// CONINT/GETBYT on the FAC: 0-255 or ILLEGAL QUANTITY.
+/// @return 0-255
 static int conint(void) {
     chknum();
     if (fac.neg)
@@ -1257,6 +1381,7 @@ uint16_t getadr(void) {
 static void fn_call(void);
 static void string_function(uint8_t t);
 
+/// An element: a number, string, variable, function or a parenthesised or unary expression into the FAC.
 static void element(void) {
     fac_string = false;
     uint8_t c = chrget();
@@ -1433,6 +1558,7 @@ static void element(void) {
 }
 
 /// LEFT$, RIGHT$, MID$: (string, n [, m])
+/// @param t the function's token
 static void string_function(uint8_t t) {
     synchr('(');
     vpush(1);
@@ -1482,6 +1608,7 @@ static void string_function(uint8_t t) {
 /// FNC: FN name. FN names are variables with the top bit of the first
 /// letter set. Returns the address of its value: the body's address, the
 /// parameter's value address, the body's first character.
+/// @return the FN's record
 static uint16_t fn_name(void) {
     synchr(T_FN);
     subflg = 0x80;
@@ -1493,6 +1620,7 @@ static uint16_t fn_name(void) {
 
 static uint16_t end_of_statement(bool whole_line);
 
+/// DEF FN name(param) = expression.
 static void stmt_def(void) {
     uint16_t f = fn_name();
     err_direct();
@@ -1510,6 +1638,7 @@ static void stmt_def(void) {
     M[(uint16_t)(f + 4)] = first;
 }
 
+/// FN name(argument): the parameter set, the body evaluated, the parameter put back.
 static void fn_call(void) {
     uint16_t f = fn_name();
     vpush(4);
@@ -1537,6 +1666,8 @@ static void fn_call(void) {
 
 /// DATAN/REMN: the offset from TXTPTR to the end of the statement (':' outside
 /// quotes, or the end of the line) or, for a whole line, the line's end.
+/// @param whole_line to the end of the line
+/// @return the offset
 static uint16_t end_of_statement(bool whole_line) {
     uint16_t p = tp;
     bool quote = false;
@@ -1552,14 +1683,17 @@ static uint16_t end_of_statement(bool whole_line) {
     }
 }
 
+/// REM.
 static void stmt_rem(void) {
     tp = end_of_statement(true);
 }
 
+/// DATA (skipped when run).
 static void stmt_data(void) {
     tp = end_of_statement(false);
 }
 
+/// GOTO.
 void stmt_goto(void) {
     linget();
     uint16_t num = w16(Z_LINNUM);
@@ -1576,6 +1710,7 @@ void stmt_goto(void) {
     tp = (uint16_t)(at - 1);
 }
 
+/// GOSUB.
 static void stmt_gosub(void) {
     if (vsp - 4 < 2 * 3 + 0x36)
         as_error(ERR_OUT_OF_MEMORY);
@@ -1589,6 +1724,9 @@ static void stmt_gosub(void) {
 /// FNDFOR: the FOR record for variable var (0: the innermost), searching
 /// down from the top until something that isn't a FOR. Returns its index, or
 /// -1; *stop is the index of the first non-FOR record (or -1).
+/// @param var the variable's value address (0: any)
+/// @param stop set to the first frame that isn't a FOR, or -1
+/// @return the frame's index, or -1
 static int fndfor(uint16_t var, int *stop) {
     for (int i = nframes - 1; i >= 0; --i) {
         if (frames[i].type != FR_FOR) {
@@ -1604,6 +1742,8 @@ static int fndfor(uint16_t var, int *stop) {
     return -1;
 }
 
+/// RETURN (or POP).
+/// @param pop drop the GOSUB without going back
 static void stmt_return(bool pop) {
     if (!is_end(chrgot()))
         return;
@@ -1620,6 +1760,7 @@ static void stmt_return(bool pop) {
     tp = end_of_statement(false);
 }
 
+/// LET (and an assignment without it).
 static void stmt_let(void) {
     uint16_t v = ptrget();
     bool is_str = fac_string;
@@ -1634,6 +1775,7 @@ static void stmt_let(void) {
     let_store(v, is_str, is_int);
 }
 
+/// FOR var = start TO limit [STEP step].
 static void stmt_for(void) {
     subflg = 0x80;
     uint16_t v = ptrget();
@@ -1686,6 +1828,7 @@ static void stmt_for(void) {
     f->step_sign = sign;
 }
 
+/// NEXT [var[, var...]].
 static void stmt_next(void) {
     uint16_t var = 0;
     for (;;) {
@@ -1718,6 +1861,7 @@ static void stmt_next(void) {
     }
 }
 
+/// IF expression THEN (or GOTO).
 static void stmt_if(void) {
     frmevl();
     uint8_t c = chrgot();
@@ -1736,6 +1880,7 @@ static void stmt_if(void) {
     execute(c);
 }
 
+/// ON expression GOTO or GOSUB.
 static void stmt_on(void) {
     int v = getbyt();
     uint8_t t = chrgot();
@@ -1757,14 +1902,17 @@ static void stmt_on(void) {
     }
 }
 
+/// RESTORE.
 static void stmt_restore(void) {
     sw16(Z_DATPTR, w16(Z_TXTTAB) - 1);
 }
 
+/// RESTORE before RUN.
 static void restore_data(void) {
     stmt_restore();
 }
 
+/// CLEARC: the variables and strings forgotten, DATA restored, the stack emptied.
 static void clearc(void) {
     sw16(Z_FRETOP, w16(Z_MEMSIZ));
     sw16(Z_ARYTAB, w16(Z_VARTAB));
@@ -1792,6 +1940,9 @@ void as_new_program(void) {
 
 void do_break(void);
 
+/// STOP and END.
+/// @param stop STOP (shows BREAK IN)
+/// @param save save the place for CONT
 static void stop_or_end(bool stop, bool save) {
     if (save && as_running()) {
         sw16(Z_OLDTEXT, tp);
@@ -1808,12 +1959,14 @@ static void stop_or_end(bool stop, bool save) {
     longjmp(restart_jmp, 2);
 }
 
+/// Ctrl-C: BREAK (or the ONERR handler).
 void do_break(void) {
     if (M[Z_ERRFLG] & 0x80)
         onerr_handler(ERR_BREAK);
     stop_or_end(true, true);
 }
 
+/// CONT.
 static void stmt_cont(void) {
     if (!is_end(chrgot()))
         return;
@@ -1829,6 +1982,7 @@ void as_run_program(void) {
     clearc();
 }
 
+/// RUN [line], or RUN name (DOS): the variables cleared and the program started.
 static void stmt_run(void) {
     uint8_t c = chrgot();
     if (!is_end(c) && !is_digit(c)) {
@@ -1861,6 +2015,7 @@ static void stmt_run(void) {
     stmt_goto();
 }
 
+/// DIM var(subscripts)[, ...].
 static void stmt_dim(void) {
     for (;;) {
         dim_request = M[tp] ? M[tp] : 1;
@@ -1871,6 +2026,7 @@ static void stmt_dim(void) {
     }
 }
 
+/// POKE address, value.
 static void stmt_poke(void) {
     uint16_t a = getadr();
     chkcom();
@@ -1878,6 +2034,7 @@ static void stmt_poke(void) {
     as_poke(a, (uint8_t)v);
 }
 
+/// WAIT address, mask [, xor]: waits until (PEEK(address) XOR xor) AND mask isn't 0.
 static void stmt_wait(void) {
     uint16_t a = getadr();
     chkcom();
@@ -1896,6 +2053,7 @@ static void stmt_wait(void) {
     }
 }
 
+/// HIMEM: address.
 static void stmt_himem(void) {
     uint16_t a = getadr();
     if (a < w16(Z_STREND))
@@ -1904,6 +2062,7 @@ static void stmt_himem(void) {
     sw16(Z_FRETOP, a);
 }
 
+/// LOMEM: address.
 static void stmt_lomem(void) {
     uint16_t a = getadr();
     if (a >= w16(Z_MEMSIZ) || a < w16(Z_VARTAB))
@@ -1912,6 +2071,7 @@ static void stmt_lomem(void) {
     clearc();
 }
 
+/// ONERR GOTO line.
 static void stmt_onerr(void) {
     synchr(T_GOTO);
     sw16(Z_TXTPSV, tp);
@@ -1920,6 +2080,7 @@ static void stmt_onerr(void) {
     tp = end_of_statement(true);
 }
 
+/// RESUME: back to the statement that went wrong.
 static void stmt_resume(void) {
     sw16(Z_CURLIN, w16(Z_ERRLIN));
     tp = w16(Z_ERRPOS);
@@ -1928,6 +2089,7 @@ static void stmt_resume(void) {
         vsp += frames[--nframes].bytes;
 }
 
+/// STKINI for machine code: the stack (FOR and GOSUB too) starts afresh.
 void as_stack_init(void) {
     // STKINI from machine code: the stack (FOR and GOSUB too) starts afresh.
     M[Z_TEMPPT] = Z_TEMPST;
@@ -1935,19 +2097,25 @@ void as_stack_init(void) {
     vs = vsp;
 }
 
+/// PTRGET for machine code.
+/// @return the value's address
 uint16_t as_ptrget(void) {
     return ptrget();
 }
 
+/// Moves TXTPTR to the statement's (or line's) end, for machine code.
+/// @param whole_line to the end of the line
 void as_skip_statement(bool whole_line) {
     tp = end_of_statement(whole_line);
 }
 
+/// Drops the stack frames above ONERR's saved stack pointer.
 void as_restore_errstk(void) {
     while (nframes && vsp < M[Z_ERRSTK])
         vsp += frames[--nframes].bytes;
 }
 
+/// DEL from, to.
 static void stmt_del(void) {
     if (!is_digit(chrgot()))
         as_error(ERR_SYNTAX);
@@ -1973,6 +2141,8 @@ static void stmt_del(void) {
 
 // ---- PRINT, INPUT, READ, GET ---------------------------------------------------
 
+/// Prints a string.
+/// @param d its descriptor
 static void strprt(uint16_t d) {
     uint8_t len;
     uint16_t a = fretmp(d, &len);
@@ -1980,6 +2150,7 @@ static void strprt(uint16_t d) {
         as_outdo(M[(uint16_t)(a + i)]);
 }
 
+/// PRINT, with ; , TAB( SPC( and the like.
 static void stmt_print(void) {
     extern int text_column(void);
     extern int text_width_for_tab(void);
@@ -2043,6 +2214,8 @@ static void stmt_print(void) {
 /// Mode of the shared INPUT/READ/GET code ($15).
 enum { MODE_INPUT = 0x00, MODE_GET = 0x40, MODE_READ = 0x98 };
 
+/// Bad input: ?REENTER (INPUT) or ?SYNTAX ERROR (READ, GET).
+/// @param mode MODE_INPUT, MODE_READ or MODE_GET
 static void bad_input(int mode) {
     if (mode == MODE_INPUT) {
         if (M[Z_ERRFLG] & 0x80)
@@ -2058,6 +2231,9 @@ static void bad_input(int mode) {
     as_error(ERR_SYNTAX);
 }
 
+/// INPUT's, READ's and GET's items read from input_ptr.
+/// @param mode MODE_INPUT, MODE_READ or MODE_GET
+/// @param input_ptr where the input text is
 static void read_items(int mode, uint16_t input_ptr) {
     sw16(Z_INPTR, input_ptr);
     for (;;) {
@@ -2148,6 +2324,7 @@ static void read_items(int mode, uint16_t input_ptr) {
     }
 }
 
+/// INPUT ["prompt";] var[, ...].
 static void stmt_input(void) {
     uint8_t c = chrgot();
     if (c == '"') {
@@ -2166,10 +2343,12 @@ static void stmt_input(void) {
     read_items(MODE_INPUT, 0x1ff);
 }
 
+/// READ var[, ...].
 static void stmt_read(void) {
     read_items(MODE_READ, w16(Z_DATPTR));
 }
 
+/// GET var.
 static void stmt_get(void) {
     err_direct();
     M[0x201] = 0;
@@ -2178,6 +2357,9 @@ static void stmt_get(void) {
 
 // ---- Graphics and screen statements (the work is in as_gfx/as_text) ------------
 
+/// A byte expression below limit.
+/// @param limit the bound
+/// @return the byte
 static int byte_xy(int limit) {
     int v = getbyt();
     if (v >= limit)
@@ -2185,6 +2367,7 @@ static int byte_xy(int limit) {
     return v;
 }
 
+/// PLOT x, y.
 static void stmt_plot(void) {
     int x = byte_xy(48);
     chkcom();
@@ -2194,6 +2377,8 @@ static void stmt_plot(void) {
     gfx_plot(x, y);
 }
 
+/// HLIN a, b AT y and VLIN a, b AT x.
+/// @param h HLIN (else VLIN)
 static void stmt_hlin_vlin(bool h) {
     int a = byte_xy(48);
     chkcom();
@@ -2216,6 +2401,9 @@ static void stmt_hlin_vlin(bool h) {
     }
 }
 
+/// Reads hi-res coordinates x, y.
+/// @param x set to x
+/// @param y set to y
 static void hplot_coords(int *x, int *y) {
     *x = getadr();
     chkcom();
@@ -2224,6 +2412,7 @@ static void hplot_coords(int *x, int *y) {
         as_error(ERR_ILLEGAL_QUANTITY);
 }
 
+/// HPLOT x, y [TO x, y ...] and HPLOT TO.
 static void stmt_hplot(void) {
     int x, y;
     if (chrgot() != T_TO) {
@@ -2237,6 +2426,8 @@ static void stmt_hplot(void) {
     }
 }
 
+/// DRAW (or XDRAW) shape [AT x, y].
+/// @param xdraw XDRAW
 static void stmt_draw(bool xdraw) {
     int shape = getbyt();
     bool at = false;
@@ -2249,11 +2440,13 @@ static void stmt_draw(bool xdraw) {
     gfx_draw(shape, xdraw, at, x, y);
 }
 
+/// HTAB n.
 static void stmt_htab(void) {
     extern void text_htab(int n);
     text_htab(getbyt());
 }
 
+/// VTAB n.
 static void stmt_vtab(void) {
     int n = getbyt();
     if (n < 1 || n > 24)
@@ -2264,12 +2457,16 @@ static void stmt_vtab(void) {
 
 // ---- The statement loop -------------------------------------------------------------
 
+/// Calls a routine with TXTPTR passed to and from zero page (for machine code that reads it).
+/// @param fn the routine
 static void sync_txtptr_and_call(void (*fn)(void)) {
     as_sync_out();
     fn();
     as_sync_in();
 }
 
+/// Runs one statement.
+/// @param c its first character or token
 void execute(uint8_t c) {
     vs = vsp - 2;  // NEWSTT's JSR to the statement
     if (is_end(c))
@@ -2380,9 +2577,11 @@ void as_set_trace(bool on) {
     M[Z_TRCFLG] = on ? 0x80 : 0;
 }
 
+/// Statements since Ctrl-C was last checked.
 static unsigned poll_count;
 
 /// NEWSTT: runs statements until the program (or direct line) ends.
+/// @param first the first statement of a RUN
 static void newstt(bool first) {
     for (;;) {
         if (!first) {
@@ -2420,6 +2619,7 @@ static void newstt(bool first) {
 
 /// Runs from TXTPTR (a statement boundary) until something jumps back to the
 /// prompt. ONERR, RESUME and ?REENTER come back here to carry on.
+/// @param first the first statement of a RUN
 static void run_from(bool first) {
     newstt_jmp_valid = true;
     if (setjmp(newstt_jmp))
@@ -2448,6 +2648,7 @@ void as_enter_line(const char *text) {
     }
 }
 
+/// The ] prompt: lines typed are stored or run, until BYE.
 static void prompt_loop(void) {
     setjmp(restart_jmp);
     newstt_jmp_valid = false;
@@ -2477,6 +2678,7 @@ static void prompt_loop(void) {
     }
 }
 
+/// The cold start: memory cleared, CHRGET and the zero page set up, the pointers made.
 static void cold_start(void) {
     memset(M, 0, 0x10000);
     fac = fp_unpack(zero5);
