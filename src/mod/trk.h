@@ -55,26 +55,81 @@
 /// in one go (menus and dialogs, so nothing half-drawn is ever seen).
 extern uint8_t *gfx_target;
 /// Fills a w by h rectangle with colour c.
+/// @param x the left
+/// @param y the top
+/// @param w the width
+/// @param h the height
+/// @param c the colour
 void gfx_fill(int x, int y, int w, int h, uint8_t c);
 /// Draws a horizontal line w pixels long.
+/// @param x the left
+/// @param y the row
+/// @param w the length
+/// @param c the colour
 void gfx_hline(int x, int y, int w, uint8_t c);
 /// Draws a vertical line h pixels long.
+/// @param x the column
+/// @param y the top
+/// @param h the length
+/// @param c the colour
 void gfx_vline(int x, int y, int h, uint8_t c);
 /// Draws one 8x16 character.
+/// @param x the left
+/// @param y the top
+/// @param ch the character
+/// @param fg the foreground
+/// @param bg the background
 void gfx_char(int x, int y, uint8_t ch, uint8_t fg, uint8_t bg);
 /// Text, padded with spaces (or cut) to n characters if n >= 0; returns the
 /// x after it.
+/// @param x the left
+/// @param y the top
+/// @param s the text
+/// @param n the width in characters (< 0: as long as it is)
+/// @param fg the foreground
+/// @param bg the background
+/// @return the x after it
 int gfx_text(int x, int y, const char *s, int n, uint8_t fg, uint8_t bg);
 /// The same, 14 pixels high (the pattern's rows).
+/// @param x the left
+/// @param y the top
+/// @param ch the character
+/// @param fg the foreground
+/// @param bg the background
 void gfx_char14(int x, int y, uint8_t ch, uint8_t fg, uint8_t bg);
 /// Text 14 pixels high, padded or cut to n characters if n >= 0; the x after it.
+/// @param x the left
+/// @param y the top
+/// @param s the text
+/// @param n the width in characters
+/// @param fg the foreground
+/// @param bg the background
+/// @return the x after it
 int gfx_text14(int x, int y, const char *s, int n, uint8_t fg, uint8_t bg);
 /// Formatted text 14 pixels high, as gfx_text14.
+/// @param x the left
+/// @param y the top
+/// @param n the width in characters
+/// @param fg the foreground
+/// @param bg the background
+/// @param fmt printf's format, and its arguments
+/// @return the x after it
 int gfx_printf(int x, int y, int n, uint8_t fg, uint8_t bg, const char *fmt, ...)
     __attribute__((format(printf, 6, 7)));
 /// A raised (or sunken) panel: face filled, edges lit and shaded.
+/// @param x the left
+/// @param y the top
+/// @param w the width
+/// @param h the height
+/// @param raised raised or sunken
+/// @param face the face's colour
 void gfx_bevel(int x, int y, int w, int h, bool raised, uint8_t face);
 /// The edges only, for drawing a pressed button without clearing.
+/// @param x the left
+/// @param y the top
+/// @param w the width
+/// @param h the height
+/// @param raised raised or sunken
 void gfx_bevel_edges(int x, int y, int w, int h, bool raised);
 
 /// Places the mouse can click, made while drawing; cleared on a full redraw.
@@ -91,10 +146,27 @@ typedef struct {
 /// Forgets the clickable places (before a full redraw).
 void hit_clear(void);
 /// Adds a clickable place with its id and argument.
+/// @param x the left
+/// @param y the top
+/// @param w the width
+/// @param h the height
+/// @param id what it is (HIT_)
+/// @param arg its argument
 void hit_add(int x, int y, int w, int h, int id, int arg);
 /// The clickable place at x, y, or NULL.
+/// @param x the x
+/// @param y the y
+/// @return the place, or NULL
 const hit_t *hit_find(int x, int y);
 /// A button: drawn and made clickable. lit: shown pressed (a mode that is on).
+/// @param x the left
+/// @param y the top
+/// @param w the width
+/// @param h the height
+/// @param label the label
+/// @param id what it is (HIT_)
+/// @param arg its argument
+/// @param lit shown pressed
 void gfx_button(int x, int y, int w, int h, const char *label, int id, int arg, bool lit);
 
 // ---- The editor's state -----------------------------------------------------------------------------
@@ -225,53 +297,119 @@ extern trk_t *T;
 
 // ---- trk.c -----------------------------------------------------------------------------------------
 /// Shows a message on the status line.
+/// @param fmt printf's format, and its arguments
 void trk_message(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void trk_dialog_begin(void);  ///< before an mc dialog or menu
 void trk_dialog_end(void);    ///< after it: everything is drawn again
 void trk_stop(void);          ///< stops the player (before changing samples)
+/// A piano key's note.
+/// @param key the key
+/// @return the note (0-35), or -1
 int trk_note_key(int key);    ///< a piano key's note (0..35), -1 if it isn't one
 /// Plays a note of a sample now (the keyboard and the mouse).
+/// @param sample the sample
+/// @param note the note
 void trk_jam(int sample, int note);
+/// Opens the menu bar.
+/// @param open the menu pulled down
 void trk_menu_open(int open); ///< the menu bar, with menu `open` pulled down
+/// The tracker, mod and modplay commands.
+/// @param argc the argument count
+/// @param argv the arguments
 void tracker_command(int argc, char **argv);  ///< tracker, mod, modplay
 
 // ---- trk_xm.c: the tracker with an XM song -------------------------------------------------
+/// The XM pattern being edited.
+/// @return its number
 int xed_pattern(void);         ///< the pattern being edited
 void xed_refresh(void);        ///< after an undo: the cursor kept in the pattern
+/// Makes a loaded XM the song being edited.
+/// @param s the song
 void xed_take(xm_song_t *s);   ///< an XM loaded: the tracker works on it from now on
+/// Starts a new empty XM song.
+/// @param channels its channels
+/// @return false if out of memory
 bool xed_new(int channels);    ///< a new empty XM song
 void xed_close(void);          ///< back to MOD (the XM freed)
 /// Saves the XM song as `path`.
+/// @param path the file
+/// @return false on failure
 bool xed_save(const char *path);
 /// Draws the pattern screen for an XM song.
 void xed_draw(void);
+/// A key on the pattern screen of an XM song.
+/// @param k the key
+/// @return false for the tracker's own keys
 bool xed_key(int k);           ///< false: the tracker's own keys (menus, files, help)
+/// A menu command for an XM song.
+/// @param id the command
+/// @return false if not one for XM songs
 bool xed_command(int id);      ///< false if not one for XM songs
 /// A click on the pattern screen of an XM song; false if not its own.
+/// @param h the place clicked
+/// @param e the mouse event
+/// @return false if not its own
 bool xed_click(const hit_t *h, const mouse_event_t *e);
 /// trk_xmi.c: its instrument screen (F3)
 void xmi_draw(void);
 /// A key on the instrument screen; false if not taken.
+/// @param k the key
+/// @return false if not taken
 bool xmi_key(int k);
 /// A click on the instrument screen; false if not its own.
+/// @param h the place clicked
+/// @param e the mouse event
+/// @return false if not its own
 bool xmi_click(const hit_t *h, const mouse_event_t *e);
 /// Forgets the instrument screen's cursor and view (another song).
 void xmi_reset(void);
+/// Runs one of the Instrument menu's tools.
+/// @param tool a TOOL_ id
 void xmi_tool(int tool);       ///< the Instrument menu's TOOL_ ids
 
 // ---- trk_ui.c: menus and dialogs, as mc's (mc.h) but drawn in pixels ------------------
 /// Each keeps and puts back what it covers. Menu items starting with '~' are greyed.
+/// @param title the title
+/// @param text the message
+/// @param buttons the buttons, "Yes|No"
+/// @param error shown in red
+/// @return the button chosen, or -1
 int gui_message(const char *title, const char *text, const char *buttons, bool error);
 /// One line of input in a dialog; false if cancelled.
+/// @param title the title
+/// @param prompt the prompt
+/// @param buf the text, edited in place
+/// @param size its size
+/// @return false if cancelled
 bool gui_input(const char *title, const char *prompt, char *buf, int size);
 /// A list to pick from; the chosen index or -1.
+/// @param title the title
+/// @param items the items
+/// @param n how many
+/// @param start the one first selected
+/// @return the index chosen, or -1
 int gui_list(const char *title, char *const *items, int n, int start);
 /// A pull-down menu bar; the chosen item's id or -1.
+/// @param menus the menus
+/// @param count how many
+/// @param open the menu open first, or -1
+/// @return the item's id, or -1
 int gui_menu(menu_t *menus, int count, int open);
+/// A right-click menu.
+/// @param items the items
+/// @param x where
+/// @param y where
+/// @return the item's id, or -1
 int gui_popup(menu_item_t *items, int x, int y);  ///< a right-click menu at x, y
 
 // ---- mod2xm.c: a MOD as an XM (separation: the stereo, 0-100%) ---------------------------------
 /// NULL if fine; else what failed (xm_clear frees what was made).
+/// @param x the XM made
+/// @param m the MOD
+/// @param speed its starting speed
+/// @param bpm its BPM
+/// @param separation the stereo, 0-100%
+/// @return NULL, or what failed
 const char *xm_from_mod(xm_song_t *x, const mod_song_t *m, int speed, int bpm, int separation);
 
 // ---- trk_undo.c: undo and redo (Ctrl-Z, Ctrl-Y), many steps ----------------------------------
@@ -279,11 +417,19 @@ const char *xm_from_mod(xm_song_t *x, const mod_song_t *m, int speed, int bpm, i
 /// current sample's or instrument's settings are noticed after each key or
 /// click (undo_watch); tools changing sample data keep a copy first.
 void undo_watch(void);
+/// Keeps a copy of a MOD sample before its sound changes.
+/// @param n the sample
 void undo_keep_mod_sample(int n);     ///< before changing MOD sample n's sound
+/// Keeps a copy of an XM instrument's samples before they change.
+/// @param n the instrument
 void undo_keep_xm_instrument(int n);  ///< before changing XM instrument n's samples
 /// Undoes (or with redo, redoes) one step; false if there was none.
+/// @param redo redo instead of undo
+/// @return false if there was none
 bool undo_step(bool redo);
 /// True if there is a step to undo (or redo).
+/// @param redo redo instead of undo
+/// @return true if there is one
 bool undo_can(bool redo);
 void undo_reset(void);                ///< another song
 void undo_free(void);                 ///< leaving the tracker
@@ -291,35 +437,78 @@ void undo_free(void);                 ///< leaving the tracker
 // ---- trk_sample.c ----------------------------------------------------------------------------------
 /// Draws the sample screen.
 void smp_draw(void);
+/// A key on the sample screen.
+/// @param key the key
+/// @return false if not taken
 bool smp_key(int key);        ///< false if not taken
 /// A click (or drag) on the sample screen.
+/// @param h the place clicked
+/// @param x the x
+/// @param y the y
+/// @param drag a drag (the button held)
 void smp_click(const hit_t *h, int x, int y, bool drag);
 /// The mouse wheel on the sample screen.
+/// @param h the place
+/// @param x the x
+/// @param d the clicks, + up
 void smp_wheel(const hit_t *h, int x, int d);
 /// Runs one of the Sample menu's tools.
+/// @param tool a TOOL_ id
 void smp_tool(int tool);
 /// Replaces a sample's data (the old is freed); the player must be stopped.
+/// @param n the sample
+/// @param data the new data (kept)
+/// @param length its length
 void smp_set_data(int n, int8_t *data, uint32_t length);
 /// Keeps a sample's loop inside its data.
+/// @param m the sample
 void smp_fix_loop(mod_sample_t *m);
+/// Loads a WAV, IFF or raw file into the current sample.
+/// @param path the file
 void smp_load(const char *path);  ///< into the current sample
+/// Saves the current sample as WAV.
+/// @param path the file
 void smp_save(const char *path);  ///< the current sample, as WAV
 
 // ---- trk_file.c --------------------------------------------------------------------------------------
 /// Picks a file (with folders to go into): true and its path in out. save:
 /// a name can be typed. exts: ".MOD.WAV" style list of extensions shown.
+/// @param title the title
+/// @param exts the extensions shown, ".MOD.WAV"
+/// @param save a name can be typed
+/// @param out set to the path
+/// @param size its size
+/// @return true if one was picked
 bool file_pick(const char *title, const char *exts, bool save, char *out, int size);
 /// Loads a MOD or XM song.
+/// @param path the file
+/// @return false on failure
 bool song_load(const char *path);
 /// Saves the song as `path`.
+/// @param path the file
+/// @return false on failure
 bool song_save(const char *path);
 /// Asks for a name and saves the song; false if cancelled or failed.
+/// @return false if cancelled or failed
 bool song_save_as(void);
+/// Makes the MOD being edited into an XM (Save then writes .XM).
+/// @return false on failure
 bool song_to_xm(void);   ///< the MOD being edited made into an XM (Save then writes .XM)
+/// Asks to save changes first.
+/// @param doing what is about to happen, for the question
+/// @return false if cancelled
 bool song_check_saved(const char *doing);  ///< false: cancelled
 /// Reads a whole file into PSRAM (NULL with a message on failure).
+/// @param path the file
+/// @param len set to its length
+/// @param max the most allowed
+/// @return the bytes (PSRAM), or NULL
 uint8_t *file_read_all(const char *path, uint32_t *len, uint32_t max);
 /// Writes a whole file; false (with a message) on failure.
+/// @param path the file
+/// @param data the bytes
+/// @param len how many
+/// @return false on failure
 bool file_write_all(const char *path, const void *data, uint32_t len);
 /// The tracker's help screen (F1).
 void help_show(void);

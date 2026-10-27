@@ -74,30 +74,70 @@ typedef struct {
 } mod_cell_t;
 
 /// From the port: memory for songs and samples (PSRAM on the board).
+/// @param size bytes wanted
+/// @return the memory, or NULL
 void *mod_alloc(size_t size);
 /// Frees memory from mod_alloc.
+/// @param p the memory
 void mod_free(void *p);
 
 /// A new empty song (4 channels, one pattern). False if out of memory.
+/// @param s the song
+/// @param channels 4, 6 or 8
+/// @return false if out of memory
 bool mod_new(mod_song_t *s, int channels);
+/// Frees the song's samples and patterns.
+/// @param s the song
 void mod_clear(mod_song_t *s);  ///< frees everything
 /// Loads a .MOD file's bytes. NULL if fine, else what is wrong.
+/// @param s the song
+/// @param data the file's bytes
+/// @param len its length
+/// @return NULL, or what is wrong
 const char *mod_load(mod_song_t *s, const uint8_t *data, size_t len);
 /// The file's size, and the file into out (that many bytes).
+/// @param s the song
+/// @return the file's size
 size_t mod_save_size(const mod_song_t *s);
 /// Writes the song as a .MOD file into `out` (mod_save_size bytes).
+/// @param s the song
+/// @param out where the file goes
 void mod_save(const mod_song_t *s, uint8_t *out);
 
 /// A pointer to a cell's 4 bytes in the pattern data.
+/// @param s the song
+/// @param pattern the pattern
+/// @param row the row
+/// @param ch the channel
+/// @return the cell's bytes
 uint8_t *mod_cell_ptr(const mod_song_t *s, int pattern, int row, int ch);
 /// A cell of a pattern, unpacked.
+/// @param s the song
+/// @param pattern the pattern
+/// @param row the row
+/// @param ch the channel
+/// @return the cell
 mod_cell_t mod_get(const mod_song_t *s, int pattern, int row, int ch);
 /// Sets a cell of a pattern.
+/// @param s the song
+/// @param pattern the pattern
+/// @param row the row
+/// @param ch the channel
+/// @param c the cell
 void mod_put(mod_song_t *s, int pattern, int row, int ch, mod_cell_t c);
 
 /// Notes: 0 = C-1 ... 35 = B-3 (ProTracker's range), as periods and names.
+/// @param note 0-35
+/// @param finetune -8..7
+/// @return the period
 uint16_t mod_note_period(int note, int finetune);
+/// The nearest note to a period.
+/// @param period the period
+/// @return the note, or -1
 int mod_period_note(uint16_t period);  ///< the nearest note, -1 for none
+/// A note's name.
+/// @param note 0-35
+/// @return "C-1", "C#1" ...
 const char *mod_note_name(int note);   ///< "C-1", "C#1" ...
 
 // ---- The player --------------------------------------------------------------------------
@@ -123,26 +163,58 @@ typedef struct {
 
 /// Core 0: start the song at an order position and row, or loop one pattern
 /// from a row; stop; play a note now on a channel (the editor's keyboard).
+/// @param s the song
+/// @param order the order position
+/// @param row the row
+/// @param pattern_only loop this pattern only
 void mod_play(mod_song_t *s, int order, int row, bool pattern_only);
+/// Plays any pattern, looped.
+/// @param s the song
+/// @param pattern the pattern
+/// @param row the row to start at
 void mod_play_pattern(mod_song_t *s, int pattern, int row);  ///< any pattern, looped
 /// Speed (ticks a row, 1..31) and tempo (BPM, 32..255): now if playing, and
 /// what the next play starts with (normally 6 and 125). Out of range: unchanged.
+/// @param speed ticks a row
+/// @param tempo BPM
 void mod_set_tempo(int speed, int tempo);
 /// Stops the player.
 void mod_stop(void);
 /// Plays a note now on a channel (the editor's keyboard).
+/// @param s the song
+/// @param ch the channel
+/// @param sample the sample
+/// @param note the note
 void mod_jam(mod_song_t *s, int ch, int sample, int note);
 /// Mutes or unmutes a channel.
+/// @param ch the channel
+/// @param muted mute or unmute
 void mod_mute(int ch, bool muted);
+/// Sets the stereo separation.
+/// @param percent 0 mono .. 100 hard Amiga panning
 void mod_set_separation(int percent);  ///< stereo: 0 mono .. 100 hard Amiga panning
+/// Sets what happens at the end.
+/// @param loop start over (true) or stop
 void mod_set_loop(bool loop);   ///< at the end: start over (the default), or stop
+/// Pauses (silent and held where it is) or resumes.
+/// @param paused pause or resume
 void mod_pause(bool paused);    ///< silent and held where it is
+/// Sets the volume.
+/// @param percent 0-100
 void mod_set_volume(int percent);  ///< 0..100 (the default)
 /// What the player is doing.
+/// @param st filled in
 void mod_get_status(mod_status_t *st);
 /// The last `n` (<= 256) mixed values of a channel, for its scope.
+/// @param ch the channel
+/// @param out where the values go
+/// @param n how many (<= 256)
 void mod_scope(int ch, int8_t *out, int n);
 // Changing samples or the pattern count: stop the player first.
 
 /// Core 1 (or a PC): the next stereo frame. False when silent and stopped.
+/// @param left added to: the left sample
+/// @param right added to: the right sample
+/// @return false when silent and stopped
+/// @note runs on core 1 as the audio source
 bool mod_render(int32_t *left, int32_t *right);

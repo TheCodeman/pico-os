@@ -130,27 +130,55 @@ typedef struct {
 } xm_song_t;
 
 /// From the port: memory for songs and samples (PSRAM on the board).
+/// @param size bytes wanted
+/// @return the memory, or NULL
 void *xm_alloc(size_t size);
 /// Frees memory from xm_alloc.
+/// @param p the memory
 void xm_free(void *p);
 
 /// Loads a .XM file's bytes. NULL if fine, else what is wrong.
+/// @param s the song
+/// @param data the file's bytes
+/// @param len its length
+/// @return NULL, or what is wrong
 const char *xm_load(xm_song_t *s, const uint8_t *data, size_t len);
 /// Frees the song's patterns and instruments.
+/// @param s the song
 void xm_clear(xm_song_t *s);
 /// The file's size, and the file into out (that many bytes): patterns are
 /// packed as FT2 packs them, samples delta-coded in their own bit depth.
+/// @param s the song
+/// @return the file's size
 size_t xm_save_size(const xm_song_t *s);
 /// Writes the song as a .XM file into `out` (xm_save_size bytes).
+/// @param s the song
+/// @param out where the file goes
 void xm_save(const xm_song_t *s, uint8_t *out);
 /// True if the bytes are an XM file.
+/// @param data the bytes
+/// @param len how many
+/// @return true if they are an XM file
 bool xm_is_xm(const uint8_t *data, size_t len);
 /// Instrument files (.XI), as FT2 writes them: one instrument and its samples.
+/// True if the bytes are an .XI instrument file.
+/// @param data the bytes
+/// @param len how many
+/// @return true for an .XI file
 bool xm_is_xi(const uint8_t *data, size_t len);
+/// Loads an .XI instrument.
+/// @param in the instrument (free its samples first)
+/// @param data the file's bytes
+/// @param len its length
+/// @return NULL, or what is wrong
 const char *xm_xi_load(xm_instrument_t *in, const uint8_t *data, size_t len);  ///< free: its samples
 /// The size of an instrument as a .XI file.
+/// @param in the instrument
+/// @return the file's size
 size_t xm_xi_size(const xm_instrument_t *in);
 /// Writes an instrument as a .XI file into `out` (xm_xi_size bytes).
+/// @param in the instrument
+/// @param out where the file goes
 void xm_xi_save(const xm_instrument_t *in, uint8_t *out);
 
 // ---- The player ---------------------------------------------------------------------------
@@ -169,25 +197,55 @@ typedef struct {
 /// Core 0: start at an order position (and row), stop, settings.
 /// The player's voices (8 KB) are made on the first play and kept until
 /// xm_release (after the audio source is taken away): false if no memory.
+/// @param s the song
+/// @param order the order position
+/// @param row the row
+/// @return false if out of memory
 bool xm_play(xm_song_t *s, int order, int row);
+/// Plays one pattern over and over.
+/// @param s the song
+/// @param pattern the pattern
+/// @param row the row to start at
 void xm_play_pattern(xm_song_t *s, int pattern, int row);  ///< one pattern, over and over
+/// Plays a note now (the keyboard).
+/// @param s the song
+/// @param ch the channel
+/// @param instrument the instrument
+/// @param note the note
 void xm_jam(xm_song_t *s, int ch, int instrument, int note);  ///< a note now (the keyboard)
 /// Stops the player.
 void xm_stop(void);
 void xm_release(void);            ///< frees the voices (nothing may be rendering)
+/// Sets what happens at the end.
+/// @param loop start over (true) or stop
 void xm_set_loop(bool loop);     ///< at the end: start over (default) or stop
 /// Mutes or unmutes a channel.
+/// @param ch the channel
+/// @param muted mute or unmute
 void xm_mute(int ch, bool muted);
 /// True if the channel is muted.
+/// @param ch the channel
+/// @return true if muted
 bool xm_muted(int ch);
 /// Pauses or resumes the player.
+/// @param paused pause or resume
 void xm_pause(bool paused);
+/// Sets the volume.
+/// @param percent 0-100
 void xm_set_volume(int percent); ///< 0..100
 /// What the player is doing.
+/// @param st filled in
 void xm_get_status(xm_status_t *st);
 
 /// Core 1 (or a PC): n stereo frames added into out (left, right, ...),
 /// at a level like mod_render's. False once stopped and silent.
+/// @param out the frames, added into (left, right, ...)
+/// @param n how many
+/// @return false once stopped
+/// @note runs on core 1
 bool xm_render(int32_t *out, int n);
 /// The same a frame at a time (for audio_set_source), from blocks of 32.
+/// @param left added to: the left sample
+/// @param right added to: the right sample
+/// @return false once stopped
 bool xm_render_frame(int32_t *left, int32_t *right);

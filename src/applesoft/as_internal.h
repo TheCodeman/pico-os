@@ -42,11 +42,15 @@ enum {
 };
 
 /// Reads a 16-bit little-endian word from emulated memory.
+/// @param a the address
+/// @return the word
 static inline uint16_t w16(uint16_t a) {
     return M[a] | M[(uint16_t)(a + 1)] << 8;
 }
 
 /// Writes a 16-bit little-endian word to emulated memory.
+/// @param a the address
+/// @param v the word
 static inline void sw16(uint16_t a, uint16_t v) {
     M[a] = (uint8_t)v;
     M[(uint16_t)(a + 1)] = (uint8_t)(v >> 8);
@@ -68,8 +72,10 @@ enum {
 };
 
 /// Raises an Applesoft error (ONERR GOTO can catch it). Doesn't return.
+/// @param code the error code (ERR_ value)
 void as_error(int code) __attribute__((noreturn));
 /// A DOS 3.3 error ("FILE NOT FOUND", code 6 and so on). Doesn't return.
+/// @param code the DOS error code
 void as_dos_error(int code) __attribute__((noreturn));
 /// Leaves the interpreter (BYE).
 void as_quit(void) __attribute__((noreturn));
@@ -78,6 +84,7 @@ void as_quit_to_prompt(void) __attribute__((noreturn));
 /// Runs the program now in memory (DOS RUN), from wherever we are.
 void as_start_run(void) __attribute__((noreturn));
 /// Loads program `name` and runs it, keeping the variables (CHAIN); doesn't return.
+/// @param name the program's file
 void as_chain(const char *name) __attribute__((noreturn));
 /// An error ends DOS READ/WRITE redirection.
 void as_close_dos_io(void);
@@ -88,7 +95,9 @@ void as_close_dos_io(void);
 void text_init(void);
 /// Character output as Applesoft's OUTDO and the monitor's COUT do it: c with
 /// or without its high bit. DOS commands (CHR$(4)) are caught here.
+/// @param c the character
 void as_outdo(uint8_t c);
+/// @param c the character
 void as_cout(uint8_t c);  ///< COUT: goes through the output hook (PR#)
 /// Prints a carriage return (Applesoft's CRDO).
 void as_crdo(void);
@@ -104,20 +113,28 @@ void as_text_mode(void);  ///< TEXT: full window, text display
 void as_bell(void);
 /// Keyboard: the key latched at $C000 (bit 7 set while unread), polling for
 /// one if none.
+/// @return the key, bit 7 set while unread
 uint8_t as_kbd(void);
 /// Clears the keyboard strobe, as reading $C010 does.
 void as_kbd_strobe(void);
+/// @return true if Ctrl-C is waiting
 bool as_kbd_poll_break(void);  ///< true if Ctrl-C is waiting (and leaves it)
+/// @return the key, bit 7 set
 uint8_t as_rdkey(void);        ///< waits for a key (cursor shown); bit 7 set
 /// GETLN: reads a line into $200 after printing the prompt at $33; returns its
 /// length. Characters are stored with bit 7 set, as the monitor does.
+/// @return the line's length
 int as_getln(void);
 /// INLIN: GETLN, then the line cut to 239 characters, NUL-terminated, with the
 /// high bits stripped. Returns the length.
+/// @param prompt the prompt character
+/// @return the line's length
 int as_inlin(uint8_t prompt);
 /// Output hooks: DOS 3.3 style command capture and PR#/IN#.
+/// @param slot the slot (0: the screen)
 void as_pr(int slot);
 /// Takes input from slot `slot` (IN#).
+/// @param slot the slot (0: the keyboard)
 void as_in(int slot);
 /// Keys fed in from a file (EXEC) come before the keyboard's.
 void as_exec_feed(void);
@@ -127,22 +144,47 @@ void as_exec_feed(void);
 /// Switches to the lo-res graphics screen (GR).
 void gfx_gr(void);
 /// Plots a lo-res block in the current colour (PLOT).
+/// @param x the column
+/// @param y the row
 void gfx_plot(int x, int y);
 /// Draws a horizontal lo-res line (HLIN x1,x2 AT y).
+/// @param x1 from this column
+/// @param x2 to this one
+/// @param y the row
 void gfx_hlin(int x1, int x2, int y);
 /// Draws a vertical lo-res line (VLIN y1,y2 AT x).
+/// @param y1 from this row
+/// @param y2 to this one
+/// @param x the column
 void gfx_vlin(int y1, int y2, int x);
 /// The lo-res colour at x, y (SCRN).
+/// @param x the column
+/// @param y the row
+/// @return the colour (0-15)
 int gfx_scrn(int x, int y);
 /// Sets the lo-res colour (COLOR=).
+/// @param c the colour (0-15)
 void gfx_set_color(int c);
+/// @param page 1 or 2
 void gfx_hgr(int page);  ///< 1 or 2
 /// Sets the hi-res colour (HCOLOR=).
+/// @param c the colour (0-7)
 void gfx_hcolor(int c);
+/// @param x the end's x
+/// @param y the end's y
 void gfx_hplot_to(int x, int y);   ///< a line from the last point
+/// @param x the x
+/// @param y the y
 void gfx_hplot(int x, int y);      ///< a point (and sets the last point)
+/// @param x the x
+/// @param y the y
 void gfx_hposn(int x, int y);      ///< just sets the position
 /// Draws (or with xdraw, XDRAWs) a shape from the shape table, optionally AT x, y.
+/// @param shape the shape's number
+/// @param xdraw XDRAW instead of DRAW
+/// @param at at x, y (else at the last point)
+/// @param x the x
+/// @param y the y
 void gfx_draw(int shape, bool xdraw, bool at, int x, int y);
 
 // ---- as_video.c: drawing the Apple's display into the framebuffer ---------------
@@ -153,22 +195,32 @@ extern struct as_video {
     ///@{
     bool text, mixed, page2, hires, col80, altchar, store80, dhires;
     ///@}
-} vid;
+} vid;  ///< the display's soft switches
 /// Sets up the video emulation.
 void video_init(void);
 void video_mark_all(void);              ///< redraw everything next time
+/// @param addr its address
 void video_mark(uint16_t addr);         ///< a byte of screen memory changed
+/// @param force draw now whatever the rate
 void video_update(bool force);          ///< redraw what changed (rate limited)
 /// Shows or hides the text cursor at row, col.
+/// @param on shown or hidden
+/// @param row the row
+/// @param col the column
 void video_cursor(bool on, int row, int col);
 
 // ---- as_mach.c: memory-mapped I/O, PEEK/POKE, CALL, USR and & ------------------
 
 /// Reads emulated memory, soft switches included (PEEK).
+/// @param addr the address
+/// @return the byte
 uint8_t as_peek(uint16_t addr);
 /// Writes emulated memory, soft switches included (POKE).
+/// @param addr the address
+/// @param v the byte
 void as_poke(uint16_t addr, uint8_t v);
 /// Runs machine code at `addr` on the 65C02 (CALL).
+/// @param addr the code's address
 void as_call(uint16_t addr);
 /// Calls the USR function's machine code.
 void as_usr(void);
@@ -177,10 +229,15 @@ void as_ampersand(void);
 /// Sets up the emulated machine (memory and 65C02).
 void mach_init(void);
 /// Soft-switch access from the interpreter itself (TEXT, GR, HGR...).
+/// @param addr the soft switch's address
+/// @param write a write (else a read)
+/// @param v the value written
+/// @return the value read
 uint8_t as_softswitch(uint16_t addr, bool write, uint8_t v);
 /// The speaker clicks; on the Apple each touch of $C030 flips the cone.
 void as_click(void);
 /// The time base, in microseconds; the 6502 (CALL) keeps its own as cycles.
+/// @return microseconds
 uint64_t as_now_us(void);
 
 // ---- as_dos.c: DOS 3.3 style commands and files on the drive -------------------
@@ -189,18 +246,27 @@ uint64_t as_now_us(void);
 void dos_init(void);
 /// Tries a line typed at the ] prompt or printed after CHR$(4) as a DOS
 /// command; true if it was one (and has been done).
+/// @param line the line
+/// @param from_program printed by a program (after CHR$(4)), not typed
+/// @return true if it was a DOS command
 bool dos_command(const char *line, bool from_program);
 /// Characters printed while a file is open for WRITE go to it; true if taken.
+/// @param c the character
+/// @return true if a file took it
 bool dos_output(uint8_t c);
 /// INPUT and GET while a file is open for READ read it; -1 if not.
+/// @return the character, or -1 if no file is being read
 int dos_input_char(void);
 /// True while a DOS text file is open for reading (input comes from it).
+/// @return true while a file is being read
 bool dos_reading(void);
 /// Closes all DOS files.
 void dos_close_all(void);
 /// RUN/LOAD/SAVE of the program in memory.
+/// @param name the file's name
 void dos_load_program(const char *name);
 /// Saves the program in memory as `name`.
+/// @param name the file's name
 void dos_save_program(const char *name);
 
 // ---- as_core.c: helpers the other parts use -------------------------------------
@@ -215,11 +281,16 @@ extern bool fac_string;   ///< VALTYP $11
 extern uint16_t fac_desc; ///< a string's descriptor address
 
 /// Advances to the next non-space character of the program text (CHRGET).
+/// @return the character
 uint8_t chrget(void);
 /// The current character of the program text, again (CHRGOT).
+/// @return the character
 uint8_t chrgot(void);
 /// True if `c` ends a statement (end of line or colon).
+/// @param c the character
+/// @return true if it ends a statement
 bool is_end(uint8_t c);
+/// @param c the character
 void synchr(uint8_t c);  ///< the next character must be c (SYNTAX ERROR if not)
 /// Checks for a comma, or gives ?SYNTAX ERROR (CHKCOM).
 void chkcom(void);
@@ -227,8 +298,11 @@ void chkcom(void);
 void frmevl(void);
 /// Evaluates a numeric expression (FRMNUM).
 void frmnum(void);
+/// @return the byte (0-255)
 int getbyt(void);       ///< GTBYTC without the CHRGET: a byte expression
+/// @return the byte (0-255)
 int gtbytc(void);       ///< CHRGET, then a byte expression
+/// @return the address (0-65535)
 uint16_t getadr(void);  ///< FRMNUM then GETADR
 void linget(void);      ///< line number into LINNUM
 
@@ -238,15 +312,24 @@ void as_clear(void);            ///< CLEAR (variables, stack, DATA)
 void as_fix_links(void);        ///< relink the program after loading it
 /// Enters a line of text (as typed) into the program, or runs it if it has
 /// no line number. Used by LOAD for text files.
+/// @param text the line
 void as_enter_line(const char *text);
 /// True while a program is running (not at the ] prompt).
+/// @return true while a program runs
 bool as_running(void);
 /// Turns line-number tracing on or off (TRACE, NOTRACE).
+/// @param on trace on or off
 void as_set_trace(bool on);
 
 /// Prints a NUL-terminated string through OUTDO.
+/// @param s the string
 void as_print(const char *s);
 /// Tokenises the text at $200 in place (the ROM's PARSE); returns the length.
+/// @return the tokenised line's length
 int as_crunch(void);
 /// Detokenises a program line for SAVE (no LIST spacing quirks).
+/// @param line_addr the line's address in memory
+/// @param out where the text goes
+/// @param max its size
+/// @return the text's length
 int as_detok_line(uint16_t line_addr, char *out, int max);

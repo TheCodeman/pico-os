@@ -97,40 +97,65 @@ struct a2e {
 
 /// Sets up a machine with its memory already pointed to (contents are kept:
 /// clear them first for a cold start). rom16k is the $C000-$FFFF image.
+/// @param m the machine
+/// @param rom16k the 16 KB ROM image for $C000-$FFFF
 void a2e_init(a2e *m, const uint8_t rom16k[0x4000]);
 /// The reset line (power-on or Ctrl-Reset): the MMU's switches clear and the
 /// CPU restarts at the reset vector. Hold m->button[0] and [1] across it for
 /// the built-in self test.
+/// @param m the machine
 void a2e_reset(a2e *m);
 /// A cold start, as at power-on (the ROM then boots from the disk drives):
 /// the power-up byte at $3F4 is made wrong and the reset line pulled.
+/// @param m the machine
 void a2e_cold_start(a2e *m);
 /// Runs whole instructions for at least `cycles` cycles; returns how many ran.
+/// @param m the machine
+/// @param cycles the cycles to run at least
+/// @return the cycles that ran
 uint32_t a2e_run(a2e *m, uint32_t cycles);
 
 /// For cards: asks for slot_event[slot] at cycle `at` (UINT64_MAX: never),
 /// and holds or releases the IRQ line.
+/// @param m the machine
+/// @param slot the card's slot
+/// @param at the cycle wanted, or UINT64_MAX for none
 void a2e_set_event(a2e *m, int slot, uint64_t at);
 /// Sets or clears the interrupt request of the card in `slot`.
+/// @param m the machine
+/// @param slot the card's slot
+/// @param on request or release
 void a2e_set_irq(a2e *m, int slot, bool on);
 
 /// A typed character as the Apple gets it: with Caps Lock down the IIe's
 /// keyboard gives capitals whether Shift is held or not, which most older
 /// programs need (they only look for upper case).
+/// @param c the character typed
+/// @param caps_lock Caps Lock is down
+/// @return the character the Apple gets
 static inline uint8_t a2e_caps(uint8_t c, bool caps_lock) {
     return caps_lock && c >= 'a' && c <= 'z' ? (uint8_t)(c - 0x20) : c;
 }
 
 /// A key arrives (ASCII, 0-127): latched at $C000 with the strobe set.
+/// @param m the machine
+/// @param ascii the key (0-127)
 void a2e_key(a2e *m, uint8_t ascii);
 /// Whether a key is held down ($C010 bit 7).
+/// @param m the machine
+/// @param down a key is held
 void a2e_key_held(a2e *m, bool down);
 
 /// CPU-visible memory without side effects (for tests and debuggers): what a
 /// read of addr returns now, except for the I/O page, which reads as 0.
+/// @param m the machine
+/// @param addr the address
+/// @return the byte a read would give
 uint8_t a2e_peek(const a2e *m, uint16_t addr);
 
 /// True during vertical blanking, from the cycle count.
+/// @param m the machine
+/// @return true in vertical blanking
 static inline bool a2e_in_vbl(const a2e *m) {
     return m->cycles % A2E_FRAME_CYCLES >= A2E_FRAME_CYCLES - A2E_VBL_CYCLES;
 }
@@ -145,6 +170,8 @@ static inline bool a2e_in_vbl(const a2e *m) {
 /// Draws the whole display into a 640x480 RGB332 framebuffer (280x192 doubled
 /// to 560x384 and centred), as the soft switches select: 40/80-column text,
 /// lo-res and double lo-res, hi-res and double hi-res, mixed mode, page 2.
+/// @param m the machine
+/// @param fb the 640x480 framebuffer
 void a2e_video_draw(const a2e *m, uint8_t *fb);
 /// Drawing only the lines that changed since the last call, for the board:
 /// each line's screen memory is hashed and compared with what was drawn.
@@ -157,10 +184,16 @@ typedef struct {
     uint32_t key[192];  ///< what each line showed when drawn; 0: draw again
 } a2e_screen;
 /// Returns how many of the 192 lines were drawn.
+/// @param m the machine
+/// @param s the screen being kept up to date
+/// @return the lines drawn
 uint32_t a2e_video_update(const a2e *m, a2e_screen *s);
 /// Everything is drawn again next time.
+/// @param s the screen
 void a2e_video_invalidate(a2e_screen *s);
 /// The text screen as 24 lines of ASCII (40 or 80 columns, as the display
 /// shows it), each ending in '\n'; buf needs 24 * 81 + 1 bytes. Inverse and
 /// flashing characters come out as plain ones.
+/// @param m the machine
+/// @param buf where the text goes (24 * 81 + 1 bytes)
 void a2e_text_dump(const a2e *m, char *buf);
