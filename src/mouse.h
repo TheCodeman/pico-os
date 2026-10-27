@@ -56,8 +56,6 @@ void mouse_flush(void);  ///< forgets the events waiting
 /// @return the clicks, + up
 int mouse_wheel(void);
 /// Puts the pointer somewhere.
-/// @param argc the argument count
-/// @param argv the arguments
 /// @param x the new x
 /// @param y the new y
 void mouse_warp(int x, int y);
@@ -71,11 +69,11 @@ void mouse_set_speed(int speed, bool acceleration);
 /// @param acceleration set to whether acceleration is on
 void mouse_get_speed(int *speed, bool *acceleration);
 /// The shell's mouse command, and /MOUSE.CFG (read when the drive appears).
+/// @param argc the argument count
+/// @param argv the arguments
 void mouse_command(int argc, char **argv);
-/// @param mode MOUSE_POINTER_OFF, _ARROW or _TEXT
 /// Reads /MOUSE.CFG (the drive has appeared).
 void mouse_load_config(void);
-/// @return the MOUSE_POINTER_ mode
 
 /// The pointer on the screen, drawn by core 0.
 ///   MOUSE_POINTER_OFF: none (the default).
@@ -86,25 +84,14 @@ void mouse_load_config(void);
 ///   MOUSE_POINTER_TEXT: the text cell under it in reversed colours, kept up
 ///     to date by the console (the shell, mc, BASIC's text screen).
 enum { MOUSE_POINTER_OFF, MOUSE_POINTER_ARROW, MOUSE_POINTER_TEXT };
-/// @param dev_addr the USB device
-/// @param instance its HID interface
-/// @param boot_protocol the interface is in boot protocol
-/// @param desc its report descriptor
-/// @param desc_len the descriptor's length
-/// @return true if it is a mouse
 /// Sets how the pointer is shown (MOUSE_POINTER_ modes).
+/// @param mode MOUSE_POINTER_OFF, _ARROW or _TEXT
 void mouse_pointer(int mode);
 /// How the pointer is shown now.
-/// @param dev_addr the USB device
-/// @param instance its HID interface
+/// @return the MOUSE_POINTER_ mode
 int mouse_pointer_mode(void);
 /// Kept for programs that hide the arrow while drawing: the video output draws it, so there is nothing to do.
 void mouse_pointer_hide(void);
-/// @param dev_addr the USB device
-/// @param instance its HID interface
-/// @param report the report
-/// @param len its length
-/// @return true if it was a mouse's
 /// Brings the arrow up to date (see mouse_pointer_update).
 void mouse_pointer_show(void);
 /// Moves the arrow to the mouse's position (call it in a program's loop).
@@ -112,10 +99,23 @@ void mouse_pointer_update(void);
 
 /// For the USB code (usb_keyboard.c): an interface came (true if it is a
 /// mouse), one went, and a report (true if it was a mouse's).
+/// @param dev_addr the USB device
+/// @param instance its HID interface
+/// @param boot_protocol the interface is in boot protocol
+/// @param desc its report descriptor
+/// @param desc_len the descriptor's length
+/// @return true if it is a mouse
 bool mouse_mounted(uint8_t dev_addr, uint8_t instance, bool boot_protocol, const uint8_t *desc,
                    uint16_t desc_len);
 /// For the USB code: a HID interface went away.
+/// @param dev_addr the USB device
+/// @param instance its HID interface
 void mouse_unmounted(uint8_t dev_addr, uint8_t instance);
 void mouse_reset(void);  ///< USB starting again: no mice until they mount
 /// For the USB code: a HID report; true if it was a mouse's.
+/// @param dev_addr the USB device
+/// @param instance its HID interface
+/// @param report the report
+/// @param len its length
+/// @return true if it was a mouse's
 bool mouse_report(uint8_t dev_addr, uint8_t instance, const uint8_t *report, uint16_t len);

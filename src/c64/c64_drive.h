@@ -90,20 +90,11 @@ void c64_drive_reset(c64_drive *d);
 void c64_drive_insert(c64_drive *d, uint8_t *d64, size_t size, bool write_protect);
 /// Writes the tracks changed back into the .d64; true if any were.
 /// @param d the drive
-/// @param clk_low set if the drive holds CLOCK low
-/// @param data_low set if it holds DATA low
-/// @param d the drive
 /// @return true if any track was written back
-/// @param d the drive
-/// @return true while the LED is lit
 bool c64_drive_flush(c64_drive *d);
 /// Starts the drive's clock at the C64's cycle count (when plugging it in).
 /// @param d the drive
-/// @return true while the motor runs
-/// @param d the drive
 /// @param c64_cycles the C64's cycle count
-/// @param d the drive
-/// @return the track (1-35), or 0 between tracks
 void c64_drive_sync(c64_drive *d, uint64_t c64_cycles);
 /// Runs the drive until it has caught up with the C64's cycle count.
 /// @param d the drive
@@ -111,10 +102,19 @@ void c64_drive_sync(c64_drive *d, uint64_t c64_cycles);
 void c64_drive_run_to(c64_drive *d, uint64_t c64_cycles);
 /// The serial bus's CLOCK and DATA lines as the drive pulls them (true:
 /// held low), for the C64's CIA 2 to read.
+/// @param d the drive
+/// @param clk_low set if the drive holds CLOCK low
+/// @param data_low set if it holds DATA low
 void c64_drive_bus(const c64_drive *d, bool *clk_low, bool *data_low);
 /// The drive's LED and motor.
+/// @param d the drive
+/// @return true while the LED is lit
 bool c64_drive_led(const c64_drive *d);
 /// True while the drive's motor is on.
+/// @param d the drive
+/// @return true while the motor runs
 bool c64_drive_motor(const c64_drive *d);
 /// The track the head is over (1-35, or 0 between tracks).
+/// @param d the drive
+/// @return the track (1-35), or 0 between tracks
 int c64_drive_track(const c64_drive *d);

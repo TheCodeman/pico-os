@@ -79,40 +79,27 @@ void asp_sleep_us(uint32_t us);
 void asp_tone(unsigned freq_hz, unsigned ms);
 /// The speaker cone flips (a touch of $C030) at this asp_micros() time.
 /// @param when_us when, in asp_micros() terms
-/// @param f the file
-/// @return its size in bytes
 void asp_speaker_click(uint64_t when_us);
 
-/// @param f the file
-/// @return false if writing it failed
 // ---- Files on the drive ------------------------------------------------------
 
-/// @param name the file's name
-/// @return true if it exists
 /// An open file on the drive (opaque).
 typedef struct asp_file asp_file;
-/// @param name the file's name
-/// @return false on failure
+/// Open modes for asp_open.
 enum { ASP_READ, ASP_WRITE, ASP_APPEND, ASP_UPDATE };  ///< UPDATE: read/write, created if missing
 
-/// @param from the old name
-/// @param to the new name
-/// @return false on failure
 /// Opens file `name` with ASP_READ, ASP_WRITE, ASP_APPEND or ASP_UPDATE; NULL if it can't.
 /// @param name the file's name
-/// @param fn called with each file's name, size and whether it is a folder
-/// @param ctx passed to fn
-/// @return false if the folder can't be read
 /// @param mode ASP_READ, ASP_WRITE, ASP_APPEND or ASP_UPDATE
 /// @return the file, or NULL
-/// @return a few words saying why
 asp_file *asp_open(const char *name, int mode);
+/// Reads from the file.
 /// @param f the file
 /// @param buf where the bytes go
 /// @param n how many
 /// @return the bytes read, 0 at the end, -1 on error
-/// @return true when the stack is nearly used up
 int asp_read(asp_file *f, void *buf, int n);          ///< bytes read, 0 at the end, -1 error
+/// Writes to the file.
 /// @param f the file
 /// @param buf the bytes
 /// @param n how many
@@ -128,21 +115,37 @@ bool asp_seek(asp_file *f, uint32_t pos);
 /// @return the position
 uint32_t asp_tell(asp_file *f);
 /// The file's size in bytes.
+/// @param f the file
+/// @return its size in bytes
 uint32_t asp_size(asp_file *f);
 /// Closes the file; false if writing it failed.
+/// @param f the file
+/// @return false if writing it failed
 bool asp_close(asp_file *f);
 /// True if file `name` exists.
+/// @param name the file's name
+/// @return true if it exists
 bool asp_exists(const char *name);
 /// Deletes file `name`.
+/// @param name the file's name
+/// @return false on failure
 bool asp_remove(const char *name);
 /// Renames file `from` to `to`.
+/// @param from the old name
+/// @param to the new name
+/// @return false on failure
 bool asp_rename(const char *from, const char *to);
 /// Calls fn for each file in the current folder; false if it can't be read.
+/// @param fn called with each file's name, size and whether it is a folder
+/// @param ctx passed to fn
+/// @return false if the folder can't be read
 bool asp_list(void (*fn)(void *ctx, const char *name, uint32_t size, bool is_dir), void *ctx);
 /// Why the last file call failed, in a few words.
+/// @return a few words saying why
 const char *asp_file_error(void);
 
 // ---- Other -------------------------------------------------------------------
 
 /// True when the C stack is nearly used up (the expression evaluator recurses).
+/// @return true when the stack is nearly used up
 bool asp_stack_low(void);
