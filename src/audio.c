@@ -21,21 +21,27 @@
 #include "hardware/sync.h"
 #include "pico/util/queue.h"
 
+/// Entries in the sine table.
 #define SINE_LEN  256
 #define AMPLITUDE 8000  ///< about -12 dBFS
+/// 2 pi.
 #define TWO_PI    6.28318531f
 
+/// One cycle of a sine wave.
 static int16_t sine[SINE_LEN];
 static volatile uint32_t beep_step;  ///< phase increment per frame, 16.16 fixed point
+/// Frames of the beep left.
 static volatile uint32_t beep_frames_left;
 static volatile bool beep_silent;  ///< a rest from the note queue
 
 /// Notes for audio_play: a tone (or a rest, step 0) and its length in frames.
 typedef struct {
+    /// The tone's step (16.16 per frame, 0 a rest) and its length in frames.
     ///@{
     uint32_t step, frames;
     ///@}
 } note_t;
+/// The notes waiting.
 static queue_t notes;
 static volatile bool note_playing;  ///< the current sound came from the queue
 
@@ -43,12 +49,21 @@ static volatile bool note_playing;  ///< the current sound came from the queue
 /// played on core 1 SPK_DELAY_US later. A DC-blocking filter turns the
 /// cone's two positions into sound and silence when it stops moving.
 #define SPK_QUEUE    512
+/// How long after a click it sounds (the queue's slack).
 #define SPK_DELAY_US 40000
+/// A click's level.
 #define SPK_LEVEL    6000
 static volatile uint32_t *volatile spk_times;  ///< SPK_QUEUE, made on the first click (SRAM is short)
+/// The click queue's ends.
+///@{
 static volatile uint32_t spk_head, spk_tail;
+///@}
 static uint64_t spk_clock;  ///< the time of the frame being made, in 1/65536 us
+/// The DC-blocking filter: input, last input, output.
+///@{
 static int32_t spk_in, spk_prev_in, spk_out;
+///@}
+/// The cone is up.
 static bool spk_up;
 
 void audio_speaker_click(uint64_t when_us) {
@@ -71,12 +86,16 @@ void audio_speaker_click(uint64_t when_us) {
 /// giving the next stereo frame, or NULL.
 static bool (*volatile source)(int32_t *left, int32_t *right);
 
+/// Core 1's time in the source and in all, in microseconds.
+///@{
 static volatile uint32_t source_busy_us, source_total_us;
+///@}
 
 void audio_set_source(bool (*fn)(int32_t *left, int32_t *right)) {
     source = fn;
 }
 
+/// The source set by audio_set_source, or NULL.
 bool (*audio_get_source(void))(int32_t *left, int32_t *right) {
     return source;
 }
@@ -95,17 +114,28 @@ static uint32_t sample_time;  ///< the frame being made, in time_us_64() terms (
 /// The AY chips: register writes from core 0, applied on core 1 at their
 /// times (SPK_DELAY_US later, as the speaker's clicks).
 #define AY_QUEUE 512
+/// An AY register write.
 typedef struct {
-    uint32_t when;
+    uint32_t when;  ///< when it is due (time_us_64, low bits)
+    /// The chip (0 or 1), register and value.
     ///@{
     uint8_t chip, reg, value;
     ///@}
 } ay_event_t;
 static ay_event_t *volatile ay_queue;  ///< AY_QUEUE, made by the first audio_ay_start
+/// The queue's ends.
+///@{
 static volatile uint32_t ay_head, ay_tail;
+///@}
+/// The chips are playing; core 1 should reset them.
+///@{
 static volatile bool ay_on, ay_reset_wanted;
+///@}
+/// Their clock.
 static volatile uint32_t ay_clock_hz;
+/// Their level, 8.8 fixed point.
 static volatile unsigned ay_gain_q8 = 512;
+/// The two chips.
 static ay38910 ay[2];
 
 void audio_ay_start(uint32_t clock_hz) {
@@ -167,6 +197,8 @@ void audio_ay_write(unsigned chip, uint8_t reg, uint8_t value, uint64_t when_us)
 }
 
 /// The chips' next stereo sample (core 1), after any writes now due.
+/// @param left the left sample, added to
+/// @param right the right
 static void ay_samples(int32_t *left, int32_t *right) {
     if (ay_reset_wanted) {
         ay_reset_wanted = false;
@@ -189,16 +221,29 @@ static void ay_samples(int32_t *left, int32_t *right) {
 #define SID_QUEUE 512  ///< 40 ms of writes: a tune's 50 a second, or a digi's 8000
 /// In PSRAM, allocated the first time and kept (core 1 may be reading it).
 static struct sid_write {
-    uint32_t when;
+    uint32_t when;  ///< when it is due (time_us_64, low bits)
+    /// The register and value.
     ///@{
     uint8_t reg, value;
     ///@}
-} *sid_queue;
+} *sid_queue;  ///< the queue
+/// The queue's ends.
+///@{
 static volatile uint32_t sid_head, sid_tail;
+///@}
+/// The SID is playing; core 1 should reset it.
+///@{
 static volatile bool sid_on, sid_reset_wanted;
+///@}
+/// Its clock.
 static volatile uint32_t sid_clock_hz;
+/// The SID.
 static c64_sid sid;
+/// Core 1's time in it, and since when.
+///@{
 static volatile uint64_t sid_busy_us, sid_since_us;
+///@}
+/// Its level, 8.8 fixed point.
 static volatile unsigned sid_gain_q8 = 256;
 
 void audio_sid_gain(unsigned q8) {
@@ -236,6 +281,8 @@ unsigned audio_sid_load(void) {
     return span ? (unsigned)(sid_busy_us * 1000 / span) : 0;
 }
 
+/// The SID's next sample (core 1), after any writes now due.
+/// @return the sample
 static int32_t sid_sample(void) {
     if (sid_reset_wanted) {
         sid_reset_wanted = false;
@@ -252,6 +299,7 @@ static int32_t sid_sample(void) {
 }
 
 /// The speaker's next sample (core 1).
+/// @return the sample
 static int32_t speaker_sample(void) {
     uint64_t now = (time_us_64() - SPK_DELAY_US) << 16;
     int64_t drift = (int64_t)(now - spk_clock);
@@ -271,7 +319,11 @@ static int32_t speaker_sample(void) {
     return spk_out;
 }
 
+/// A chime was asked for; it is playing.
+///@{
 static volatile bool chime_wanted, chime_on;
+///@}
+/// chime_underruns when it started.
 static uint32_t chime_underruns0;
 volatile uint32_t chime_underruns;  ///< sound missed while it played (read over SWD)
 
@@ -293,6 +345,8 @@ void audio_beep(unsigned freq_hz, unsigned ms) {
 
 /// Above 24000 the level rises a quarter as fast, so loud music flattens
 /// gently instead of clipping hard.
+/// @param x the level
+/// @return it limited
 static int16_t soft_limit(int32_t x) {
     if (x > 24000)
         x = 24000 + (x - 24000) / 4;
@@ -376,6 +430,9 @@ void __not_in_flash_func(audio_task)(void) {
 /// the queue holds 5 ms).
 static repeating_timer_t refill_timer;
 
+/// The refill timer (when core 1 has no job loop): fills the HDMI audio buffer.
+/// @param t the timer
+/// @return true (keep going)
 static bool refill(repeating_timer_t *t) {
     (void)t;
     audio_task();

@@ -19,12 +19,18 @@
 #include "pico/time.h"
 #include "psram_heap.h"
 
+/// A character's width.
 #define GLYPH_W 8
+/// Its height.
 #define GLYPH_H 16
+/// Bytes in a row of text.
 #define TEXT_ROW_BYTES (DVI_WIDTH * GLYPH_H)
+/// The cursor's blink half-period.
 #define CURSOR_BLINK_MS 500
 
+/// The default foreground (light grey).
 #define DEFAULT_FG RGB332(6, 6, 3)
+/// The default background (black).
 #define DEFAULT_BG RGB332(0, 0, 0)
 
 /// The 16 ANSI colours: 0-7 normal, 8-15 bright.
@@ -39,17 +45,28 @@ static const uint8_t palette[16] = {
 /// (-1 if fg isn't one), so bold can brighten it.
 static uint8_t fg = DEFAULT_FG;
 static uint8_t bg = DEFAULT_BG;
-static int fg_idx = -1;
+static int fg_idx = -1;  ///< the ANSI colour behind fg, or -1
+/// Bold; reverse video.
+///@{
 static bool bold, reverse;
+///@}
 
+/// The cursor's column and row.
+///@{
 static int cur_col, cur_row;
+///@}
 /// VT100 wrapping: writing the last column leaves the cursor there, and the
 /// line only wraps when the next character arrives.
 static bool wrap_pending;
+/// DECAWM: wrap at the right margin.
 static bool autowrap = true;
-static int scroll_top, scroll_bottom = CONSOLE_ROWS - 1;  ///< scroll region, inclusive
+/// The scroll region, inclusive.
+///@{
+static int scroll_top, scroll_bottom = CONSOLE_ROWS - 1;
+///@}
 
 static struct {
+    /// The cursor.
     ///@{
     int col, row;
     ///@}
@@ -60,13 +77,17 @@ static struct {
     ///@{
     bool bold, reverse;
     ///@}
-} saved;
+} saved;  ///< ESC 7 / ESC [ s's saved cursor and attributes
 
 /// Escape sequence parser.
 enum { ST_NORMAL, ST_ESC, ST_CSI, ST_SKIP_ONE, ST_STRING, ST_STRING_ESC, ST_G0, ST_G1 };
+/// The parser's state (ST_*).
 static int esc_state;
+/// The most parameters.
 #define MAX_PARAMS 8
+/// The parameters.
 static int params[MAX_PARAMS];
+/// Their count.
 static int nparams;
 static bool private_mode;  ///< CSI ? (or > < =) ...: modes, or xterm extras we ignore
 
@@ -74,13 +95,21 @@ static bool private_mode;  ///< CSI ? (or > < =) ...: modes, or xterm extras we 
 /// characters (ESC ( 0 for G0, ESC ) 0 for G1, SO/SI to switch), cursor keys
 /// in application mode (ESC [ ? 1 h), the alternate screen (ESC [ ? 1049 h)
 /// and answers to status queries.
+/// G0 and G1 are DEC line drawing; SO selected G1.
+///@{
 static bool g0_lines, g1_lines, shift_out;
+///@}
+/// Cursor keys send application-mode sequences.
 static bool app_cursor;
+/// Where answers to status queries go (console_set_reply), or NULL.
 static void (*reply_fn)(const char *text, int len);
+/// The main screen while the alternate one is up.
 static struct alt_screen {
+    /// Its characters and attributes.
     ///@{
     uint8_t ch[CONSOLE_ROWS][CONSOLE_COLS], attr[CONSOLE_ROWS][CONSOLE_COLS];
     ///@}
+    /// Its cursor.
     ///@{
     int col, row;
     ///@}
@@ -89,16 +118,20 @@ static struct alt_screen {
 /// The blink timer runs in an IRQ, so it skips its turn while a write is
 /// drawing; writes hide the cursor first and show it again when done.
 static volatile bool busy;
+/// The cursor is drawn.
 static bool cursor_shown;
 static bool cursor_enabled = true;  ///< ESC [ ? 25 h / l
+/// The blink timer.
 static repeating_timer_t blink_timer;
 
 /// What each cell shows: the character, and its colours as a PC attribute
 /// byte (foreground + 16 * background), for BASIC's SCREEN() and PEEK.
 static uint8_t cell_ch[CONSOLE_ROWS][CONSOLE_COLS];
-static uint8_t cell_attr[CONSOLE_ROWS][CONSOLE_COLS];
+static uint8_t cell_attr[CONSOLE_ROWS][CONSOLE_COLS];  ///< their attributes
 
 /// The PC colour number (0-15) nearest an RGB332 colour.
+/// @param rgb the colour
+/// @return 0-15
 static uint8_t pc_colour(uint8_t rgb) {
     static const uint8_t ansi_to_pc[8] = {0, 4, 2, 6, 1, 5, 3, 7};
     int best = 0, best_d = 1 << 30;
@@ -114,10 +147,18 @@ static uint8_t pc_colour(uint8_t rgb) {
     return ansi_to_pc[best & 7] | (best & 8);
 }
 
+/// A PC attribute byte for two colours.
+/// @param f foreground
+/// @param b background
+/// @return the byte
 static uint8_t attr_of(uint8_t f, uint8_t b) {
     return pc_colour(f) | pc_colour(b) << 4;
 }
 
+/// Draws a character in the current colours.
+/// @param col its column
+/// @param row its row
+/// @param ch the character
 static void draw_glyph(int col, int row, uint8_t ch) {
     const uint8_t *glyph = font8x16[ch];
     uint8_t f = reverse ? bg : fg, b = reverse ? fg : bg;
@@ -144,6 +185,9 @@ static void toggle_cursor(void) {
     cursor_shown = !cursor_shown;
 }
 
+/// The blink timer: toggles the cursor.
+/// @param t the timer
+/// @return true (keep going)
 static bool blink_callback(repeating_timer_t *t) {
     (void)t;
     if (!busy && (cursor_enabled || cursor_shown))
@@ -155,9 +199,17 @@ static bool blink_callback(repeating_timer_t *t) {
 /// with its colours swapped. Writes that move pixels around (scrolling) put
 /// the cell back first; the timer shows it again.
 #define POINTER_MS 20
+/// The cell the text pointer is on (row -1: none).
+///@{
 static int pointer_row = -1, pointer_col;
+///@}
+/// Its timer.
 static repeating_timer_t pointer_timer;
 
+/// Draws a cell from its attribute, colours swapped for the pointer.
+/// @param row its row
+/// @param col its column
+/// @param swapped swapped
 static void paint_cell(int row, int col, bool swapped) {
     static const uint8_t pc_to_ansi[8] = {0, 4, 2, 6, 1, 5, 3, 7};
     uint8_t a = cell_attr[row][col];
@@ -199,6 +251,9 @@ void console_pointer_off(void) {
     busy = was;
 }
 
+/// The pointer's timer: moves the text pointer to the mouse.
+/// @param t the timer
+/// @return true (keep going)
 static bool pointer_callback(repeating_timer_t *t) {
     (void)t;
     if (busy)
@@ -231,6 +286,9 @@ static bool pointer_callback(repeating_timer_t *t) {
 // ---- Screen operations, in character cells ---------------------------------
 
 /// Blanks columns col0..col1-1 of one row with the background colour.
+/// @param row the row
+/// @param col0 the first column
+/// @param col1 the column after the last
 static void clear_cells(int row, int col0, int col1) {
     if (col1 <= col0)
         return;
@@ -241,6 +299,9 @@ static void clear_cells(int row, int col0, int col1) {
         memset(dst, bg, (col1 - col0) * GLYPH_W);
 }
 
+/// Blanks whole rows.
+/// @param row0 the first
+/// @param row1 the one after the last
 static void clear_rows(int row0, int row1) {
     if (row1 <= row0)
         return;
@@ -250,6 +311,9 @@ static void clear_rows(int row0, int row1) {
 }
 
 /// Moves rows top..bottom (inclusive) up by n, blanking the n rows at the bottom.
+/// @param top the first row
+/// @param bottom the last
+/// @param n rows to move
 static void scroll_up(int top, int bottom, int n) {
     int rows = bottom - top + 1;
     if (n > rows)
@@ -261,6 +325,10 @@ static void scroll_up(int top, int bottom, int n) {
     clear_rows(bottom + 1 - n, bottom + 1);
 }
 
+/// Moves rows top..bottom (inclusive) down by n, blanking the n rows at the top.
+/// @param top the first row
+/// @param bottom the last
+/// @param n rows to move
 static void scroll_down(int top, int bottom, int n) {
     int rows = bottom - top + 1;
     if (n > rows)
@@ -274,6 +342,7 @@ static void scroll_down(int top, int bottom, int n) {
 
 /// Inserts (n > 0) or deletes (n < 0) blank cells at the cursor, shifting the
 /// rest of the row right or left.
+/// @param n cells
 static void shift_cells(int n) {
     int count = CONSOLE_COLS - cur_col;
     if (n > count)
@@ -303,10 +372,18 @@ static void shift_cells(int n) {
         clear_cells(cur_row, CONSOLE_COLS + n, CONSOLE_COLS);
 }
 
+/// A value kept within limits.
+/// @param v the value
+/// @param lo the lowest
+/// @param hi the highest
+/// @return v, clamped
 static int clamp(int v, int lo, int hi) {
     return v < lo ? lo : v > hi ? hi : v;
 }
 
+/// Moves the cursor (clamped to the screen).
+/// @param row the row
+/// @param col the column
 static void move_to(int row, int col) {
     cur_row = clamp(row, 0, CONSOLE_ROWS - 1);
     cur_col = clamp(col, 0, CONSOLE_COLS - 1);
@@ -322,6 +399,7 @@ static void line_feed(void) {
         ++cur_row;
 }
 
+/// ESC M: the cursor up, scrolling down at the top of the region.
 static void reverse_index(void) {
     wrap_pending = false;
     if (cur_row == scroll_top)
@@ -330,6 +408,7 @@ static void reverse_index(void) {
         --cur_row;
 }
 
+/// SGR 0: the default colours, no bold or reverse.
 static void reset_attributes(void) {
     fg = DEFAULT_FG;
     bg = DEFAULT_BG;
@@ -339,6 +418,7 @@ static void reset_attributes(void) {
 
 static void alt_screen(bool on);
 
+/// ESC c: everything back to how it started.
 static void reset_terminal(void) {
     alt_screen(false);
     g0_lines = g1_lines = shift_out = app_cursor = false;
@@ -356,6 +436,8 @@ static void reset_terminal(void) {
     saved.bold = saved.reverse = false;
 }
 
+/// Sets the foreground from an ANSI colour (bold brightens 0-7).
+/// @param idx the colour (0-15)
 static void set_fg_index(int idx) {
     fg_idx = idx;
     fg = palette[idx < 8 && bold ? idx + 8 : idx];
@@ -400,6 +482,8 @@ static void select_graphic_rendition(void) {
     }
 }
 
+/// DECSET / DECRST (ESC [ ? n h / l).
+/// @param on set (else reset)
 static void set_mode(bool on) {
     for (int i = 0; i < nparams; ++i) {
         if (!private_mode)
@@ -415,11 +499,15 @@ static void set_mode(bool on) {
     }
 }
 
+/// Answers a status query.
+/// @param text the answer
 static void reply(const char *text) {
     if (reply_fn)
         reply_fn(text, strlen(text));
 }
 
+/// Runs a CSI sequence.
+/// @param final its final character
 static void csi_dispatch(char final) {
     if (private_mode && final != 'h' && final != 'l')
         return;  // e.g. xterm's ESC [ > 4 ; 2 m, which isn't colour
@@ -512,6 +600,8 @@ static void csi_dispatch(char final) {
     }
 }
 
+/// Puts a character at the cursor and moves on (wrapping as VT100).
+/// @param c the character
 static void put_char(uint8_t c) {
     if (wrap_pending) {
         cur_col = 0;
@@ -524,6 +614,8 @@ static void put_char(uint8_t c) {
         wrap_pending = true;
 }
 
+/// Feeds a byte through the escape sequence parser.
+/// @param ch the byte
 static void put_raw(char ch) {
     uint8_t c = (uint8_t)ch;
 
@@ -668,6 +760,10 @@ control:
 }
 
 /// Draws a cell from a PC attribute byte (inside a write: no cursor work).
+/// @param row the row
+/// @param col the column
+/// @param ch the character
+/// @param attr the attribute byte
 static void draw_cell(int row, int col, uint8_t ch, uint8_t attr) {
     static const uint8_t pc_to_ansi[8] = {0, 4, 2, 6, 1, 5, 3, 7};
     uint8_t f = fg, b = bg;
@@ -683,6 +779,7 @@ static void draw_cell(int row, int col, uint8_t ch, uint8_t attr) {
 
 /// ESC [ ? 1049 h / l: full-screen programs draw on a blank screen and the
 /// old one comes back when they finish.
+/// @param on to the alternate screen (else back)
 static void alt_screen(bool on) {
     if (on && !alt_saved) {
         alt_saved = psram_malloc(sizeof *alt_saved);  // (only while a program has it up)
@@ -818,6 +915,9 @@ void console_init(void) {
     add_repeating_timer_ms(POINTER_MS, pointer_callback, NULL, &pointer_timer);
 }
 
+/// The console's stdio driver output.
+/// @param buf the text
+/// @param len its length
 static void stdio_out_chars(const char *buf, int len) {
     console_write(buf, len);
 }

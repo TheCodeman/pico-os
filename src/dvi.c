@@ -28,45 +28,47 @@
 #include "pico/platform.h"
 #include "pico/time.h"
 
-#define TMDS_CTRL_00 0x354u
-#define TMDS_CTRL_01 0x0abu
-#define TMDS_CTRL_10 0x154u
-#define TMDS_CTRL_11 0x2abu
+#define TMDS_CTRL_00 0x354u  ///< TMDS control symbol for C1 C0 = 00
+#define TMDS_CTRL_01 0x0abu  ///< 01
+#define TMDS_CTRL_10 0x154u  ///< 10
+#define TMDS_CTRL_11 0x2abu  ///< 11
 
-#define SYNC_V0_H0 (TMDS_CTRL_00 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
-#define SYNC_V0_H1 (TMDS_CTRL_01 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
-#define SYNC_V1_H0 (TMDS_CTRL_10 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
-#define SYNC_V1_H1 (TMDS_CTRL_11 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
+#define SYNC_V0_H0 (TMDS_CTRL_00 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))  ///< sync: vsync 0, hsync 0
+#define SYNC_V0_H1 (TMDS_CTRL_01 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))  ///< vsync 0, hsync 1
+#define SYNC_V1_H0 (TMDS_CTRL_10 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))  ///< vsync 1, hsync 0
+#define SYNC_V1_H1 (TMDS_CTRL_11 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))  ///< vsync 1, hsync 1
 
-#define MODE_H_FRONT_PORCH   16
-#define MODE_H_SYNC_WIDTH    96
-#define MODE_H_BACK_PORCH    48
-#define MODE_H_ACTIVE_PIXELS DVI_WIDTH
+#define MODE_H_FRONT_PORCH   16  ///< 640x480 at 60 Hz: pixels of the front porch
+#define MODE_H_SYNC_WIDTH    96  ///< of the sync
+#define MODE_H_BACK_PORCH    48  ///< of the back porch
+#define MODE_H_ACTIVE_PIXELS DVI_WIDTH  ///< shown
 
-#define MODE_V_FRONT_PORCH   10
-#define MODE_V_SYNC_WIDTH    2
-#define MODE_V_BACK_PORCH    33
-#define MODE_V_ACTIVE_LINES  DVI_HEIGHT
+#define MODE_V_FRONT_PORCH   10  ///< lines of the front porch
+#define MODE_V_SYNC_WIDTH    2  ///< of the sync
+#define MODE_V_BACK_PORCH    33  ///< of the back porch
+#define MODE_V_ACTIVE_LINES  DVI_HEIGHT  ///< shown
 
+/// Lines in a frame.
 #define MODE_V_TOTAL_LINES \
     (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH + MODE_V_BACK_PORCH + MODE_V_ACTIVE_LINES)
 
-#define HSTX_CMD_RAW         (0x0u << 12)
-#define HSTX_CMD_RAW_REPEAT  (0x1u << 12)
-#define HSTX_CMD_TMDS        (0x2u << 12)
-#define HSTX_CMD_NOP         (0xfu << 12)
+#define HSTX_CMD_RAW         (0x0u << 12)  ///< HSTX command: raw words
+#define HSTX_CMD_RAW_REPEAT  (0x1u << 12)  ///< a raw word repeated
+#define HSTX_CMD_TMDS        (0x2u << 12)  ///< pixels through the TMDS encoders
+#define HSTX_CMD_NOP         (0xfu << 12)  ///< nothing
 
 /// HDMI preambles: CTL0..CTL3 ride on channels 1 and 2 (HDMI 1.4 table 5-2).
 #define LANE12(c1, c2)       (((c1) << 10) | ((c2) << 20))
-#define PREAMBLE_VIDEO       LANE12(TMDS_CTRL_01, TMDS_CTRL_00)
-#define PREAMBLE_DATA_ISLAND LANE12(TMDS_CTRL_01, TMDS_CTRL_01)
-#define VIDEO_GUARD_BAND     (0x2ccu | (0x133u << 10) | (0x2ccu << 20))
-#define VIDEO_PREAMBLE_PIXELS 8
-#define VIDEO_GUARD_PIXELS    2
+#define PREAMBLE_VIDEO       LANE12(TMDS_CTRL_01, TMDS_CTRL_00)  ///< before video
+#define PREAMBLE_DATA_ISLAND LANE12(TMDS_CTRL_01, TMDS_CTRL_01)  ///< before a data island
+#define VIDEO_GUARD_BAND     (0x2ccu | (0x133u << 10) | (0x2ccu << 20))  ///< the guard band before video
+#define VIDEO_PREAMBLE_PIXELS 8  ///< the preamble's length in pixels
+#define VIDEO_GUARD_PIXELS    2  ///< the guard band's
 
-#define DMACH_PING 0
-#define DMACH_PONG 1
+#define DMACH_PING 0  ///< DMA channel for the first line buffer
+#define DMACH_PONG 1  ///< and the second
 
+/// The first line shown.
 #define FIRST_ACTIVE_LINE (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES)
 
 /// dvi_framebuf is placed by the linker script, just before the heap
@@ -74,20 +76,30 @@
 /// its far end while it needs only a quarter of it.
 volatile bool dvi_line_double;
 volatile bool dvi_pixel_double;
+/// The line-doubled band: its first row and height.
+///@{
 volatile uint16_t dvi_double_top, dvi_double_rows = DVI_HEIGHT / 2;
+///@}
 static uint32_t black_row[MODE_H_ACTIVE_PIXELS / 4];  ///< in SRAM, as the IRQ needs
 
 volatile bool dvi_arrow_on;
+/// Where the arrow is.
+///@{
 volatile int16_t dvi_arrow_x, dvi_arrow_y;
+///@}
 /// The arrow, 11 x 17: bit c of a row is column c (outline black, inside white).
 #define ARROW_W 11
-#define ARROW_H 17
+#define ARROW_H 17  ///< its height
+/// Its outline (black).
 static uint16_t arrow_outline[ARROW_H] = {0x001, 0x003, 0x005, 0x009, 0x011, 0x021, 0x041, 0x081, 0x101,
                                           0x201, 0x7c1, 0x049, 0x095, 0x093, 0x121, 0x120, 0x0c0};
+/// Its inside (white).
 static uint16_t arrow_fill[ARROW_H] = {0x000, 0x000, 0x002, 0x006, 0x00e, 0x01e, 0x03e, 0x07e, 0x0fe,
                                        0x1fe, 0x03e, 0x036, 0x062, 0x060, 0x0c0, 0x0c0, 0x000};
 
 /// The arrow over framebuffer row fbrow, now in the line's pixels at px.
+/// @param px the line's pixels
+/// @param fbrow the framebuffer row
 static void __not_in_flash_func(arrow_over)(uint8_t *px, int fbrow) {
     int ay = fbrow - dvi_arrow_y, x0 = dvi_arrow_x;
     if (ay < 0 || ay >= ARROW_H)
@@ -113,18 +125,25 @@ static void __not_in_flash_func(arrow_over)(uint8_t *px, int fbrow) {
 /// broke the picture. Six lines give about 190 us, less the 60 us or so it
 /// takes to build them.
 #define LINE_CMD_WORDS   96
+/// Pixel words in a line.
 #define LINE_PIXEL_WORDS (MODE_H_ACTIVE_PIXELS / sizeof(uint32_t))
+/// Lines a buffer holds.
 #define LINES_PER_BUF    6
+/// The two line buffers, sent by DMA in turn.
 static uint32_t line_buf[2][LINES_PER_BUF * (LINE_CMD_WORDS + LINE_PIXEL_WORDS)];
 
+/// The IRQ ran too late: the scanout must restart.
 static volatile bool scanout_late;
 static volatile uint32_t lines_built;  ///< check_scanout() watches this move
+/// The buffer being sent is the second.
 static bool dma_pong = false;
 static uint v_scanline;  ///< the next line to build
 
 static uint build_line(uint32_t *buf, uint line);
 
 /// Builds the next LINES_PER_BUF lines into buf; returns the word count.
+/// @param buf the buffer
+/// @return its words
 static uint __not_in_flash_func(build_lines)(uint32_t *buf) {
     uint32_t *p = buf;
     for (uint i = 0; i < LINES_PER_BUF; ++i) {
@@ -139,6 +158,9 @@ static uint __not_in_flash_func(build_lines)(uint32_t *buf) {
 ///   front porch 16 | sync: preamble 8, island 68, 20 | back porch 48 | active
 /// Active lines end the back porch with the video preamble and guard band,
 /// followed by a TMDS command and the line's pixels.
+/// @param buf where
+/// @param line the line
+/// @return its words
 static uint __not_in_flash_func(build_line)(uint32_t *buf, uint line) {
     bool vsync = line >= MODE_V_FRONT_PORCH && line < MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH;
     uint32_t idle = vsync ? SYNC_V0_H1 : SYNC_V1_H1;
@@ -236,6 +258,7 @@ static void __not_in_flash_func(dma_irq_handler)(void) {
         dvi_worst_build_us = took;
 }
 
+/// Sets the HSTX up: its TMDS encoders on the RGB332 bits, and the pins.
 static void hstx_setup(void) {
     // RGB332: lane 0 (blue) takes pixel bits 1:0, lane 1 (green) bits 4:2,
     // lane 2 (red) bits 7:5. NBITS fields hold (bit count - 1).
@@ -306,14 +329,22 @@ static void start_scanout(void) {
 
 /// For debugging over SWD: how often the scanout had to be restarted (and how
 /// often because the IRQ ran late), and the state of a channel that failed.
+/// Restarts, restarts because the IRQ ran late, the longest gap between IRQs and the longest build (us).
+///@{
 volatile uint32_t dvi_restarts, dvi_late, dvi_worst_gap_us, dvi_worst_build_us;
+///@}
+/// A failed channel's control register and read address.
+///@{
 volatile uint32_t dvi_fail_ctrl, dvi_fail_read_addr;
+///@}
 
 /// If the scanout breaks (the IRQ ran late, a channel reported a bus error,
 /// or the chain stopped), the picture is gone for good, because the HSTX
 /// loses track of where its commands start. Every 50 ms, check, and if so,
 /// reset the HSTX and start again from the top of the frame: the monitor
 /// sees one bad frame.
+/// @param t the timer
+/// @return true (keep going)
 static bool check_scanout(repeating_timer_t *t) {
     static uint stalls;
     const uint32_t errors = DMA_CH0_CTRL_TRIG_AHB_ERROR_BITS;
