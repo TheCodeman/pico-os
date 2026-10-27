@@ -67,14 +67,24 @@ typedef struct {
     uint8_t pty;        ///< programme type (0-31)
     char ps[9];         ///< programme service name: 8 characters
     char rt[65];        ///< radio text: up to 64 characters
-    char ps_new[8];     ///< the name being received
-    uint8_t ps_seen;    ///< bit n: segment n of ps_new arrived twice the same
-    char rt_new[64];    ///< the text being received
-    uint16_t rt_seen;   ///< bit n: segment n of rt_new arrived
+    char ps_new[8];     ///< the name being received: each pair once it came twice the same
+    char ps_cand[8];    ///< pairs that came once (a pair in ps_new is replaced when its candidate comes again)
+    uint16_t ps_got;    ///< bit n: segment n of ps_cand holds a candidate
+    uint16_t ps_seen;   ///< bit n: segment n of ps_new is set
+    char rt_new[64];    ///< the text being received, likewise
+    char rt_cand[64];   ///< its candidates
+    uint16_t rt_got;    ///< bit n: segment n of rt_cand holds a candidate
+    uint16_t rt_seen;   ///< bit n: segment n of rt_new is set
     int8_t rt_ab;       ///< the text A/B flag (a change clears it), -1 none yet
+    uint16_t pi_last;   ///< the PI in the last good block A (a new PI must come twice)
+    int16_t pty_last;   ///< the PTY in the last group (likewise), -1 none yet
     uint32_t groups;    ///< good groups received
     uint16_t last[4];   ///< the last group read (the ready flag stays up for 40 ms)
 } si4703_rds_t;
+
+/// A block's errors (BLERA-D): none, 1-2 corrected, 3-5 corrected, or
+/// uncorrectable (the block is dropped).
+#define SI4703_BLER_BAD 3
 
 /// How the driver reaches the chip.
 typedef struct {
@@ -191,13 +201,17 @@ bool si4703_status(si4703_dev_t *dev, si4703_status_t *st);
 /// @param rds the RDS state
 void si4703_rds_clear(si4703_rds_t *rds);
 
-/// Feeds one RDS group (blocks A-D) into the RDS state.
+/// Feeds one RDS group (blocks A-D) into the RDS state. Blocks with
+/// uncorrectable errors are dropped; corrections can be wrong, so a new PI
+/// or PTY, and every pair of name or text characters, counts only once it
+/// has come the same twice in a row. A new PI starts the name and text again.
 /// @param rds the RDS state
 /// @param blocks the four blocks
-void si4703_rds_group(si4703_rds_t *rds, const uint16_t blocks[4]);
+/// @param errors each block's errors (0-3, SI4703_BLER_BAD dropped), or NULL for none
+void si4703_rds_group(si4703_rds_t *rds, const uint16_t blocks[4], const uint8_t errors[4]);
 
-/// Reads the chip and, if an RDS group is ready (and without errors in the
-/// blocks that matter), feeds it in.
+/// Reads the chip and, if an RDS group is ready, feeds it in with its block
+/// errors (the chip reports them in RDS verbose mode, which it is put in).
 /// @param dev the chip
 /// @param rds the RDS state
 /// @param st set to the status read, or NULL

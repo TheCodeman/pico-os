@@ -25,7 +25,7 @@ typedef struct {
 
 extern bool sim_present;        ///< the chip answers
 extern int sim_resets;          ///< resets seen
-extern int sim_bad_every;       ///< every n-th RDS group has an uncorrectable block (0: none)
+extern int sim_bad_every;       ///< every n-th RDS group has a broken block (0: none)
 
 /// Sets the stations on the air.
 /// @param s the stations

@@ -90,11 +90,20 @@ static void next_group(void) {
         R[14] = (uint16_t)((uint8_t)t[seg * 4] << 8 | (uint8_t)t[seg * 4 + 1]);
         R[15] = (uint16_t)((uint8_t)t[seg * 4 + 2] << 8 | (uint8_t)t[seg * 4 + 3]);
     }
-    R[10] |= 0x8000;  // RDSR
+    R[10] = (uint16_t)((R[10] & ~0x0600) | 0x8000);  // RDSR, BLERA none
     R[11] &= 0x03ff;
     if (sim_bad_every && n % sim_bad_every == sim_bad_every - 1) {
-        R[11] |= 3 << 10;  // BLERD uncorrectable
-        R[15] ^= 0x4141;   // and the characters wrong
+        // A broken block, A to D in turn: half of them flagged uncorrectable,
+        // half flagged corrected (3-5 errors) but still wrong, as a
+        // miscorrection is.
+        int k = (n / sim_bad_every) % 4, bler = (n / sim_bad_every / 4) % 2 ? 2 : 3;
+        R[12 + k] ^= 0x4141;
+        if (R[2] & 0x0800) {  // the flags are only reported in verbose mode
+            if (k == 0)
+                R[10] |= (uint16_t)(bler << 9);  // BLERA
+            else
+                R[11] |= (uint16_t)(bler << (16 - 2 * k));  // BLERB-D
+        }
     }
 }
 

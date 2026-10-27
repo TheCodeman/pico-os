@@ -32,6 +32,7 @@ enum {
     PWR_DSMUTE = 0x8000,   ///< soft mute off
     PWR_DMUTE = 0x4000,    ///< mute off
     PWR_MONO = 0x2000,     ///< forced mono
+    PWR_RDSM = 0x0800,     ///< RDS verbose mode: block errors reported
     PWR_SKMODE = 0x0400,   ///< seeks stop at the band's end
     PWR_SEEKUP = 0x0200,   ///< seek upwards
     PWR_SEEK = 0x0100,     ///< seek
@@ -102,7 +103,7 @@ static void set_config_regs(si4703_dev_t *dev, const si4703_config_t *cfg) {
     uint8_t s = cfg->seek > SI4703_SEEK_MANY ? SI4703_SEEK_NORMAL : cfg->seek;
     uint16_t *r = dev->regs;
     r[POWERCFG] &= (uint16_t)~(PWR_DMUTE | PWR_MONO | PWR_DSMUTE);
-    r[POWERCFG] |= PWR_DSMUTE | PWR_SKMODE;
+    r[POWERCFG] |= PWR_DSMUTE | PWR_SKMODE | PWR_RDSM;
     if (!cfg->mute && cfg->volume)
         r[POWERCFG] |= PWR_DMUTE;
     if (cfg->mono)
@@ -252,11 +253,21 @@ bool si4703_status(si4703_dev_t *dev, si4703_status_t *st) {
     return true;
 }
 
-void si4703_rds_clear(si4703_rds_t *rds) {
-    memset(rds, 0, sizeof *rds);
+/// Starts the name and the text again (after tuning, or for a new PI).
+/// @param rds the RDS state
+static void rds_restart(si4703_rds_t *rds) {
+    rds->ps[0] = rds->rt[0] = 0;
     memset(rds->ps_new, ' ', sizeof rds->ps_new);
     memset(rds->rt_new, ' ', sizeof rds->rt_new);
+    rds->ps_got = rds->ps_seen = 0;
+    rds->rt_got = rds->rt_seen = 0;
     rds->rt_ab = -1;
+}
+
+void si4703_rds_clear(si4703_rds_t *rds) {
+    memset(rds, 0, sizeof *rds);
+    rds_restart(rds);
+    rds->pty_last = -1;
 }
 
 /// RDS characters made printable (the RDS set's accented letters as their
@@ -268,7 +279,7 @@ static char rds_char(uint8_t c) {
 }
 
 /// Copies the radio text received so far into rds->rt once its segments up
-/// to the end (a carriage return, or all of them) have arrived.
+/// to the end (a carriage return, or all of them) have arrived twice the same.
 /// @param rds the RDS state
 /// @param segs segments in a full text (16 for 2A, 16 of 2 characters for 2B)
 /// @param per characters a segment
@@ -288,50 +299,85 @@ static void rt_update(si4703_rds_t *rds, int segs, int per) {
     rds->rt[len] = 0;
 }
 
-void si4703_rds_group(si4703_rds_t *rds, const uint16_t blocks[4]) {
-    uint16_t b = blocks[1], c = blocks[2], d = blocks[3];
+/// Takes in a segment's characters: they are set (its bit in *seen) once the
+/// same ones have come twice in a row, and until then the ones set before
+/// stay, so a single wrong reception changes nothing.
+/// @param at the segment's characters
+/// @param cand its candidate
+/// @param chars the characters received
+/// @param n how many
+/// @param bit the segment's bit
+/// @param got the segments with a candidate
+/// @param seen the segments set
+static void segment(char *at, char *cand, const char *chars, int n, uint16_t bit, uint16_t *got, uint16_t *seen) {
+    if ((*seen & bit) && !memcmp(at, chars, n)) {
+        *got &= (uint16_t)~bit;  // the candidate wasn't repeated
+    } else if ((*got & bit) && !memcmp(cand, chars, n)) {
+        memcpy(at, chars, n);
+        *seen |= bit;
+        *got &= (uint16_t)~bit;
+    } else {
+        memcpy(cand, chars, n);
+        *got |= bit;
+    }
+}
+
+void si4703_rds_group(si4703_rds_t *rds, const uint16_t blocks[4], const uint8_t errors[4]) {
+    static const uint8_t none[4];
+    const uint8_t *e = errors ? errors : none;
+    uint16_t a = blocks[0], b = blocks[1], c = blocks[2], d = blocks[3];
+    // The PI: a new one counts once it has come twice in a row, and is
+    // another station, so the name and text start again.
+    if (e[0] < SI4703_BLER_BAD) {
+        if (a == rds->pi_last && a != rds->pi) {
+            if (rds->pi)
+                rds_restart(rds);
+            rds->pi = a;
+        }
+        rds->pi_last = a;
+    }
+    // Block B says what the group is; and nothing is taken before the PI is
+    // known, or from a group with another.
+    if (e[1] >= SI4703_BLER_BAD || !rds->pi || (e[0] < SI4703_BLER_BAD && a != rds->pi))
+        return;
     int type = b >> 12;
     bool version_b = b & 0x0800;
     rds->groups++;
-    rds->pi = blocks[0];
-    rds->pty = (b >> 5) & 0x1f;
+    int pty = (b >> 5) & 0x1f;
+    if (pty == rds->pty_last)
+        rds->pty = (uint8_t)pty;
+    rds->pty_last = (int16_t)pty;
     if (type == 0) {
-        // The station's name, two characters a group, each pair taken once
-        // it has come the same twice.
+        // The station's name, two characters a group (in D).
+        if (e[3] >= SI4703_BLER_BAD)
+            return;
         int seg = b & 3;
-        char x = rds_char(d >> 8), y = rds_char(d & 0xff);
-        char *at = rds->ps_new + seg * 2;
-        if (at[0] == x && at[1] == y) {
-            rds->ps_seen |= (uint8_t)(1 << seg);
-        } else {
-            at[0] = x;
-            at[1] = y;
-            rds->ps_seen &= (uint8_t)~(1 << seg);
-        }
+        char ch[2] = {rds_char(d >> 8), rds_char(d & 0xff)};
+        segment(rds->ps_new + seg * 2, rds->ps_cand + seg * 2, ch, 2, (uint16_t)(1u << seg), &rds->ps_got,
+                &rds->ps_seen);
         if (rds->ps_seen == 0x0f) {
             memcpy(rds->ps, rds->ps_new, 8);
             rds->ps[8] = 0;
         }
     } else if (type == 2) {
+        // The radio text: four characters a group in 2A (C and D), two in
+        // 2B (D; C repeats the PI).
+        if (e[3] >= SI4703_BLER_BAD || (!version_b && e[2] >= SI4703_BLER_BAD))
+            return;
         int ab = (b >> 4) & 1, seg = b & 15;
         if (rds->rt_ab != ab) {  // a new text
             rds->rt_ab = (int8_t)ab;
             memset(rds->rt_new, ' ', sizeof rds->rt_new);
-            rds->rt_seen = 0;
+            rds->rt_got = rds->rt_seen = 0;
         }
+        uint16_t bit = (uint16_t)(1u << seg);
         if (!version_b) {
-            char *at = rds->rt_new + seg * 4;
-            at[0] = rds_char(c >> 8);
-            at[1] = rds_char(c & 0xff);
-            at[2] = rds_char(d >> 8);
-            at[3] = rds_char(d & 0xff);
-            rds->rt_seen |= (uint16_t)(1u << seg);
+            char ch[4] = {rds_char(c >> 8), rds_char(c & 0xff), rds_char(d >> 8), rds_char(d & 0xff)};
+            segment(rds->rt_new + seg * 4, rds->rt_cand + seg * 4, ch, 4, bit, &rds->rt_got, &rds->rt_seen);
             rt_update(rds, 16, 4);
         } else {
-            char *at = rds->rt_new + seg * 2;
-            at[0] = rds_char(d >> 8);
-            at[1] = rds_char(d & 0xff);
-            rds->rt_seen |= (uint16_t)(1u << seg);
+            char ch[2] = {rds_char(d >> 8), rds_char(d & 0xff)};
+            segment(rds->rt_new + seg * 2, rds->rt_cand + seg * 2, ch, 2, bit, &rds->rt_got, &rds->rt_seen);
             rt_update(rds, 16, 2);
         }
     }
@@ -345,22 +391,16 @@ bool si4703_rds_poll(si4703_dev_t *dev, si4703_rds_t *rds, si4703_status_t *st) 
     uint16_t s = dev->regs[STATUSRSSI], r = dev->regs[READCHAN];
     if (!(s & ST_RDSR))
         return true;
-    // Block errors 0-2 were corrected; 3 couldn't be. B decides what the
-    // group is and D carries the characters, so both must be good.
-    int blera = (s >> 9) & 3, blerb = (r >> 14) & 3, blerc = (r >> 12) & 3, blerd = (r >> 10) & 3;
+    // BLERA-D (verbose mode): 0-2 corrected, 3 not.
+    uint8_t errors[4] = {(uint8_t)((s >> 9) & 3), (uint8_t)((r >> 14) & 3), (uint8_t)((r >> 12) & 3),
+                         (uint8_t)((r >> 10) & 3)};
     uint16_t blocks[4] = {dev->regs[RDSA], dev->regs[RDSA + 1], dev->regs[RDSA + 2], dev->regs[RDSA + 3]};
     // The ready flag stays up about 40 ms: a group read twice is the same
     // four blocks, so it counts once.
     if (!memcmp(rds->last, blocks, sizeof rds->last))
         return true;
     memcpy(rds->last, blocks, sizeof rds->last);
-    if (blerb > 2 || blerd > 2)
-        return true;
-    if ((blocks[1] >> 12) == 2 && !(blocks[1] & 0x0800) && blerc > 2)
-        return true;
-    if (blera > 2)
-        blocks[0] = rds->pi;  // keep the PI we had
-    si4703_rds_group(rds, blocks);
+    si4703_rds_group(rds, blocks, errors);
     return true;
 }
 
