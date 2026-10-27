@@ -43,6 +43,7 @@
 #include "trk.h"
 #include "mouse.h"
 #include "screenshot.h"
+#include "si4703_pico.h"
 #include "si5351_pico.h"
 #include "usb_storage.h"
 
@@ -328,6 +329,13 @@ static const help_t help_programs[] = {
      "  A ProTracker-style editor for .MOD songs (4, 6 or 8 channels) in\n"
      "  graphics: patterns, order list, samples (WAV/IFF/raw), scopes. F1 keys,\n"
      "  F9 menus, F5 play, F8 stop, Space record. Works with a mouse too."},
+    {"fm", "fmradio", "FM radio (Si4703)",
+     "fm                         the radio: tune, seek, scan, favourites, RDS\n"
+     "fm on [MHz] | off          play (the last station, or MHz) / switch off\n"
+     "fm tune MHz | seek up|down tune, or the next station\n"
+     "fm vol 0-30 | scan | status\n"
+     "  Also mute, mono, fav, band, step, deemph, i2c (fm help). I2C1 on\n"
+     "  GP2/GP3, reset GP22; kept in /FMRADIO.INI. It plays on after fm closes."},
     {"si5351", "clockgen", "Si5351A clock generator",
      "si5351                     the panel: three outputs, 2.5 kHz-200 MHz\n"
      "si5351 set N FREQ          e.g. si5351 set 0 10M (k, M or Hz)\n"
@@ -1617,7 +1625,7 @@ static const struct {
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset},
-    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"screenshot", cmd_screenshot},
+    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"screenshot", cmd_screenshot},
 };  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.
