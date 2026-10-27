@@ -46,12 +46,17 @@
 #include "usb_storage.h"
 
 #define LINE_MAX      255  ///< a command may wrap over several screen rows
+/// Lines of history kept.
 #define HISTORY_LEN   16
+/// Screen columns.
 #define SCREEN_COLS   80
 #define PAGE_LINES    28  ///< console rows less two, for "more" paging
+/// The longest folder shown in the prompt.
 #define PROMPT_MAX    32
 
+/// The USB drive's FatFs volume.
 static FATFS fs;
+/// The drive is mounted.
 static bool mounted;
 static bool started;  ///< the prompt is up (start-up has finished)
 /// The start-up screen's WiFi line is still STATUS_ROWS_UP rows above the
@@ -59,9 +64,15 @@ static bool started;  ///< the prompt is up (start-up has finished)
 static bool first_screen;
 #define STATUS_ROWS_UP 5  ///< then Mouse, a blank, "Type help...", a blank, the prompt
 
+/// The line being typed.
 static char line[LINE_MAX + 1];
-static int len, pos;  ///< characters in line, cursor position
+/// Characters in line, and the cursor's position.
+///@{
+static int len, pos;
+///@}
+/// The prompt, e.g. "/EXAMPLES> ".
 static char prompt[PROMPT_MAX + 8];
+/// Its length.
 static int prompt_len;
 /// Where the cursor is on the screen, counted in characters from the
 /// prompt's first one (the line wraps every SCREEN_COLS).
@@ -71,12 +82,14 @@ static bool last_was_tab;  ///< Tab twice running lists the candidates
 /// In PSRAM (SRAM is short), each with a checksum here: a line whose
 /// PSRAM cells faded is dropped rather than recalled wrong.
 static char (*history)[LINE_MAX + 1];
+/// Each history line's checksum.
 static uint16_t history_sum[HISTORY_LEN];
 static int history_count;  ///< entries stored (up to HISTORY_LEN)
 static int history_next;   ///< slot the next entry goes in
 static int history_view;   ///< 0 = editing a new line, n = n entries back
 
 static int esc_state;  ///< 0 none, 1 after ESC, 2 inside ESC [ or ESC O
+/// The parameter byte of the escape sequence being read.
 static char esc_param;
 
 // ---- Output helpers -------------------------------------------------------
@@ -84,6 +97,7 @@ static char esc_param;
 // track of the cursor as an offset from the start of the prompt and moves it
 // with VT100 sequences; after a change it redraws the prompt and line.
 
+/// Makes the prompt from the current folder.
 static void make_prompt(void) {
     char cwd[256] = "";
     if (mounted && f_getcwd(cwd, sizeof cwd) == FR_OK) {
@@ -98,6 +112,7 @@ static void make_prompt(void) {
 }
 
 /// Moves the cursor to offset `off` from the start of the prompt.
+/// @param off the offset
 static void cursor_to(int off) {
     int rows = off / SCREEN_COLS - cur_off / SCREEN_COLS;
     if (rows < 0)
@@ -129,6 +144,8 @@ static void new_prompt(void) {
     refresh();
 }
 
+/// Replaces the line typed (history).
+/// @param text the new line
 static void replace_line(const char *text) {
     snprintf(line, sizeof line, "%s", text);
     len = pos = strlen(line);
@@ -145,6 +162,8 @@ static void leave_line(void) {
 
 // ---- Commands -------------------------------------------------------------
 
+/// Whether the drive is there (saying so if not).
+/// @return it is
 static bool need_drive(void) {
     if (!mounted)
         printf("No USB drive. Plug one into the hub.\n");
@@ -161,11 +180,15 @@ const char *fresult_name(FRESULT r) {
     return (unsigned)r < sizeof names / sizeof names[0] ? names[r] : "error";
 }
 
+/// Prints a FatFs error.
+/// @param what what failed
+/// @param r the error
 static void print_error(const char *what, FRESULT r) {
     printf("%s: %s\n", what, fresult_name(r));
 }
 
 /// Waits for a key while paging; returns false if the user wants to stop.
+/// @return go on
 static bool more(void) {
     printf("-- more (any key, q to stop) --");
     fflush(stdout);
@@ -181,11 +204,13 @@ static bool more(void) {
 /// One entry per command: its name, other names, a line for the overview, and
 /// the usage and details `help name` prints.
 typedef struct {
+    /// The command's name, other names, one-line summary, and usage.
     ///@{
     const char *name, *aliases, *summary, *usage;
     ///@}
 } help_t;
 
+/// Help: files.
 static const help_t help_files[] = {
     {"ls", "dir", "list a folder",
      "ls [folder]   or   ls [folder/]pattern   e.g. ls EXAMPLES/*.BAS\n"
@@ -220,6 +245,7 @@ static const help_t help_files[] = {
     {"df", NULL, "size and free space", "df"},
 };
 
+/// Help: screen and sound.
 static const help_t help_screen[] = {
     {"cls", "clear", "clear the screen", "cls"},
     {"echo", NULL, "print text", "echo text"},
@@ -237,6 +263,7 @@ static const help_t help_screen[] = {
      "  Print Screen (or Ctrl-Alt-S) anywhere takes one and asks for the name."},
 };
 
+/// Help: programs.
 static const help_t help_programs[] = {
     {"edit", "ed", "text editor",
      "edit [file]\n"
@@ -305,6 +332,7 @@ static const help_t help_programs[] = {
      "  Shows a BMP, PNG or JPEG; any key returns."},
 };
 
+/// Help: network.
 static const help_t help_network[] = {
     {"wifi", NULL, "WiFi status and setup",
      "wifi                       status and IP address\n"
@@ -354,6 +382,7 @@ static const help_t help_network[] = {
      "  Asks a time server (default pool.ntp.org) and sets the clock."},
 };
 
+/// Help: system.
 static const help_t help_system[] = {
     {"date", NULL, "show or set the clock",
      "date\n"
@@ -382,17 +411,21 @@ static const help_t help_system[] = {
      "  Lists the commands, or shows how to use one."},
 };
 
+/// A group of commands in help's list.
 typedef struct {
-    const char *title;
-    const help_t *cmds;
-    int count;
+    const char *title;  ///< its title
+    const help_t *cmds;  ///< its commands
+    int count;  ///< their count
 } help_group_t;
 
+/// A help group from a title and a list.
 #define HELP_GROUP(title, list) {title, list, sizeof list / sizeof *list}
+/// The left column's groups.
 static const help_group_t help_left[] = {
     HELP_GROUP("Files", help_files),
     HELP_GROUP("Programs", help_programs),
 };
+/// The right column's groups.
 static const help_group_t help_right[] = {
     HELP_GROUP("Screen and sound", help_screen),
     HELP_GROUP("Network", help_network),
@@ -401,11 +434,16 @@ static const help_group_t help_right[] = {
 
 #define HELP_HEAD "\x1b[96m"  ///< section titles
 #define HELP_CMD  "\x1b[97m"  ///< command names
-#define HELP_DIM  "\x1b[90m"
-#define HELP_END  "\x1b[0m"
+#define HELP_DIM  "\x1b[90m"  ///< the summaries
+#define HELP_END  "\x1b[0m"  ///< back to normal
 
 /// Row `row` of a column of groups (a blank line between groups): prints it
 /// padded to `width` columns, or unpadded if width is 0. False past the end.
+/// @param groups the column's groups
+/// @param n their count
+/// @param row the row
+/// @param width the column's width
+/// @return the column has that row
 static bool help_row(const help_group_t *groups, int n, int row, int width) {
     for (int g = 0; g < n; ++g) {
         int rows = 1 + groups[g].count;
@@ -428,6 +466,9 @@ static bool help_row(const help_group_t *groups, int n, int row, int width) {
     return false;
 }
 
+/// A command's help, by name or alias.
+/// @param name the name
+/// @return it, or NULL
 static const help_t *find_help(const char *name) {
     const help_group_t *sides[] = {help_left, help_right};
     int counts[] = {sizeof help_left / sizeof *help_left, sizeof help_right / sizeof *help_right};
@@ -441,6 +482,9 @@ static const help_t *find_help(const char *name) {
     return NULL;
 }
 
+/// help [command]: the list, or one command's usage.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_help(int argc, char **argv) {
     if (argc > 1) {
         const help_t *h = find_help(argv[1]);
@@ -468,6 +512,9 @@ static void cmd_help(int argc, char **argv) {
            "Keys: Tab completes, Up/Down history, Ctrl-C cancels, Ctrl-L clears.\n" HELP_END);
 }
 
+/// ls [path or pattern].
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_ls(int argc, char **argv) {
     if (!need_drive())
         return;
@@ -510,6 +557,9 @@ static void cmd_ls(int argc, char **argv) {
            dirs == 1 ? "" : "s", bytes);
 }
 
+/// cd [folder] (/ alone).
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_cd(int argc, char **argv) {
     if (!need_drive())
         return;
@@ -518,6 +568,9 @@ static void cmd_cd(int argc, char **argv) {
         print_error(argv[1], r);
 }
 
+/// pwd.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_pwd(int argc, char **argv) {
     if (!need_drive())
         return;
@@ -526,6 +579,9 @@ static void cmd_pwd(int argc, char **argv) {
         printf("%s\n", cwd);
 }
 
+/// mkdir folder.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_mkdir(int argc, char **argv) {
     if (!need_drive())
         return;
@@ -545,14 +601,18 @@ typedef struct {
     bool ask, all;
     ///@}
     bool stop;      ///< Esc or Ctrl-C
+    /// Files and folders done.
     ///@{
     int files, dirs;
     ///@}
-    long long bytes;
+    long long bytes;  ///< bytes done
 } batch_t;
 
 /// The names in a folder, folders marked with a leading '/', read in one go
 /// (so changes made while working through them can't upset the listing).
+/// @param path the folder
+/// @param out set to the names (free each and it)
+/// @return their count, or -1
 static int folder_names(const char *path, char ***out) {
     static FILINFO info;
     char **names = NULL;
@@ -582,6 +642,10 @@ static int folder_names(const char *path, char ***out) {
     return n;
 }
 
+/// A folder and name joined with a slash.
+/// @param folder the folder
+/// @param name the name
+/// @return the path (malloc'd), or NULL
 static char *join(const char *folder, const char *name) {
     size_t a = strlen(folder), b = strlen(name);
     char *p = malloc(a + b + 2);
@@ -599,6 +663,9 @@ static bool is_folder(const char *path);
 static void into_folder(char *dest, size_t size, const char *to, const char *from);
 
 /// Deletes a folder and everything in it.
+/// @param b the batch
+/// @param path the folder
+/// @param depth folders deep
 static void rm_tree(batch_t *b, const char *path, int depth) {
     if (depth > 16) {
         printf("%s: folders nested too deep\n", path);
@@ -635,6 +702,8 @@ static void rm_tree(batch_t *b, const char *path, int depth) {
 
 /// rm [-r] [-f] path...: * and ? work; -r deletes folders with what is in
 /// them. Asks first (unless -f) when it is more than one plain file.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_rm(int argc, char **argv) {
     if (!need_drive())
         return;
@@ -711,6 +780,8 @@ static void cmd_rm(int argc, char **argv) {
 }
 
 /// mv from... to: rename, or move into the folder `to`; * and ? work.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_mv(int argc, char **argv) {
     if (!need_drive())
         return;
@@ -758,6 +829,9 @@ static void cmd_mv(int argc, char **argv) {
     glob_free(files, n);
 }
 
+/// cat file: shows a text file, a page at a time.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_cat(int argc, char **argv) {
     if (!need_drive())
         return;
@@ -835,6 +909,11 @@ static void cmd_cat(int argc, char **argv) {
 
 /// If `to` is an existing folder, copy into it under the source's name.
 /// Copies one file; its size, or -1 (with a message) if it failed.
+/// @param src the source's FatFs object
+/// @param dst the destination's
+/// @param from the source
+/// @param to the destination
+/// @return its size, or -1
 static long long copy_with(FIL *src, FIL *dst, const char *from, const char *to) {
     FRESULT r = f_open(src, from, FA_READ);
     if (r != FR_OK) {
@@ -877,6 +956,10 @@ static long long copy_with(FIL *src, FIL *dst, const char *from, const char *to)
     return total;
 }
 
+/// Copies one file (into a folder if to is one).
+/// @param from the source
+/// @param to the destination
+/// @return its size, or -1
 static long long copy_file(const char *from, const char *to) {
     // The two files' FatFs objects (1.2 KB) only while copying.
     FIL *pair = malloc(2 * sizeof *pair);
@@ -890,6 +973,10 @@ static long long copy_file(const char *from, const char *to) {
 }
 
 /// The folder `to` plus the last part of `from`.
+/// @param dest the path made
+/// @param size room in dest
+/// @param to the folder
+/// @param from the source
 static void into_folder(char *dest, size_t size, const char *to, const char *from) {
     const char *name = strrchr(from, '/');
     name = name ? name + 1 : from;
@@ -897,6 +984,9 @@ static void into_folder(char *dest, size_t size, const char *to, const char *fro
     snprintf(dest, size, "%s%s%s", to, n && to[n - 1] == '/' ? "" : "/", name);
 }
 
+/// Whether a path is a folder.
+/// @param path the path
+/// @return it is
 static bool is_folder(const char *path) {
     FILINFO info;
     if (!strcmp(path, "/"))
@@ -904,6 +994,10 @@ static bool is_folder(const char *path) {
     return f_stat(path, &info) == FR_OK && (info.fattrib & AM_DIR);
 }
 
+/// Copies a file for cp (asking before overwriting unless -y).
+/// @param b the batch
+/// @param from the source
+/// @param dest the destination
 static void cp_file(batch_t *b, const char *from, const char *dest) {
     if (glob_same(from, dest)) {
         printf("%s: can't copy a file onto itself\n", from);
@@ -930,6 +1024,10 @@ static void cp_file(batch_t *b, const char *from, const char *dest) {
 }
 
 /// Copies folder `from` as `to` (made if missing), with everything in it.
+/// @param b the batch
+/// @param from the folder
+/// @param to its copy
+/// @param depth folders deep
 static void cp_tree(batch_t *b, const char *from, const char *to, int depth) {
     if (depth > 16) {
         printf("%s: folders nested too deep\n", from);
@@ -961,6 +1059,8 @@ static void cp_tree(batch_t *b, const char *from, const char *to, int depth) {
 /// cp [-r] [-y] from... to: * and ? work in the last part of a name (cp
 /// EXAMPLES/*.BAS /NET); -r copies folders too. With several things to
 /// copy, `to` must be a folder.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_cp(int argc, char **argv) {
     if (!need_drive())
         return;
@@ -1024,6 +1124,9 @@ static void cmd_cp(int argc, char **argv) {
     glob_free(files, n);
 }
 
+/// df: the drive's size and free space.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_df(int argc, char **argv) {
     if (!need_drive())
         return;
@@ -1044,6 +1147,9 @@ static void cmd_df(int argc, char **argv) {
 
 extern char __StackLimit;  ///< top of the heap, from the SDK's linker script
 
+/// mem: SRAM and PSRAM use.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_mem(int argc, char **argv) {
     struct mallinfo mi = mallinfo();
     long heap_free = (long)(&__StackLimit - (char *)sbrk(0)) + mi.fordblks;
@@ -1066,28 +1172,37 @@ static void cmd_mem(int argc, char **argv) {
 // in use, and reports the speed.
 // ---- memtest soak: a long PSRAM retention test in the background ----------
 
+/// From the PSRAM's cached address to its uncached one.
 #define PSRAM_UNCACHED_OFFSET (0x15000000u - 0x11000000u)
 
 static struct {
     uint32_t *p;           ///< cached address of the block under test
-    size_t words;
+    size_t words;  ///< its size in words
+    /// When it started, when it ends, and when the next check is.
     ///@{
     uint32_t start_ms, end_ms, next_check_ms;
     ///@}
     uint32_t bad_total;    ///< words found wrong, all checks together
-    uint8_t scrub_s;
-} soak;
+    uint8_t scrub_s;  ///< scrub every this many seconds (0: none)
+} soak;  ///< the soak running, if any
 
+/// The pattern a word holds: from its address.
+/// @param a the word
+/// @return the pattern
 static uint32_t soak_pattern(const uint32_t *a) {
     return (uint32_t)(uintptr_t)a * 2654435761u ^ 0x5a5aa5a5u;
 }
 
+/// Stops the soak and frees its block.
 static void soak_stop(void) {
     psram_scrub(NULL, 0, 0);
     psram_free(soak.p);
     soak.p = NULL;
 }
 
+/// Starts a soak: fills a block and checks it now and then.
+/// @param minutes how long
+/// @param scrub_s scrub every this many seconds (0: none)
 static void soak_start(int minutes, int scrub_s) {
     if (soak.p) {
         printf("A soak is already running\n");
@@ -1155,6 +1270,10 @@ void shell_task(void) {
         soak_stop();
 }
 
+/// memtest [soak [minutes [scrub]
+/// stop]]: tests the PSRAM.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_memtest(int argc, char **argv) {
     if (argc > 1 && strcmp(argv[1], "soak") == 0) {
         int minutes = argc > 2 ? atoi(argv[2]) : 10;
@@ -1194,6 +1313,8 @@ static void cmd_memtest(int argc, char **argv) {
 }
 
 /// view file: shows a picture full screen until a key is pressed.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_view(int argc, char **argv) {
     if (argc < 2) {
         printf("usage: view file   (BMP, PNG or JPEG)\n");
@@ -1239,6 +1360,8 @@ static void cmd_view(int argc, char **argv) {
 
 /// screenshot [file]: saves the screen (PNG or BMP by the name; the next
 /// free /SCREENSHOTS/SHOTnnnn.PNG if none).
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_screenshot(int argc, char **argv) {
     if (!need_drive())
         return;
@@ -1254,12 +1377,18 @@ static void cmd_screenshot(int argc, char **argv) {
         printf("%s: %s\n", name, err);
 }
 
+/// edit [file].
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_edit(int argc, char **argv) {
     if (!need_drive())
         return;
     editor_run(argc > 1 ? argv[1] : NULL);
 }
 
+/// applesoft [file].
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_applesoft(int argc, char **argv) {
     if (argc > 1 && !need_drive())
         return;
@@ -1267,16 +1396,25 @@ static void cmd_applesoft(int argc, char **argv) {
     applesoft_main(argc > 1 ? argv[1] : NULL);
 }
 
+/// apple2e [disk1 [disk2]].
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_apple2e(int argc, char **argv) {
     app_overlay_load(APP_OV_APPLE2E);
     apple2e_main(argc, argv);
 }
 
+/// c64 [file].
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_c64(int argc, char **argv) {
     app_overlay_load(APP_OV_C64);
     c64_main(argc, argv);
 }
 
+/// genesis [rom] (when built in).
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_genesis(int argc, char **argv) {
 #if PICO_OS_GENESIS
     app_overlay_load(APP_OV_GENESIS);
@@ -1286,16 +1424,25 @@ static void cmd_genesis(int argc, char **argv) {
 #endif
 }
 
+/// basic [file].
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_basic(int argc, char **argv) {
     if (argc > 1 && !need_drive())
         return;
     basic_main(argc > 1 ? argv[1] : NULL);
 }
 
+/// cls.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_cls(int argc, char **argv) {
     putchar('\f');
 }
 
+/// beep [Hz].
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_beep(int argc, char **argv) {
     int hz = argc > 1 ? atoi(argv[1]) : 880;
     if (hz < 20 || hz > 20000) {
@@ -1306,6 +1453,8 @@ static void cmd_beep(int argc, char **argv) {
 }
 
 /// Shows the VT100 colours and attributes the console supports.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_colors(int argc, char **argv) {
     static const char *const names[] = {"black", "red",     "green", "yellow",
                                         "blue",  "magenta", "cyan",  "white"};
@@ -1320,6 +1469,8 @@ static void cmd_colors(int argc, char **argv) {
 /// too), after leaving WiFi and unmounting the drive. With bootsel it starts
 /// the USB bootloader instead, which only helps with the USB port wired to a
 /// PC rather than to the hub.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_reset(int argc, char **argv) {
     bool bootsel = argc > 1 && (!strcmp(argv[1], "bootsel") || !strcmp(argv[1], "-b"));
     if (argc > 1 && !bootsel) {
@@ -1343,12 +1494,14 @@ static void cmd_reset(int argc, char **argv) {
 
 // ---- Scripts: run FILE, and /AUTORUN at start-up ---------------------------------------------
 
+/// The start-up script.
 #define AUTORUN "/AUTORUN"
 static bool autorun_done;  ///< it printed: the start-up screen's lines have moved
 
 bool shell_batch;
 
 /// Esc or Ctrl-C typed: stops a script between its lines.
+/// @return stop
 static bool script_stop_key(void) {
     int c;
     while ((c = getchar_timeout_us(0)) >= 0)
@@ -1360,6 +1513,8 @@ static bool script_stop_key(void) {
 /// Runs the lines of a file as commands. Blank lines and lines starting
 /// with #, REM or :: are comments; "echo off" stops showing the commands
 /// (and @ before one hides it); a command that fails doesn't stop the rest.
+/// @param path the script
+/// @return it ran
 static bool run_script(const char *path) {
     static int depth;
     if (depth >= 4) {
@@ -1406,6 +1561,9 @@ static bool run_script(const char *path) {
     return true;
 }
 
+/// run file: runs a script.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_run(int argc, char **argv) {
     if (argc < 2) {
         printf("usage: run FILE\n");
@@ -1428,6 +1586,9 @@ bool shell_autorun(int boot_key) {
     return true;
 }
 
+/// echo text.
+/// @param argc the argument count
+/// @param argv the arguments
 static void cmd_echo(int argc, char **argv) {
     for (int i = 1; i < argc; ++i)
         printf(i > 1 ? " %s" : "%s", argv[i]);
@@ -1435,8 +1596,8 @@ static void cmd_echo(int argc, char **argv) {
 }
 
 static const struct {
-    const char *name;
-    void (*run)(int argc, char **argv);
+    const char *name;  ///< the command's name
+    void (*run)(int argc, char **argv);  ///< what runs it
 } commands[] = {
     {"help", cmd_help}, {"ls", cmd_ls},   {"dir", cmd_ls},   {"cd", cmd_cd},
     {"pwd", cmd_pwd},   {"mkdir", cmd_mkdir}, {"rm", cmd_rm}, {"del", cmd_rm},
@@ -1449,9 +1610,13 @@ static const struct {
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset},
     {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"screenshot", cmd_screenshot},
-};
+};  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.
+/// @param s the line, cut up in place
+/// @param argv set to the arguments
+/// @param max room in argv
+/// @return their count
 static int split(char *s, char **argv, int max) {
     int argc = 0;
     while (*s && argc < max) {
@@ -1474,6 +1639,8 @@ static int split(char *s, char **argv, int max) {
     return argc;
 }
 
+/// Runs a command line.
+/// @param text the line
 static void run_line(char *text) {
     char *argv[LINE_MAX / 2 + 1];  // the most a full line can hold
     int argc = split(text, argv, sizeof argv / sizeof argv[0]);
@@ -1491,6 +1658,9 @@ static void run_line(char *text) {
 
 // ---- Line editor ----------------------------------------------------------
 
+/// A line's checksum.
+/// @param t the line
+/// @return the sum
 static uint16_t line_sum(const char *t) {
     uint16_t h = 7;
     while (*t)
@@ -1498,6 +1668,8 @@ static uint16_t line_sum(const char *t) {
     return h;
 }
 
+/// Adds a line to the history (not a repeat of the last).
+/// @param text the line
 static void history_add(const char *text) {
     if (!*text)
         return;
@@ -1513,6 +1685,8 @@ static void history_add(const char *text) {
         ++history_count;
 }
 
+/// Shows a history line (0: the new one).
+/// @param view lines back
 static void history_show(int view) {
     if (view < 0 || view > history_count)
         return;
@@ -1523,6 +1697,9 @@ static void history_show(int view) {
     replace_line(view ? history[k] : "");
 }
 
+/// Inserts text at the cursor.
+/// @param t the text
+/// @param n its length
 static void insert_text(const char *t, int n) {
     if (len + n > LINE_MAX) {
         audio_beep(220, 60);
@@ -1546,6 +1723,7 @@ static void insert_text(const char *t, int n) {
         printf("\r\n");
 }
 
+/// Delete: the character at the cursor.
 static void delete_at_cursor(void) {
     if (pos >= len)
         return;
@@ -1554,6 +1732,7 @@ static void delete_at_cursor(void) {
     refresh();
 }
 
+/// Enter: runs the line.
 static void enter(void) {
     first_screen = false;
     line[len] = 0;
@@ -1573,13 +1752,22 @@ static void enter(void) {
 // A unique match is filled in, followed by "/" for a folder or a space;
 // several fill in what they share, and a second Tab lists them.
 
+/// The most candidates.
 #define MAX_MATCHES 64
+/// Room for their names.
 #define NAMES_SIZE  4096
 
 static char *names;  ///< the candidates, each 0-terminated (PSRAM, NAMES_SIZE)
+/// Candidates, and bytes of names used.
+///@{
 static int name_count, names_used;
+///@}
+/// Each candidate is a folder.
 static bool name_is_dir[MAX_MATCHES];
 
+/// Adds a candidate.
+/// @param n its name
+/// @param dir a folder
 static void add_name(const char *n, bool dir) {
     int l = strlen(n) + 1;
     if (!names && !(names = psram_buffer_alloc(NAMES_SIZE)))
@@ -1591,6 +1779,9 @@ static void add_name(const char *n, bool dir) {
     names_used += l;
 }
 
+/// A candidate's name.
+/// @param i which
+/// @return it
 static const char *name_at(int i) {
     const char *n = names;
     while (i--)
@@ -1598,6 +1789,7 @@ static const char *name_at(int i) {
     return n;
 }
 
+/// Lists the candidates under the line.
 static void list_candidates(void) {
     leave_line();
     int width = 0;
@@ -1623,6 +1815,8 @@ static void list_candidates(void) {
     new_prompt();
 }
 
+/// Tab: completes the word at the cursor (twice: lists the candidates).
+/// @param twice the second Tab
 static void complete(bool twice) {
     // The word under the cursor: back to an unquoted space, or to an open quote.
     int ws = 0;
@@ -1722,6 +1916,8 @@ static void complete(bool twice) {
     }
 }
 
+/// An escape sequence's key: arrows, Home, End, Del.
+/// @param final its final character
 static void escape_key(char final) {
     switch (final) {
     case 'A': history_show(history_view + 1); break;  // up
@@ -1838,6 +2034,9 @@ void shell_async_end(void) {
 }
 
 /// "1.5 GB" or "350 MB".
+/// @param bytes the size
+/// @param out the text
+/// @param n room in out
 static void format_size(uint64_t bytes, char *out, size_t n) {
     if (bytes >= (1ull << 30))
         snprintf(out, n, "%llu.%llu GB", bytes >> 30, ((bytes * 10) >> 30) % 10);
