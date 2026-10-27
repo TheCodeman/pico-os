@@ -21,8 +21,10 @@ WARN_IF_UNDOCUMENTED   = YES
 WARN_IF_DOC_ERROR      = YES
 WARN_NO_PARAMDOC       = YES
 WARN_LOGFILE           = docs/api/warnings.txt
-INPUT                  = src README.md THIRD_PARTY_NOTICES.md docs/BASIC_MANUAL.md
-USE_MDFILE_AS_MAINPAGE = README.md
+# The core OS only: the applications are documented in their own source
+# comments and manuals.
+INPUT                  = docs/API.md THIRD_PARTY_NOTICES.md src
+USE_MDFILE_AS_MAINPAGE = docs/API.md
 IMAGE_PATH             = docs
 FILE_PATTERNS          = *.c *.h
 RECURSIVE              = YES
@@ -34,7 +36,13 @@ EXCLUDE                = src/fatfs \
                          src/image/lodepng.c src/image/lodepng.h \
                          src/image/tjpgd.c src/image/tjpgd.h src/image/tjpgdcnf.h \
                          src/net/mbedtls_config.h src/net/lwipopts.h src/tusb_config.h \
-                         src/genesis/genesis_fast_68k.h src/font8x16.h
+                         src/genesis/genesis_fast_68k.h src/font8x16.h \
+                         src/basic src/applesoft src/apple2e src/c64 src/genesis \
+                         src/mc src/mod src/radio src/si5351 src/smb src/xfer \
+                         src/editor.c src/editor.h src/term.c src/term.h \
+                         src/ay38910.c src/ay38910.h \
+                         src/net/telnet.c src/net/telnet_menu.c src/net/dialdir.c src/net/dialdir.h \
+                         src/net/ssh.c src/net/ssh.h src/net/ssh_cmd.c src/net/scp.c src/net/wget.c
 EXCLUDE_PATTERNS       = */host/*
 ENABLE_PREPROCESSING   = YES
 MACRO_EXPANSION        = YES
