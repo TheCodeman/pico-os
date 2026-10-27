@@ -139,6 +139,7 @@ typedef struct {
     hit_t hits[96];         ///< places to click
     int nhits;              ///< their count
     bool dirty;             ///< draw again
+    bool status_dirty;      ///< the signal or RDS changed: draw again soon
     bool quit;              ///< leaving
     bool keep_playing;      ///< leaving with the radio on
 } fm_t;
@@ -1136,7 +1137,7 @@ static bool panel(void) {
     mouse_pointer(MOUSE_POINTER_ARROW);
     draw();
     show();
-    uint32_t next_poll = 0;
+    uint32_t next_poll = 0, next_status_draw = 0;
     bool msg_shown = true;
     while (!F->quit) {
         int k;
@@ -1161,8 +1162,15 @@ static bool panel(void) {
             }
             if (was.rssi != F->st.rssi || was.stereo != F->st.stereo || strcmp(ps, F->rds.ps) ||
                 strcmp(rt, F->rds.rt))
-                F->dirty = true;
+                F->status_dirty = true;
             next_poll = now + 20;
+        }
+        // The signal flickers and RDS text comes a character at a time: drawing
+        // the whole panel for each change would leave the mouse arrow lagging.
+        if (F->status_dirty && (int32_t)(now - next_status_draw) >= 0) {
+            F->status_dirty = false;
+            F->dirty = true;
+            next_status_draw = now + 250;
         }
         bool msg_on = F->msg[0] && now < F->msg_until;
         if (msg_on != msg_shown) {
