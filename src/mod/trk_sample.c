@@ -25,19 +25,21 @@
 
 #define MAX_LEN 131070u  ///< 65535 words: the most a MOD sample can be
 
-#define LIST_X  0
-#define LIST_W  292
-#define PROP_X  292
-#define PROP_W  348
-#define TOP_Y   16
-#define TOP_H   144
-#define WAVE_Y  160
-#define WAVE_H  256
-#define BAR_Y   416
-#define TOOL_Y  432
-#define STATUS_Y 464
-#define LIST_ROWS 8
+#define LIST_X  0  ///< the sample list: left
+#define LIST_W  292  ///< width
+#define PROP_X  292  ///< the settings: left
+#define PROP_W  348  ///< width
+#define TOP_Y   16  ///< the panels' top
+#define TOP_H   144  ///< their height
+#define WAVE_Y  160  ///< the waveform's top
+#define WAVE_H  256  ///< its height
+#define BAR_Y   416  ///< the view bar's row
+#define TOOL_Y  432  ///< the tools' row
+#define STATUS_Y 464  ///< the status line's top
+#define LIST_ROWS 8  ///< sample rows shown
 
+/// The sample chosen.
+/// @return it
 static mod_sample_t *cur(void) {
     return &T->song.samples[T->sample - 1];
 }
@@ -55,6 +57,7 @@ void smp_fix_loop(mod_sample_t *m) {
     }
 }
 
+/// Shows the whole sample.
 static void view_all(void) {
     T->view0 = 0;
     T->view_len = cur()->length;
@@ -75,6 +78,9 @@ void smp_set_data(int n, int8_t *data, uint32_t length) {
     T->dirty = true;
 }
 
+/// Sound for a sample (zeroed, two bytes more).
+/// @param len its length
+/// @return it, or NULL (with a message)
 static int8_t *new_data(uint32_t len) {
     // Two bytes more: the player reads one past the end when it interpolates.
     int8_t *d = mod_alloc(len + 2);
@@ -88,6 +94,8 @@ static int8_t *new_data(uint32_t len) {
 // ---- The tools ---------------------------------------------------------------------------------------------
 
 /// The selection, or all of the sample.
+/// @param a set to the first
+/// @param b to the one after the last
 static void range(uint32_t *a, uint32_t *b) {
     mod_sample_t *m = cur();
     if (T->sel1 > T->sel0 && T->sel1 <= m->length) {
@@ -99,6 +107,8 @@ static void range(uint32_t *a, uint32_t *b) {
     }
 }
 
+/// Whether the sample has sound (else a message).
+/// @return it has
 static bool have_sample(void) {
     if (cur()->length && cur()->data)
         return true;
@@ -106,6 +116,8 @@ static bool have_sample(void) {
     return false;
 }
 
+/// Whether part of it is selected (else a message).
+/// @return it is
 static bool have_selection(void) {
     if (T->sel1 > T->sel0)
         return true;
@@ -113,10 +125,15 @@ static bool have_selection(void) {
     return false;
 }
 
+/// A value clamped to 8 bits.
+/// @param v the value
+/// @return it
 static int clamp8(int v) {
     return v < -128 ? -128 : v > 127 ? 127 : v;
 }
 
+/// Amplifies the selection (or all).
+/// @param percent by this much
 static void amplify(int percent) {
     mod_sample_t *m = cur();
     uint32_t a, b;
@@ -125,6 +142,7 @@ static void amplify(int percent) {
         m->data[i] = clamp8(m->data[i] * percent / 100);
 }
 
+/// Generate: a sine, square, saw, triangle or noise sample.
 static void generate(void) {
     static char *const kinds[] = {"Sine", "Square", "Saw", "Triangle", "Noise"};
     int k = gui_list("Generate", kinds, 5, 0);
@@ -172,6 +190,8 @@ static void generate(void) {
     smp_fix_loop(m);
 }
 
+/// Cuts the selection, or crops to it.
+/// @param crop keep only the selection
 static void cut_or_crop(bool crop) {
     mod_sample_t *m = cur();
     uint32_t a = T->sel0, b = T->sel1;
@@ -206,6 +226,8 @@ static void cut_or_crop(bool crop) {
     T->sel0 = T->sel1 = 0;
 }
 
+/// Halves or doubles the rate.
+/// @param halve halve (else double)
 static void resample(bool halve) {
     mod_sample_t *m = cur();
     uint32_t len = halve ? m->length / 2 : m->length * 2;
@@ -238,6 +260,7 @@ static void resample(bool halve) {
                 halve ? "higher" : "lower");
 }
 
+/// Copies the sample to another number.
 static void copy_to(void) {
     char buf[8];
     snprintf(buf, sizeof buf, "%d", T->sample < 31 ? T->sample + 1 : 1);
@@ -412,24 +435,40 @@ void smp_tool(int tool) {
 
 // ---- Sample files ------------------------------------------------------------------------------------------
 
+/// Reads 32 bits little-endian.
+/// @param p where
+/// @return the value
 static uint32_t le32(const uint8_t *p) {
     return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24;
 }
+/// Reads 16 bits little-endian.
+/// @param p where
+/// @return the value
 static uint16_t le16(const uint8_t *p) {
     return p[0] | p[1] << 8;
 }
+/// Reads 32 bits big-endian.
+/// @param p where
+/// @return the value
 static uint32_t be32(const uint8_t *p) {
     return (uint32_t)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3];
 }
 
+/// A sound file loaded as 8 bits.
 typedef struct {
-    int8_t *data;
+    int8_t *data;  ///< the sound
+    /// Its length, loop and rate.
     ///@{
     uint32_t len, loop_start, loop_len, rate;
     ///@}
     bool cut;  ///< longer than a MOD sample can be
 } loaded_t;
 
+/// Loads a WAV (8 or 16 bits, mono or stereo, its loop from smpl).
+/// @param f the file
+/// @param size its size
+/// @param out set
+/// @return NULL, or an error
 static const char *load_wav(const uint8_t *f, uint32_t size, loaded_t *out) {
     if (size < 12 || memcmp(f + 8, "WAVE", 4))
         return "not a WAV file";
@@ -503,6 +542,11 @@ static const char *load_wav(const uint8_t *f, uint32_t size, loaded_t *out) {
     return NULL;
 }
 
+/// Loads an IFF 8SVX.
+/// @param f the file
+/// @param size its size
+/// @param out set
+/// @return NULL, or an error
 static const char *load_8svx(const uint8_t *f, uint32_t size, loaded_t *out) {
     uint32_t one_shot = 0, repeat = 0;
     const uint8_t *body = NULL;
@@ -601,6 +645,9 @@ void smp_load(const char *path) {
                     s.cut ? " (cut: a MOD sample holds 131070)" : "");
 }
 
+/// Stores 32 bits little-endian.
+/// @param p where
+/// @param v the value
 static void put32(uint8_t *p, uint32_t v) {
     p[0] = v;
     p[1] = v >> 8;
@@ -653,9 +700,14 @@ void smp_save(const char *path) {
 
 // ---- Drawing ---------------------------------------------------------------------------------------------
 
+/// The settings' names.
 static const char *const field_names[MF_COUNT] = {"Name", "Volume", "Finetune", "Loop",
                                                   "Loop at", "Loop len", "Sel from", "Sel to"};
 
+/// A setting's value as text.
+/// @param f the setting
+/// @param v the text
+/// @param size room in v
 static void field_value(int f, char *v, int size) {
     mod_sample_t *m = cur();
     switch (f) {
@@ -670,6 +722,7 @@ static void field_value(int f, char *v, int size) {
     }
 }
 
+/// Draws the sample list.
 static void draw_list(void) {
     mod_song_t *s = &T->song;
     if (T->full)
@@ -696,6 +749,7 @@ static void draw_list(void) {
     }
 }
 
+/// Draws the settings.
 static void draw_props(void) {
     mod_sample_t *m = cur();
     if (T->full)
@@ -731,6 +785,7 @@ static void draw_props(void) {
     }
 }
 
+/// Works out each column's lowest and highest value.
 static void wave_columns(void) {
     mod_sample_t *m = cur();
     int iw = DVI_WIDTH - 2;
@@ -764,12 +819,17 @@ static void wave_columns(void) {
 }
 
 /// The column of a byte position, or -1 if it isn't shown.
+/// @param p the position
+/// @return the column
 static int pos_x(uint32_t p) {
     if (!T->view_len || p < T->view0 || p > T->view0 + T->view_len)
         return -1;
     return (int)((uint64_t)(p - T->view0) * (DVI_WIDTH - 2) / T->view_len);
 }
 
+/// The position at a column.
+/// @param x the column
+/// @return the position
 static uint32_t x_pos(int x) {
     if (x < 0)
         x = 0;
@@ -780,6 +840,7 @@ static uint32_t x_pos(int x) {
     return p > len ? len : p;
 }
 
+/// Draws the waveform, the loop, the selection and the play position.
 static void draw_wave(void) {
     mod_sample_t *m = cur();
     if (T->full)
@@ -851,6 +912,7 @@ static void draw_wave(void) {
     hit_add(1, top, DVI_WIDTH - 2, h, HIT_WAVE, 0);
 }
 
+/// Draws the view bar.
 static void draw_bar(void) {
     // Where the view is in the sample.
     mod_sample_t *m = cur();
@@ -863,6 +925,7 @@ static void draw_bar(void) {
     hit_add(0, BAR_Y, DVI_WIDTH, 16, HIT_WAVE_SCROLL, 0);
 }
 
+/// Draws the tools.
 static void draw_tools(void) {
     static const struct {
         const char *label;
@@ -891,6 +954,9 @@ void smp_draw(void) {
 
 // ---- Keys and the mouse ------------------------------------------------------------------------------
 
+/// Changes a setting by a step.
+/// @param f the setting
+/// @param d the step
 static void field_step(int f, int d) {
     mod_sample_t *m = cur();
     int big = d / 16;  // PgUp/PgDn: 16 times as far
@@ -949,6 +1015,8 @@ static void field_step(int f, int d) {
     T->wave_dirty = true;
 }
 
+/// Edits a setting by typing.
+/// @param f the setting
 static void field_enter(int f) {
     mod_sample_t *m = cur();
     if (f == MF_NAME) {
@@ -983,6 +1051,8 @@ static void field_enter(int f) {
     T->wave_dirty = true;
 }
 
+/// Zooms in or out about the middle.
+/// @param d +1 in, -1 out
 static void zoom(int d) {
     mod_sample_t *m = cur();
     if (!m->length)
@@ -1000,6 +1070,8 @@ static void zoom(int d) {
     T->wave_dirty = true;
 }
 
+/// Scrolls the view.
+/// @param d eighths of the view
 static void scroll(int d) {
     mod_sample_t *m = cur();
     int64_t v = (int64_t)T->view0 + (int64_t)d * (T->view_len / 8 ? T->view_len / 8 : 1);

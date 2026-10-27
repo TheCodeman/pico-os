@@ -89,55 +89,69 @@ bool file_write_all(const char *path, const void *data, uint32_t len) {
 // name empty goes up a folder; Tab switches the filter; Esc cancels. The
 // mouse: click, double-click, the wheel, the scroll bar and the buttons.
 
+/// The most entries in a folder.
 #define FP_MAX   2000
+/// The longest name.
 #define FP_NAME  100
+/// List rows shown.
 #define FP_ROWS  17
 
+/// A folder entry.
 typedef struct {
-    char name[FP_NAME];
-    uint32_t size;
-    uint16_t date;
-    bool dir;
+    char name[FP_NAME];  ///< its name
+    uint32_t size;  ///< its size
+    uint16_t date;  ///< its FAT date
+    bool dir;  ///< a folder
 } fp_entry_t;
 
+/// The folder shown (kept between pickers).
 static char dir[256];
+/// All files, not only those of the type.
 static bool show_all;
 
-/// Layout
+/// The picker's box: left.
 #define PX 16
-#define PY 16
-#define PW 608
-#define PH 448
-#define PATH_Y   (PY + 26)
-#define BTN_Y    (PY + 50)
-#define LIST_X   (PX + 8)
-#define LIST_Y   (PY + 78)
-#define LIST_W   (PW - 16 - 18)
-#define BAR_X    (LIST_X + LIST_W + 2)
-#define NAME_Y   (LIST_Y + FP_ROWS * 16 + 10)
-#define FOOT_Y   (NAME_Y + 26)
+#define PY 16  ///< its top
+#define PW 608  ///< its width
+#define PH 448  ///< its height
+#define PATH_Y   (PY + 26)  ///< the path's row
+#define BTN_Y    (PY + 50)  ///< the buttons' row
+#define LIST_X   (PX + 8)  ///< the list: left
+#define LIST_Y   (PY + 78)  ///< top
+#define LIST_W   (PW - 16 - 18)  ///< width
+#define BAR_X    (LIST_X + LIST_W + 2)  ///< the scroll bar's left
+#define NAME_Y   (LIST_Y + FP_ROWS * 16 + 10)  ///< the name's row
+#define FOOT_Y   (NAME_Y + 26)  ///< the footer's row
 
+/// What a click hits.
 enum { FB_NONE, FB_PARENT, FB_ROOT, FB_SHARE, FB_FILTER, FB_OK, FB_CANCEL, FB_UP, FB_DOWN,
        FB_TRACK, FB_LIST, FB_NAME };
 
+/// The picker's state.
 typedef struct {
+    /// Its title, and the extensions shown (".MOD.").
     ///@{
     const char *title, *exts;
     ///@}
-    bool save;
-    fp_entry_t *ent;
+    bool save;  ///< saving (else loading)
+    fp_entry_t *ent;  ///< the entries
+    /// Their count, the one chosen and the first shown.
     ///@{
     int n, sel, top;
     ///@}
-    char name[128];
+    char name[128];  ///< the name typed
     int cur;          ///< the cursor in the name
-    char shares[2][24];
-    int nshares;
-    char status[80];
+    char shares[2][24];  ///< the shares mounted (buttons)
+    int nshares;  ///< their count
+    char status[80];  ///< the status line
     bool confirm;     ///< "replace?" asked: the next OK replaces
     bool on_list;     ///< last used the list (Enter acts on it), not the name
 } picker_t;
 
+/// Whether a name has one of the extensions.
+/// @param name the name
+/// @param exts ".MOD." or ".WAV.IFF."
+/// @return it has
 static bool ext_wanted(const char *name, const char *exts) {
     const char *dot = strrchr(name, '.');
     if (dot && strlen(dot) < 10) {
@@ -156,6 +170,10 @@ static bool ext_wanted(const char *name, const char *exts) {
     return !strncasecmp(name, "mod.", 4) && strstr(exts, ".MOD");
 }
 
+/// qsort's comparison: "..", folders, then names.
+/// @param a an entry
+/// @param b another
+/// @return less, equal or more than 0
 static int compare(const void *a, const void *b) {
     const fp_entry_t *x = a, *y = b;
     if (!strcmp(x->name, ".."))
@@ -167,10 +185,18 @@ static int compare(const void *a, const void *b) {
     return strcasecmp(x->name, y->name);
 }
 
+/// A folder and a name joined.
+/// @param out the path
+/// @param size room in out
+/// @param a the folder
+/// @param b the name
 static void join(char *out, int size, const char *a, const char *b) {
     snprintf(out, size, "%s%s%s", a, a[strlen(a) - 1] == '/' ? "" : "/", b);
 }
 
+/// Reads the folder.
+/// @param pk the picker
+/// @return read
 static bool read_folder(picker_t *pk) {
     pk->n = 0;
     DIR d;
@@ -210,6 +236,9 @@ static bool read_folder(picker_t *pk) {
     return true;
 }
 
+/// Goes to a folder (back if it can't be read).
+/// @param pk the picker
+/// @param where the folder
 static void go(picker_t *pk, const char *where) {
     char was[256], want[256];
     snprintf(was, sizeof was, "%s", dir);
@@ -225,6 +254,8 @@ static void go(picker_t *pk, const char *where) {
     }
 }
 
+/// Goes up a folder.
+/// @param pk the picker
 static void go_up(picker_t *pk) {
     char up[256];
     snprintf(up, sizeof up, "%s", dir);
@@ -238,10 +269,18 @@ static void go_up(picker_t *pk) {
 
 // ---- Drawing
 
+/// A button on the button row.
+/// @param x left
+/// @param w width
+/// @param label its text
+/// @param id what it is
+/// @param lit pressed
 static void fp_button(int x, int w, const char *label, int id, bool lit) {
     gfx_button(x, BTN_Y, w, 20, label, id, 0, lit);
 }
 
+/// Draws the picker.
+/// @param pk it
 static void draw_picker(picker_t *pk) {
     mouse_pointer_hide();
     hit_clear();
@@ -338,6 +377,9 @@ static void draw_picker(picker_t *pk) {
 
 // ---- Acting
 
+/// Chooses an entry (its name goes into the name field).
+/// @param pk the picker
+/// @param i the entry
 static void select_entry(picker_t *pk, int i) {
     pk->on_list = true;
     if (i < 0)
@@ -353,6 +395,11 @@ static void select_entry(picker_t *pk, int i) {
 }
 
 /// Enter (or Load/Save, or a double-click): 1 chosen, 0 carry on.
+/// @param pk the picker
+/// @param from_list from the list (else the name)
+/// @param out the path chosen
+/// @param size room in out
+/// @return 1 or 0
 static int act(picker_t *pk, bool from_list, char *out, int size) {
     if (from_list && pk->n) {
         fp_entry_t *e = &pk->ent[pk->sel];
@@ -403,6 +450,9 @@ static int act(picker_t *pk, bool from_list, char *out, int size) {
     return 1;
 }
 
+/// A key in the name field.
+/// @param pk the picker
+/// @param k the key
 static void name_key(picker_t *pk, int k) {
     int len = strlen(pk->name);
     pk->confirm = false;
@@ -649,6 +699,9 @@ bool song_load(const char *path) {
     return true;
 }
 
+/// Whether a path ends in .XM.
+/// @param path the path
+/// @return it does
 static bool ends_xm(const char *path) {
     size_t n = strlen(path);
     return n >= 3 && path[n - 3] == '.' && (path[n - 2] | 0x20) == 'x' && (path[n - 1] | 0x20) == 'm';
@@ -740,6 +793,7 @@ bool song_check_saved(const char *doing) {
 
 // ---- Help ----------------------------------------------------------------------------------------------------
 
+/// The help page's lines (\001: a heading).
 static const char *const help[] = {
     "\001PICO TRACKER - KEYS",
     "",
