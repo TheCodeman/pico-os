@@ -13,8 +13,8 @@
 
 #include "hardware/sync.h"
 
-/// From the linker (src/ld/section_extra_post_data.incl).
-/// The overlay area's start and end.
+/// The overlay area's start and end, from the linker
+/// (src/ld/section_extra_post_data.incl).
 ///@{
 extern char __app_overlay_start[], __app_overlay_end[];
 ///@}
