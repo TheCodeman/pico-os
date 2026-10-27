@@ -17,33 +17,52 @@
 #include "pico/stdlib.h"
 #include "shell.h"
 
+/// Redirects followed.
 #define MAX_REDIRECTS 5
 #define HEADER_MAX    8192  ///< redirects from big sites carry long headers
 #define CHUNK         16384 ///< the drive writes big blocks much faster
+/// The longest URL.
 #define URL_MAX       1024
+/// How long the server may stay quiet.
 #define IDLE_TIMEOUT_MS 30000
 
+/// A URL's parts.
 typedef struct {
-    bool https;
-    char host[128];
-    uint16_t port;
-    char path[URL_MAX];
+    bool https;  ///< https
+    char host[128];  ///< the host
+    uint16_t port;  ///< the port
+    char path[URL_MAX];  ///< the path, from the '/'
 } url_t;
 
 /// A connection, encrypted or not.
 typedef struct {
-    net_conn_t *conn;
-    net_tls_t *tls;
+    net_conn_t *conn;  ///< the TCP connection
+    net_tls_t *tls;  ///< the TLS session, or NULL
 } stream_t;
 
+/// Reads.
+/// @param s the stream
+/// @param buf where
+/// @param max how many
+/// @return what net_tls_read or net_conn_read returns
 static int s_read(stream_t *s, void *buf, size_t max) {
     return s->tls ? net_tls_read(s->tls, buf, max) : net_conn_read(s->conn, buf, max);
 }
 
+/// Writes.
+/// @param s the stream
+/// @param data the bytes
+/// @param len how many
+/// @return written
 static bool s_write(stream_t *s, const void *data, size_t len) {
     return s->tls ? net_tls_write(s->tls, data, len) : net_conn_write(s->conn, data, len);
 }
 
+/// Connects, with TLS for https.
+/// @param s the stream
+/// @param u the URL
+/// @param verify check the certificate
+/// @return connected
 static bool s_open(stream_t *s, const url_t *u, bool verify) {
     s->tls = NULL;
     if (u->https && verify && !net_tls_prepare())
@@ -61,6 +80,8 @@ static bool s_open(stream_t *s, const url_t *u, bool verify) {
     return true;
 }
 
+/// Closes.
+/// @param s the stream
 static void s_close(stream_t *s) {
     net_tls_end(s->tls);
     net_conn_close(s->conn);
@@ -68,6 +89,10 @@ static void s_close(stream_t *s) {
 
 /// Parses [http[s]://]host[:port][/path]. A redirect's Location may also be
 /// "//host/path", "/path" or a path relative to `base`.
+/// @param s the URL
+/// @param u the parts
+/// @param base the URL redirected from, or NULL
+/// @return parsed
 static bool parse_url(const char *s, url_t *u, const url_t *base) {
     if (base && s[0] == '/' && s[1] != '/') {
         *u = *base;
@@ -115,6 +140,9 @@ static bool parse_url(const char *s, url_t *u, const url_t *base) {
 }
 
 /// The file name to save as: the last part of the path, without any query.
+/// @param path the path
+/// @param out the name
+/// @param size room in out
 static void default_name(const char *path, char *out, size_t size) {
     const char *end = path + strcspn(path, "?#");
     const char *start = end;
@@ -128,6 +156,10 @@ static void default_name(const char *path, char *out, size_t size) {
 
 /// Reads the response header into `hdr`. Returns the number of body bytes
 /// read past it, or -1.
+/// @param s the stream
+/// @param hdr the header
+/// @param hdr_len set to its length
+/// @return the body bytes, or -1
 static int read_header(stream_t *s, char *hdr, int *hdr_len) {
     int len = 0;
     absolute_time_t idle = make_timeout_time_ms(IDLE_TIMEOUT_MS);
@@ -165,6 +197,11 @@ static int read_header(stream_t *s, char *hdr, int *hdr_len) {
 }
 
 /// Finds header `name` (case-insensitive) and copies its value.
+/// @param hdr the header
+/// @param name the field
+/// @param out its value
+/// @param size room in out
+/// @return found
 static bool header(const char *hdr, const char *name, char *out, size_t size) {
     size_t n = strlen(name);
     for (const char *p = strstr(hdr, "\r\n"); p; p = strstr(p, "\r\n")) {
@@ -184,6 +221,10 @@ static bool header(const char *hdr, const char *name, char *out, size_t size) {
     return false;
 }
 
+/// Shows the progress line.
+/// @param got bytes so far
+/// @param total the size, or -1
+/// @param start_us when it started
 static void progress(uint32_t got, int32_t total, uint64_t start_us) {
     uint32_t ms = (uint32_t)((time_us_64() - start_us) / 1000);
     unsigned rate = ms ? (unsigned)((uint64_t)got * 1000 / 1024 / ms) : 0;
@@ -196,6 +237,12 @@ static void progress(uint32_t got, int32_t total, uint64_t start_us) {
 }
 
 /// Saves the body of the reply. Returns true if all of it arrived.
+/// @param s the stream
+/// @param name the file
+/// @param buf the buffer, with the body's start
+/// @param have bytes of the body in it
+/// @param total the size, or -1
+/// @return all arrived
 static bool save_body(stream_t *s, const char *name, char *buf, int have, int32_t total) {
     FIL f;
     FRESULT r = f_open(&f, name, FA_WRITE | FA_CREATE_ALWAYS);
@@ -263,6 +310,7 @@ static bool save_body(stream_t *s, const char *name, char *buf, int have, int32_
     return true;
 }
 
+/// Prints how to use wget.
 static void usage(void) {
     printf("usage: wget [-k] URL [file]   http:// or https://\n"
            "       -k  don't check the server's certificate\n");

@@ -16,7 +16,9 @@
 #include "lodepng.h"
 #include "tjpgd.h"
 
+/// The screen's width.
 #define SCREEN_W 640
+/// Its height.
 #define SCREEN_H 480
 #define MAX_PIXELS (2600u * 1000u)  ///< ~7.8 MB as RGB: what PSRAM can hold
 
@@ -56,24 +58,41 @@ static void *big_realloc(void *p, size_t n) {
     return n <= 64 * 1024 ? realloc(p, n) : NULL;
 }
 #else
+/// Allocates a big buffer (host builds: malloc).
+/// @param n its size
+/// @return it, or NULL
 static void *big_alloc(size_t n) {
     return malloc(n);
 }
+/// Frees a big buffer.
+/// @param p it
 static void big_free(void *p) {
     free(p);
 }
+/// Resizes a big buffer.
+/// @param p it
+/// @param n its new size
+/// @return it, or NULL
 static void *big_realloc(void *p, size_t n) {
     return realloc(p, n);
 }
 #endif
 
 /// LodePNG's allocators (LODEPNG_NO_COMPILE_ALLOCATORS).
+/// @param size the size
+/// @return the memory, or NULL
 void *lodepng_malloc(size_t size) {
     return big_alloc(size);
 }
+/// LodePNG's realloc.
+/// @param ptr the memory
+/// @param new_size its new size
+/// @return it, or NULL
 void *lodepng_realloc(void *ptr, size_t new_size) {
     return big_realloc(ptr, new_size);
 }
+/// LodePNG's free.
+/// @param ptr the memory
 void lodepng_free(void *ptr) {
     big_free(ptr);
 }
@@ -83,6 +102,12 @@ void image_free(image_t *img) {
     img->rgb = NULL;
 }
 
+/// Makes an empty RGB picture.
+/// @param img the picture
+/// @param w its width
+/// @param h its height
+/// @param err set to why it failed
+/// @return made
 static bool new_image(image_t *img, int w, int h, const char **err) {
     if (w <= 0 || h <= 0 || (unsigned)w * (unsigned)h > MAX_PIXELS) {
         *err = "picture too big";
@@ -98,6 +123,12 @@ static bool new_image(image_t *img, int w, int h, const char **err) {
     return true;
 }
 
+/// Reads a whole file.
+/// @param path the file
+/// @param data set to its bytes (free with big_free)
+/// @param len set to their count
+/// @param err set to why it failed
+/// @return read
 static bool read_file(const char *path, uint8_t **data, size_t *len, const char **err) {
     FIL f;
     if (f_open(&f, path, FA_READ) != FR_OK) {
@@ -119,14 +150,23 @@ static bool read_file(const char *path, uint8_t **data, size_t *len, const char 
 
 // ---- BMP ----------------------------------------------------------------------
 
+/// A little-endian 16-bit number.
+/// @param p the bytes
+/// @return it
 static uint32_t le16(const uint8_t *p) {
     return p[0] | p[1] << 8;
 }
+/// A little-endian 32-bit number.
+/// @param p the bytes
+/// @return it
 static uint32_t le32(const uint8_t *p) {
     return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24;
 }
 
 /// The value of the bits of `v` under `mask`, scaled to 0-255.
+/// @param v the pixel
+/// @param mask the channel's mask
+/// @return the channel
 static uint8_t mask_channel(uint32_t v, uint32_t mask) {
     if (!mask)
         return 0;
@@ -139,6 +179,12 @@ static uint8_t mask_channel(uint32_t v, uint32_t mask) {
     return (uint8_t)(x * 255 / mask);
 }
 
+/// Decodes a BMP (1, 4, 8, 16, 24 or 32 bits, uncompressed or bitfields).
+/// @param d the file
+/// @param len its size
+/// @param img the picture
+/// @param err set to why it failed
+/// @return decoded
 static bool decode_bmp(const uint8_t *d, size_t len, image_t *img, const char **err) {
     *err = "not a BMP file this can read";
     if (len < 26 || d[0] != 'B' || d[1] != 'M')
@@ -231,6 +277,12 @@ static bool decode_bmp(const uint8_t *d, size_t len, image_t *img, const char **
 
 // ---- PNG ----------------------------------------------------------------------
 
+/// Decodes a PNG with LodePNG.
+/// @param d the file
+/// @param len its size
+/// @param img the picture
+/// @param err set to why it failed
+/// @return decoded
 static bool decode_png(const uint8_t *d, size_t len, image_t *img, const char **err) {
     unsigned w, h;
     LodePNGState state;
@@ -259,11 +311,17 @@ static bool decode_png(const uint8_t *d, size_t len, image_t *img, const char **
 
 // ---- JPEG ---------------------------------------------------------------------
 
+/// TJpgDec's device: the file and the picture.
 typedef struct {
-    FIL f;
-    image_t *img;
+    FIL f;  ///< the file
+    image_t *img;  ///< the picture
 } jpeg_io_t;
 
+/// TJpgDec's input: reads (or skips) bytes.
+/// @param jd the decoder
+/// @param buf where (NULL: skip)
+/// @param n how many
+/// @return how many were read
 static size_t jpeg_in(JDEC *jd, uint8_t *buf, size_t n) {
     jpeg_io_t *io = jd->device;
     UINT got = 0;
@@ -274,6 +332,11 @@ static size_t jpeg_in(JDEC *jd, uint8_t *buf, size_t n) {
     return f_lseek(&io->f, f_tell(&io->f) + n) == FR_OK ? n : 0;
 }
 
+/// TJpgDec's output: a block of pixels into the picture.
+/// @param jd the decoder
+/// @param bitmap the RGB pixels
+/// @param r where they go
+/// @return 1 to go on
 static int jpeg_out(JDEC *jd, void *bitmap, JRECT *r) {
     jpeg_io_t *io = jd->device;
     image_t *img = io->img;
@@ -295,6 +358,13 @@ static int jpeg_out(JDEC *jd, void *bitmap, JRECT *r) {
     return 1;
 }
 
+/// Decodes a JPEG, scaled down (1/2, 1/4, 1/8) towards the size wanted.
+/// @param path the file
+/// @param want_w the width wanted
+/// @param want_h the height wanted
+/// @param img the picture
+/// @param err set to why it failed
+/// @return decoded
 static bool decode_jpeg(const char *path, int want_w, int want_h, image_t *img,
                         const char **err) {
     jpeg_io_t io = {.img = img};
@@ -370,6 +440,7 @@ bool image_load(const char *path, int want_w, int want_h, image_t *img, const ch
 
 // ---- Drawing --------------------------------------------------------------------
 
+/// The ordered dither's 4x4 matrix.
 static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
 
 /// One colour channel's level (0..steps) for the screen. A value that is
@@ -377,6 +448,10 @@ static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}
 /// that level; others are dithered: a fraction of a step (d / 4080) is added
 /// before rounding down. Without the first part, a level's value just under
 /// k * 255 / steps would come out a dot pattern of k and k - 1.
+/// @param v the value (0-255)
+/// @param steps the levels less one
+/// @param d the dither (0-15 times 255)
+/// @return the level
 static inline int level(int v, int steps, int d) {
     int q = (v * steps + 127) / 255;
     if (q * 255 / steps == v)

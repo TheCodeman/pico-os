@@ -18,22 +18,28 @@
 #include "ssh.h"
 
 #define CHUNK    16384  ///< the drive writes big blocks much faster
+/// The longest header line.
 #define LINE_MAX 1100
+/// The longest path.
 #define PATH_MAX 256
 
+/// A copy's state.
 typedef struct {
-    ssh_t *ssh;
-    bool recursive;
-    uint8_t *buf;
+    ssh_t *ssh;  ///< the connection
+    bool recursive;  ///< -r: folders too
+    uint8_t *buf;  ///< the copy buffer
     /// Progress of the current file.
     const char *name;
+    /// Start time, last progress line.
     ///@{
     uint64_t start_us, last_us;
     ///@}
+    /// Bytes done and the file's size.
     ///@{
     uint32_t done, size;
     ///@}
-    uint32_t files;
+    uint32_t files;  ///< files copied
+    /// Bytes and time, all files.
     ///@{
     uint64_t total_bytes, total_us;
     ///@}
@@ -41,6 +47,10 @@ typedef struct {
 
 // ---- Progress -----------------------------------------------------------------
 
+/// Starts a file's progress line.
+/// @param c the copy
+/// @param name its name
+/// @param size its size
 static void progress_start(scp_t *c, const char *name, uint32_t size) {
     c->name = strrchr(name, '/') ? strrchr(name, '/') + 1 : name;
     c->size = size;
@@ -48,6 +58,9 @@ static void progress_start(scp_t *c, const char *name, uint32_t size) {
     c->start_us = c->last_us = time_us_64();
 }
 
+/// Shows the progress line (four times a second).
+/// @param c the copy
+/// @param final the file is done
 static void progress_show(scp_t *c, bool final) {
     uint64_t now = time_us_64();
     if (!final && now - c->last_us < 250000)
@@ -69,6 +82,11 @@ static void progress_show(scp_t *c, bool final) {
 
 // ---- Talking to the remote scp -----------------------------------------------------
 
+/// Reads exactly n bytes.
+/// @param c the copy
+/// @param buf where
+/// @param n how many
+/// @return read
 static bool read_exact(scp_t *c, void *buf, size_t n) {
     uint8_t *p = buf;
     while (n) {
@@ -85,6 +103,10 @@ static bool read_exact(scp_t *c, void *buf, size_t n) {
 }
 
 /// Reads a header line (without its newline).
+/// @param c the copy
+/// @param line the line
+/// @param max room in line
+/// @return read
 static bool read_line(scp_t *c, char *line, size_t max) {
     size_t n = 0;
     for (;;) {
@@ -102,6 +124,8 @@ static bool read_line(scp_t *c, char *line, size_t max) {
 
 /// The remote's answer to a step: 0 is fine; 1 (warning) and 2 (error) come
 /// with a message.
+/// @param c the copy
+/// @return 0 came
 static bool read_ack(scp_t *c) {
     uint8_t b;
     if (!read_exact(c, &b, 1))
@@ -120,17 +144,25 @@ static bool read_ack(scp_t *c) {
     return false;
 }
 
+/// Sends the OK byte.
+/// @param c the copy
+/// @return sent
 static bool send_ack(scp_t *c) {
     return ssh_write(c->ssh, "", 1);
 }
 
 /// Tells the remote about a problem on our side.
+/// @param c the copy
+/// @param why the problem
 static void send_error(scp_t *c, const char *why) {
     char line[200];
     int n = snprintf(line, sizeof line, "\001scp: %s\n", why);
     ssh_write(c->ssh, line, n);
 }
 
+/// Whether a path is a folder.
+/// @param path the path
+/// @return it is
 static bool is_dir(const char *path) {
     if (!strcmp(path, ".") || !strcmp(path, "/") || !path[0])
         return true;
@@ -139,6 +171,10 @@ static bool is_dir(const char *path) {
 }
 
 /// dir/name in out (PATH_MAX bytes). False if it doesn't fit.
+/// @param out the path
+/// @param dir the folder
+/// @param name the name
+/// @return it fits
 static bool join(char *out, const char *dir, const char *name) {
     size_t n = strlen(dir);
     int len = snprintf(out, PATH_MAX, "%s%s%s", dir, n && dir[n - 1] != '/' ? "/" : "", name);
@@ -152,6 +188,10 @@ static bool join(char *out, const char *dir, const char *name) {
 // ---- Downloading ---------------------------------------------------------------------
 
 /// Receives one file's data into `path`.
+/// @param c the copy
+/// @param path where it goes
+/// @param size its size
+/// @return received
 static bool sink_file(scp_t *c, const char *path, uint32_t size) {
     FIL f;
     FRESULT r = f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS);
@@ -201,6 +241,9 @@ static bool sink_file(scp_t *c, const char *path, uint32_t size) {
 }
 
 /// Runs the receiving side: headers and files until the server is done.
+/// @param c the copy
+/// @param target the local file or folder
+/// @return all received
 static bool sink(scp_t *c, const char *target) {
     char line[LINE_MAX], dir[PATH_MAX];
     snprintf(dir, sizeof dir, "%s", target);
@@ -290,6 +333,12 @@ static bool sink(scp_t *c, const char *target) {
 
 // ---- Uploading -------------------------------------------------------------------------
 
+/// Sends one file.
+/// @param c the copy
+/// @param path the file
+/// @param name its name there
+/// @param size its size
+/// @return sent
 static bool source_file(scp_t *c, const char *path, const char *name, uint32_t size) {
     FIL f;
     FRESULT r = f_open(&f, path, FA_READ);
@@ -323,6 +372,11 @@ static bool source_file(scp_t *c, const char *path, const char *name, uint32_t s
     return ok;
 }
 
+/// Sends a folder and what's in it.
+/// @param c the copy
+/// @param path the folder
+/// @param name its name there
+/// @return sent
 static bool source_dir(scp_t *c, const char *path, const char *name) {
     char line[PATH_MAX + 20];
     int n = snprintf(line, sizeof line, "D0755 0 %s\n", name);
@@ -348,6 +402,10 @@ static bool source_dir(scp_t *c, const char *path, const char *name) {
     return ok && ssh_write(c->ssh, "E\n", 2) && read_ack(c);
 }
 
+/// Runs the sending side for a file or folder.
+/// @param c the copy
+/// @param path it
+/// @return sent
 static bool source(scp_t *c, const char *path) {
     if (!read_ack(c))
         return false;
@@ -370,6 +428,11 @@ static bool source(scp_t *c, const char *path) {
 // ---- The command -----------------------------------------------------------------------
 
 /// Splits "[user@]host:path". False if `arg` isn't remote.
+/// @param arg the argument
+/// @param user set to the user, or ""
+/// @param host set to the host
+/// @param path set to the path
+/// @return it is remote
 static bool parse_remote(const char *arg, char *user, char *host, char *path) {
     const char *colon = strchr(arg, ':');
     if (!colon || colon == arg)
@@ -387,6 +450,9 @@ static bool parse_remote(const char *arg, char *user, char *host, char *path) {
 }
 
 /// The remote path quoted for the server's shell.
+/// @param out the quoted path
+/// @param max room in out
+/// @param path the path
 static void quote(char *out, size_t max, const char *path) {
     size_t n = 0;
     out[n++] = '\'';
@@ -402,6 +468,7 @@ static void quote(char *out, size_t max, const char *path) {
     out[n] = 0;
 }
 
+/// Prints how to use scp.
 static void usage(void) {
     printf("usage: scp [-P port] [-r] user@host:file local\n"
            "       scp [-P port] [-r] local user@host:file\n"

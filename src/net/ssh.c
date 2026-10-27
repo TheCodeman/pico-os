@@ -40,14 +40,18 @@
 #include "pico/stdlib.h"
 #include "psram_heap.h"
 
+/// Our version line.
 #define CLIENT_VERSION  "SSH-2.0-PicoOS_1.0"
 #define RX_MAX          (20 * 1024)  ///< biggest packet we accept
 #define TX_MAX          (17 * 1024)  ///< biggest packet we send
 #define DATA_MAX        16384        ///< channel data per packet, both ways
 #define INQ_SIZE        (32 * 1024)  ///< received channel data (also our window)
+/// How long to wait for the server.
 #define TIMEOUT_MS      30000
+/// Host keys we have seen.
 #define KNOWN_HOSTS     "/SSH/KNOWN_HOSTS"
 
+/// SSH message numbers.
 enum {
     MSG_DISCONNECT = 1, MSG_IGNORE = 2, MSG_UNIMPLEMENTED = 3, MSG_DEBUG = 4,
     MSG_SERVICE_REQUEST = 5, MSG_SERVICE_ACCEPT = 6, MSG_KEXINIT = 20, MSG_NEWKEYS = 21,
@@ -63,36 +67,42 @@ enum {
 
 /// One direction's cipher and MAC.
 typedef struct {
-    bool on;
-    mbedtls_aes_context aes;
+    bool on;  ///< keys are in use
+    mbedtls_aes_context aes;  ///< AES-CTR
+    /// The counter and its key stream.
     ///@{
     uint8_t counter[16], stream[16];
     ///@}
-    size_t stream_off;
-    mbedtls_md_context_t mac;
-    uint32_t seq;
+    size_t stream_off;  ///< bytes of the stream used
+    mbedtls_md_context_t mac;  ///< HMAC-SHA256
+    uint32_t seq;  ///< the packet sequence number
 } dir_t;
 
+/// An SSH connection.
 struct ssh {
-    net_conn_t *conn;
+    net_conn_t *conn;  ///< the TCP connection
+    /// The receive and send buffers (PSRAM).
     ///@{
     uint8_t *rx, *tx;
     ///@}
+    /// The two directions' ciphers.
     ///@{
     dir_t in, out;
     ///@}
-    uint8_t session_id[32];
-    bool have_session_id;
+    uint8_t session_id[32];  ///< the first exchange hash
+    bool have_session_id;  ///< session_id is set
     /// The channel.
     ///@{
     uint32_t remote_id, remote_window, remote_max;
     ///@}
+    /// Open; the server sent EOF; it sent close; we sent close.
     ///@{
     bool open, got_eof, got_close, sent_close;
     ///@}
     bool dead;             ///< the connection failed: don't try to say goodbye
-    int exit_status;
+    int exit_status;  ///< the remote program's exit status
     uint8_t *inq;          ///< received data waiting for ssh_read
+    /// Where the waiting data starts, and its length.
     ///@{
     size_t inq_head, inq_len;
     ///@}
@@ -105,8 +115,11 @@ struct ssh {
 
 // ---- Random numbers ---------------------------------------------------------------
 
+/// The random number generator.
 static mbedtls_ctr_drbg_context drbg;
 
+/// Seeds the generator, once.
+/// @return it is ready
 static bool rng_ready(void) {
     static bool ready;
     static mbedtls_entropy_context entropy;
@@ -119,20 +132,31 @@ static bool rng_ready(void) {
     return ready;
 }
 
+/// mbedTLS's random callback.
+/// @param ctx unused
+/// @param buf where
+/// @param len how many
+/// @return 0, or an error
 static int rng(void *ctx, unsigned char *buf, size_t len) {
     return mbedtls_ctr_drbg_random(&drbg, buf, len);
 }
 
 // ---- Building and reading messages ------------------------------------------------
 
+/// A message being built.
 typedef struct {
-    uint8_t *p;
+    uint8_t *p;  ///< the bytes
+    /// Its length and room.
     ///@{
     size_t len, cap;
     ///@}
-    bool full;
+    bool full;  ///< it overflowed
 } out_t;
 
+/// Adds bytes.
+/// @param o the message
+/// @param d them
+/// @param n how many
 static void put_bytes(out_t *o, const void *d, size_t n) {
     if (o->len + n > o->cap) {
         o->full = true;
@@ -142,30 +166,47 @@ static void put_bytes(out_t *o, const void *d, size_t n) {
     o->len += n;
 }
 
+/// Adds a byte.
+/// @param o the message
+/// @param v it
 static void put_u8(out_t *o, uint8_t v) {
     put_bytes(o, &v, 1);
 }
 
+/// Adds a big-endian uint32.
+/// @param o the message
+/// @param v it
 static void put_u32(out_t *o, uint32_t v) {
     uint8_t b[4] = {v >> 24, v >> 16, v >> 8, v};
     put_bytes(o, b, 4);
 }
 
+/// Adds a string: its length, then it.
+/// @param o the message
+/// @param d its bytes
+/// @param n their count
 static void put_string(out_t *o, const void *d, size_t n) {
     put_u32(o, n);
     put_bytes(o, d, n);
 }
 
+/// Adds a C string.
+/// @param o the message
+/// @param s it
 static void put_cstring(out_t *o, const char *s) {
     put_string(o, s, strlen(s));
 }
 
+/// A message being read.
 typedef struct {
-    const uint8_t *p;
-    size_t left;
-    bool bad;
+    const uint8_t *p;  ///< the next byte
+    size_t left;  ///< bytes left
+    bool bad;  ///< it was too short
 } in_t;
 
+/// Reads a byte.
+/// @param i the message
+/// @return it (0 if none)
 static uint8_t get_u8(in_t *i) {
     if (i->left < 1) {
         i->bad = true;
@@ -175,6 +216,9 @@ static uint8_t get_u8(in_t *i) {
     return *i->p++;
 }
 
+/// Reads a big-endian uint32.
+/// @param i the message
+/// @return it (0 if none)
 static uint32_t get_u32(in_t *i) {
     if (i->left < 4) {
         i->bad = true;
@@ -188,6 +232,9 @@ static uint32_t get_u32(in_t *i) {
 }
 
 /// A string's bytes (not NUL-terminated) and length.
+/// @param i the message
+/// @param len set to its length
+/// @return its bytes
 static const uint8_t *get_string(in_t *i, size_t *len) {
     uint32_t n = get_u32(i);
     if (n > i->left) {
@@ -203,11 +250,18 @@ static const uint8_t *get_string(in_t *i, size_t *len) {
     return s;
 }
 
+/// Whether a string (not NUL-terminated) is want.
+/// @param s its bytes
+/// @param n their count
+/// @param want the text
+/// @return it is
 static bool str_is(const uint8_t *s, size_t n, const char *want) {
     return n == strlen(want) && memcmp(s, want, n) == 0;
 }
 
 /// Prints a string from the server, leaving out control characters.
+/// @param s its bytes
+/// @param n their count
 static void print_text(const uint8_t *s, size_t n) {
     for (size_t i = 0; i < n; ++i)
         if (s[i] >= 0x20 || s[i] == '\n')
@@ -216,6 +270,10 @@ static void print_text(const uint8_t *s, size_t n) {
 
 // ---- Hashing helpers ----------------------------------------------------------------
 
+/// Hashes a string: its length, then it.
+/// @param h the hash
+/// @param d its bytes
+/// @param n their count
 static void hash_string(mbedtls_sha256_context *h, const void *d, size_t n) {
     uint8_t b[4] = {n >> 24, n >> 16, n >> 8, n};
     mbedtls_sha256_update(h, b, 4);
@@ -223,6 +281,9 @@ static void hash_string(mbedtls_sha256_context *h, const void *d, size_t n) {
 }
 
 /// `n` big-endian bytes as an mpint (a positive number).
+/// @param h the hash
+/// @param d the bytes
+/// @param n their count
 static void hash_mpint(mbedtls_sha256_context *h, const uint8_t *d, size_t n) {
     while (n && !*d) {
         ++d;
@@ -240,6 +301,9 @@ static void hash_mpint(mbedtls_sha256_context *h, const uint8_t *d, size_t n) {
 
 // ---- Packets ----------------------------------------------------------------------
 
+/// Whether the user pressed Ctrl-C or Esc (not in a terminal session).
+/// @param s the connection
+/// @return stop
 static bool stop_requested(ssh_t *s) {
     if (s->interactive)
         return false;  // Ctrl-C and Esc belong to the remote program
@@ -251,6 +315,10 @@ static bool stop_requested(ssh_t *s) {
 }
 
 /// Reads exactly n bytes, waiting up to the timeout.
+/// @param s the connection
+/// @param buf where
+/// @param n how many
+/// @return read
 static bool read_full(ssh_t *s, uint8_t *buf, size_t n) {
     uint64_t last = time_us_64();
     if (n && s->peeked >= 0) {
@@ -283,10 +351,19 @@ static bool read_full(ssh_t *s, uint8_t *buf, size_t n) {
     return true;
 }
 
+/// Encrypts or decrypts in place.
+/// @param d the direction
+/// @param buf the bytes
+/// @param n their count
 static void crypt(dir_t *d, uint8_t *buf, size_t n) {
     mbedtls_aes_crypt_ctr(&d->aes, n, &d->stream_off, d->counter, d->stream, buf, buf);
 }
 
+/// A packet's MAC.
+/// @param d the direction
+/// @param packet the packet
+/// @param n its length
+/// @param out the MAC
 static void mac_of(dir_t *d, const uint8_t *packet, size_t n, uint8_t out[32]) {
     uint8_t seq[4] = {d->seq >> 24, d->seq >> 16, d->seq >> 8, d->seq};
     mbedtls_md_hmac_reset(&d->mac);
@@ -296,6 +373,9 @@ static void mac_of(dir_t *d, const uint8_t *packet, size_t n, uint8_t out[32]) {
 }
 
 /// The send buffer's payload area, for building the next packet.
+/// @param s the connection
+/// @param type the message type
+/// @return the message
 static out_t start_msg(ssh_t *s, uint8_t type) {
     out_t o = {s->tx + 5, 0, TX_MAX - 5 - 16 - 32, false};
     put_u8(&o, type);
@@ -303,6 +383,9 @@ static out_t start_msg(ssh_t *s, uint8_t type) {
 }
 
 /// Pads, MACs, encrypts and sends the packet built with start_msg.
+/// @param s the connection
+/// @param o the message
+/// @return sent
 static bool send_msg(ssh_t *s, out_t *o) {
     if (o->full) {
         printf("\nssh: message too big\n");
@@ -342,6 +425,9 @@ static bool handle_channel_msg(ssh_t *s, uint8_t type, in_t *m);
 /// Receives the next packet, dealing with transport messages (and, when
 /// `channel` is set, channel housekeeping) itself. Returns the message type
 /// with *m positioned after it, or -1 on failure.
+/// @param s the connection
+/// @param m set to the message
+/// @return the type, or -1
 static int recv_msg(ssh_t *s, in_t *m) {
     for (;;) {
         size_t bs = s->in.on ? 16 : 8;
@@ -426,6 +512,11 @@ static int recv_msg(ssh_t *s, in_t *m) {
 
 /// Waits for a message of type `want` (other channel traffic is dealt with on
 /// the way). -1 on failure; prints `what` if something else arrives.
+/// @param s the connection
+/// @param m set to the message
+/// @param want the type
+/// @param what what we were doing, for the error
+/// @return the type, or -1
 static int expect_msg(ssh_t *s, in_t *m, int want, const char *what) {
     for (;;) {
         int t = recv_msg(s, m);
@@ -442,13 +533,20 @@ static int expect_msg(ssh_t *s, in_t *m, int want, const char *what) {
 
 // ---- Key exchange -------------------------------------------------------------------
 
+/// Our key exchanges, best first.
 static const char *const kex_algs[] = {"curve25519-sha256", "curve25519-sha256@libssh.org",
                                        "ecdh-sha2-nistp256", NULL};
+/// Our host key types, best first.
 static const char *const key_algs[] = {"ecdsa-sha2-nistp256", "rsa-sha2-256", "rsa-sha2-512",
                                        NULL};
+/// Our ciphers, best first.
 static const char *const cipher_algs[] = {"aes128-ctr", "aes256-ctr", NULL};
+/// Our MACs.
 static const char *const mac_algs[] = {"hmac-sha2-256", NULL};
 
+/// Adds a name-list.
+/// @param o the message
+/// @param names the names, NULL last
 static void put_namelist(out_t *o, const char *const *names) {
     char buf[256];
     size_t n = 0;
@@ -458,6 +556,10 @@ static void put_namelist(out_t *o, const char *const *names) {
 }
 
 /// The first of our `names` that is in the server's comma-separated list.
+/// @param names ours, NULL last
+/// @param list the server's
+/// @param len its length
+/// @return our index, or -1
 static int choose(const char *const *names, const uint8_t *list, size_t len) {
     for (int i = 0; names[i]; ++i) {
         size_t w = strlen(names[i]);
@@ -473,12 +575,20 @@ static int choose(const char *const *names, const uint8_t *list, size_t len) {
     return -1;
 }
 
+/// Whether the server's list has a name.
+/// @param list the list
+/// @param len its length
+/// @param name the name
+/// @return it has
 static bool list_has(const uint8_t *list, size_t len, const char *name) {
     const char *names[] = {name, NULL};
     return choose(names, list, len) >= 0;
 }
 
 /// Base64 of SHA-256(blob), no padding: OpenSSH's "SHA256:..." fingerprint.
+/// @param blob the key
+/// @param n its length
+/// @param out the fingerprint
 static void fingerprint(const uint8_t *blob, size_t n, char out[48]) {
     uint8_t h[32];
     mbedtls_sha256(blob, n, h, 0);
@@ -490,6 +600,7 @@ static void fingerprint(const uint8_t *blob, size_t n, char out[48]) {
 }
 
 /// Waits for y or n. False for n, Ctrl-C or Esc.
+/// @return y
 static bool ask_yes(void) {
     for (;;) {
         int c = getchar_timeout_us(100000);
@@ -505,6 +616,12 @@ static bool ask_yes(void) {
 }
 
 /// Checks the host key against KNOWN_HOSTS, asking about a new one.
+/// @param host the host
+/// @param port its port
+/// @param type the key's type
+/// @param blob the key
+/// @param n its length
+/// @return accepted
 static bool check_host_key(const char *host, uint16_t port, const char *type,
                            const uint8_t *blob, size_t n) {
     char fp[48], name[160];
@@ -564,6 +681,13 @@ static bool check_host_key(const char *host, uint16_t port, const char *type,
 }
 
 /// Checks the server's signature `sig` on the exchange hash with key `blob`.
+/// @param alg the signature's algorithm
+/// @param blob the key
+/// @param blob_len its length
+/// @param sig the signature
+/// @param sig_len its length
+/// @param hash the exchange hash
+/// @return good
 static bool verify_host_sig(const char *alg, const uint8_t *blob, size_t blob_len,
                             const uint8_t *sig, size_t sig_len, const uint8_t hash[32]) {
     in_t k = {blob, blob_len, false}, g = {sig, sig_len, false};
@@ -637,6 +761,12 @@ static bool verify_host_sig(const char *alg, const uint8_t *blob, size_t blob_le
 
 /// Key i (A-F) of RFC 4253 7.2: SHA-256(K || H || letter || session id); 32
 /// bytes is all any of ours need.
+/// @param k the shared secret (an mpint)
+/// @param kn its length
+/// @param h the exchange hash
+/// @param sid the session id
+/// @param letter the key's letter
+/// @param out the key
 static void derive(const uint8_t *k, size_t kn, const uint8_t h[32], const uint8_t sid[32],
                    char letter, uint8_t out[32]) {
     mbedtls_sha256_context c;
@@ -650,6 +780,12 @@ static void derive(const uint8_t *k, size_t kn, const uint8_t h[32], const uint8
     mbedtls_sha256_free(&c);
 }
 
+/// Turns a direction's encryption on.
+/// @param d the direction
+/// @param iv the IV
+/// @param key the AES key
+/// @param key_bits 128 or 256
+/// @param mac the MAC key
 static void set_keys(dir_t *d, const uint8_t iv[32], const uint8_t key[32], int key_bits,
                      const uint8_t mac[32]) {
     mbedtls_aes_init(&d->aes);
@@ -663,6 +799,10 @@ static void set_keys(dir_t *d, const uint8_t iv[32], const uint8_t key[32], int 
 }
 
 /// Reads the server's version line (skipping any lines before it).
+/// @param s the connection
+/// @param v the line
+/// @param max room in v
+/// @return read
 static bool read_version(ssh_t *s, char *v, size_t max) {
     for (int lines = 0; lines < 50; ++lines) {
         size_t n = 0;
@@ -690,6 +830,11 @@ static bool read_version(ssh_t *s, char *v, size_t max) {
     return false;
 }
 
+/// The key exchange: versions, KEXINIT, curve25519 ECDH, host key check, NEWKEYS.
+/// @param s the connection
+/// @param host the host
+/// @param port its port
+/// @return done
 static bool key_exchange(ssh_t *s, const char *host, uint16_t port) {
     char vs[256];
     static const char vc[] = CLIENT_VERSION;
@@ -875,6 +1020,9 @@ static bool key_exchange(ssh_t *s, const char *host, uint16_t port) {
 // ---- Logging in -----------------------------------------------------------------------
 
 /// Reads a line without showing it. False on Ctrl-C or Esc.
+/// @param buf the line
+/// @param max room in buf
+/// @return read
 static bool read_secret(char *buf, size_t max) {
     size_t n = 0;
     for (;;) {
@@ -898,6 +1046,8 @@ static bool read_secret(char *buf, size_t max) {
     }
 }
 
+/// Prints a login banner.
+/// @param m the message
 static void print_banner(in_t *m) {
     size_t n;
     const uint8_t *t = get_string(m, &n);
@@ -906,6 +1056,12 @@ static void print_banner(in_t *m) {
         printf("\n");
 }
 
+/// Sends a login request.
+/// @param s the connection
+/// @param user the user
+/// @param method "none", "password" or "keyboard-interactive"
+/// @param password the password
+/// @return sent
 static bool send_auth(ssh_t *s, const char *user, const char *method, const char *password) {
     out_t o = start_msg(s, MSG_USERAUTH_REQUEST);
     put_cstring(&o, user);
@@ -924,6 +1080,9 @@ static bool send_auth(ssh_t *s, const char *user, const char *method, const char
 }
 
 /// Answers a keyboard-interactive request (*m is just after its type).
+/// @param s the connection
+/// @param m the request
+/// @return answered
 static bool answer_info_request(ssh_t *s, in_t *m) {
     size_t n;
     const uint8_t *name = get_string(m, &n);
@@ -983,6 +1142,8 @@ static bool answer_info_request(ssh_t *s, in_t *m) {
 }
 
 /// An mbedTLS number as an SSH mpint.
+/// @param o the message
+/// @param x the number
 static void put_mpi(out_t *o, const mbedtls_mpi *x) {
     uint8_t b[520];
     size_t n = mbedtls_mpi_size(x);
@@ -996,10 +1157,14 @@ static void put_mpi(out_t *o, const mbedtls_mpi *x) {
     put_string(o, b + !pad, n + pad);
 }
 
+/// Our key files, tried in turn.
 static const char *const key_files[] = {"/SSH/ID_ECDSA", "/SSH/ID_RSA"};
 
 /// Reads and parses a PEM private key file. False (saying why, unless the
 /// file just isn't there) if it can't be used.
+/// @param path the file
+/// @param pk the key
+/// @return usable
 static bool load_key(const char *path, mbedtls_pk_context *pk) {
     FIL f;
     if (f_open(&f, path, FA_READ) != FR_OK)
@@ -1031,6 +1196,9 @@ static bool load_key(const char *path, mbedtls_pk_context *pk) {
 
 /// Sends a publickey login signed with the first usable key file. Returns 1
 /// if one was sent, 0 if there's no usable key, -1 on failure.
+/// @param s the connection
+/// @param user the user
+/// @return 1, 0 or -1
 static int send_key_auth(ssh_t *s, const char *user) {
     mbedtls_pk_context pk;
     const char *path = NULL;
@@ -1145,6 +1313,11 @@ static int send_key_auth(ssh_t *s, const char *user) {
     return send_msg(s, &o) ? 1 : -1;
 }
 
+/// Logs in: a key, then the password or keyboard-interactive.
+/// @param s the connection
+/// @param user the user
+/// @param host the host, for the prompt
+/// @return logged in
 static bool authenticate(ssh_t *s, const char *user, const char *host) {
     out_t o = start_msg(s, MSG_SERVICE_REQUEST);
     put_cstring(&o, "ssh-userauth");
@@ -1225,6 +1398,9 @@ static bool authenticate(ssh_t *s, const char *user, const char *host) {
 
 // ---- The channel ------------------------------------------------------------------------
 
+/// Gives the server more window when half of it is used.
+/// @param s the connection
+/// @return sent (or not needed)
 static bool send_window_adjust(ssh_t *s) {
     size_t room = INQ_SIZE - s->inq_len;
     if (room - s->window_given < INQ_SIZE / 2)
@@ -1237,6 +1413,11 @@ static bool send_window_adjust(ssh_t *s) {
     return send_msg(s, &o);
 }
 
+/// Deals with a channel message: data, EOF, close, exit status and the like.
+/// @param s the connection
+/// @param type the message type
+/// @param m the message
+/// @return all right
 static bool handle_channel_msg(ssh_t *s, uint8_t type, in_t *m) {
     uint32_t id = get_u32(m);
     (void)id;  // we have only one channel
@@ -1318,6 +1499,8 @@ static bool handle_channel_msg(ssh_t *s, uint8_t type, in_t *m) {
 }
 
 /// Opens the session channel.
+/// @param s the connection
+/// @return opened
 static bool open_session(ssh_t *s) {
     out_t o = start_msg(s, MSG_CHANNEL_OPEN);
     put_cstring(&o, "session");
@@ -1357,6 +1540,8 @@ static bool open_session(ssh_t *s) {
 }
 
 /// Waits for the answer to a channel request sent with want-reply.
+/// @param s the connection
+/// @return accepted
 static bool request_ok(ssh_t *s) {
     in_t m;
     int t;
@@ -1373,6 +1558,9 @@ static bool request_ok(ssh_t *s) {
 }
 
 /// Sends a channel request: name, want-reply, then what the caller adds.
+/// @param s the connection
+/// @param name the request
+/// @return the message
 static out_t start_request(ssh_t *s, const char *name) {
     out_t o = start_msg(s, MSG_CHANNEL_REQUEST);
     put_u32(&o, s->remote_id);
@@ -1570,6 +1758,8 @@ ssh_t *ssh_open(const char *host, uint16_t port, const char *user) {
     return s;
 }
 
+/// Frees a direction's cipher and MAC.
+/// @param d the direction
 static void free_dir(dir_t *d) {
     if (d->on) {
         mbedtls_aes_free(&d->aes);

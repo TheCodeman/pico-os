@@ -31,38 +31,51 @@
 
 #define DIR_FILE   "/TELNET/DIALDIR.XML"                ///< on the drive
 #define SHARE_FILE "/NET/telnet_list/dialdirectory.xml"  ///< or on the PC's share
+/// The favourites.
 #define FAV_FILE   "/TELNET/FAVS.TXT"
+/// The biggest directory file read.
 #define FILE_MAX   (4u << 20)
 
 /// The screen: the title bar, a framed list (column titles, a line, the
 /// rows), the key bar.
 #define LIST_TOP  4
+/// List rows.
 #define LIST_ROWS (SCR_H - 2 - LIST_TOP)
+/// The name column.
 #define COL_NAME  4
+/// The host column.
 #define COL_HOST  39
+/// The port column.
 #define COL_PORT  70
+/// The "via" column.
 #define COL_VIA   76
+/// The column separators.
 static const int seps[] = {COL_HOST - 1, COL_PORT - 1, COL_VIA - 1};
 
+/// An SSH entry's colours.
 #define C_SSH     A(LCYAN, BLUE)
+/// Selected.
 #define C_SSH_SEL A(BLUE, CYAN)
 
+/// The menu's state (PSRAM, while it runs).
 typedef struct {
     dial_entry_t *e;  ///< the directory
+    /// The entries, and how many are SSH.
     ///@{
     int n, nssh;
     ///@}
     int *shown;       ///< the entries the filter lets through
-    int nshown;
+    int nshown;  ///< their count
     /// in shown
     ///@{
     int cur, top;
     ///@}
-    char filter[32];
+    char filter[32];  ///< the filter typed
+    /// Favourites only; quitting.
     ///@{
     bool favs_only, quit;
     ///@}
-    char source[64];
+    char source[64];  ///< where the directory came from
     char last[64];    ///< "host:port" of the last BBS called
     char note[64];    ///< said on the bottom line until the next key
 } dirmenu_t;
@@ -72,6 +85,9 @@ static dirmenu_t *M;  ///< PSRAM, while open
 // ---- The files ------------------------------------------------------------------------------------
 
 /// A whole file into PSRAM, 0-terminated; NULL if it can't be read.
+/// @param path the file
+/// @param len set to its length
+/// @return the text, or NULL
 static char *read_file(const char *path, UINT *len) {
     FIL f;
     if (f_open(&f, path, FA_READ) != FR_OK)
@@ -93,6 +109,8 @@ static char *read_file(const char *path, UINT *len) {
 
 /// The directory: the file given, else the drive's copy, else the share's
 /// (then copied to the drive, so it's there without the share).
+/// @param path the file given, or NULL
+/// @return loaded
 static bool load_directory(const char *path) {
     UINT len = 0;
     char *text = NULL;
@@ -132,6 +150,10 @@ static bool load_directory(const char *path) {
     return true;
 }
 
+/// An entry's favourites key: "host:port".
+/// @param e the entry
+/// @param out the key
+/// @param size room in out
 static void key_of(const dial_entry_t *e, char *out, size_t size) {
     snprintf(out, size, "%s:%u", e->host, e->port);
 }
@@ -157,6 +179,7 @@ static void load_favs(void) {
     psram_free(text);
 }
 
+/// Saves the favourites.
 static void save_favs(void) {
     FIL f;
     f_mkdir("/TELNET");
@@ -177,6 +200,10 @@ static void save_favs(void) {
 
 // ---- The list -------------------------------------------------------------------------------------
 
+/// Whether s contains what, any case.
+/// @param s the text
+/// @param what what
+/// @return it does
 static bool contains(const char *s, const char *what) {
     size_t n = strlen(what);
     for (; *s; ++s)
@@ -203,6 +230,7 @@ static void apply_filter(void) {
     }
 }
 
+/// Keeps the cursor in the list and on the screen.
 static void fix_scroll(void) {
     if (M->cur >= M->nshown)
         M->cur = M->nshown - 1;
@@ -221,15 +249,19 @@ static void fix_scroll(void) {
 // ---- Drawing --------------------------------------------------------------------------------------
 
 static const struct {
+    /// The key's name and what it does.
     ///@{
     const char *key, *text;
     ///@}
-    int code;
+    int code;  ///< the key code
 } keys[] = {{"Enter", "Connect", '\r'}, {"F2", "Favourite", KEY_F2}, {"Tab", "All/Favs", '\t'},
-            {"Esc", "Clear/Quit", KEY_ESC}, {"F10", "Quit", KEY_F10}};
+            {"Esc", "Clear/Quit", KEY_ESC}, {"F10", "Quit", KEY_F10}};  ///< the key bar
+/// Their count.
 #define NKEYS (int)(sizeof keys / sizeof *keys)
+/// Where each starts on the bar, for the mouse.
 static int key_col[NKEYS + 1];
 
+/// Draws the key bar.
 static void draw_keybar(void) {
     int c = 0;
     scr_fill(SCR_H - 1, 0, 1, SCR_W, ' ', C_KEYTEXT);
@@ -244,6 +276,8 @@ static void draw_keybar(void) {
     scr_text(SCR_H - 1, c + 1, SCR_W - c - 1, C_KEYTEXT, "Type to filter");
 }
 
+/// Draws a list row.
+/// @param r the row
 static void draw_row(int r) {
     int row = LIST_TOP + r, i = M->top + r;
     bool sel = i == M->cur && i < M->nshown;
@@ -265,6 +299,7 @@ static void draw_row(int r) {
     scr_text(row, COL_VIA, 3, host_at, e->ssh ? "ssh" : "tel");
 }
 
+/// Draws the screen.
 static void draw(void) {
     scr_fill(0, 0, 1, SCR_W, ' ', C_MENU);
     scr_printf(0, 1, SCR_W - 2, C_MENU, "Telnet directory   %d BBSes (%d by SSH)   %s", M->n, M->nssh,
@@ -302,6 +337,7 @@ static void draw(void) {
 // ---- Calling ----------------------------------------------------------------------------------------
 
 /// A session on the shell's screen; then a key brings the list back.
+/// @param e the entry
 static void call(const dial_entry_t *e) {
     key_of(e, M->last, sizeof M->last);
     save_favs();
@@ -329,6 +365,7 @@ static void call(const dial_entry_t *e) {
     scr_grab_user();  // (so leaving shows a clear screen, not the BBS's)
 }
 
+/// F2: an entry in or out of the favourites.
 static void toggle_fav(void) {
     if (!M->nshown)
         return;
@@ -340,6 +377,8 @@ static void toggle_fav(void) {
         apply_filter();
 }
 
+/// Handles a key.
+/// @param k the key
 static void handle(int k) {
     switch (k) {
     case KEY_UP: --M->cur; break;
@@ -391,6 +430,8 @@ static void handle(int k) {
     fix_scroll();
 }
 
+/// The mouse: click a row to choose it, double-click to call; the wheel scrolls; the key bar works.
+/// @param e the event
 static void mouse_click(const mouse_event_t *e) {
     int row = e->y / 16, col = e->x / 8;
     if (e->type == MOUSE_WHEEL) {

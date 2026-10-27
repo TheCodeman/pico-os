@@ -18,27 +18,48 @@
 #include "net.h"
 #include "pico/stdlib.h"
 
+/// Interpret As Command.
 #define IAC  255
+/// DON'T.
 #define DONT 254
+/// DO.
 #define DO   253
+/// WON'T.
 #define WONT 252
+/// WILL.
 #define WILL 251
+/// Subnegotiation begins.
 #define SB   250
+/// Subnegotiation ends.
 #define SE   240
 
+/// Binary transmission.
 #define OPT_BINARY 0
+/// Echo.
 #define OPT_ECHO   1
+/// Suppress go-ahead.
 #define OPT_SGA    3
+/// Terminal type.
 #define OPT_TTYPE  24
+/// Window size.
 #define OPT_NAWS   31
 
 #define QUIT_KEY 0x1d  ///< Ctrl-]
 
+/// The connection.
 static net_conn_t *conn;
+/// The server echoes what we type.
 static bool server_echoes;
+/// Terminal types sent.
 static int ttype_sent;
-static uint8_t us[256], them[256];  ///< per option: 0 not agreed yet, 1 on, 2 off
+/// Each option's state, ours and the server's: 0 not agreed yet, 1 on, 2 off.
+///@{
+static uint8_t us[256], them[256];
+///@}
 
+/// Sends bytes.
+/// @param p them
+/// @param n how many
 static void send(const void *p, size_t n) {
     net_conn_write(conn, p, n);
 }
@@ -46,16 +67,22 @@ static void send(const void *p, size_t n) {
 /// The console's answers to the server's questions (where the cursor is,
 /// what terminal this is): BBSes use them to tell ANSI and UTF-8 terminals
 /// apart, and take silence for UTF-8.
+/// @param text the answer
+/// @param len its length
 static void reply_to_server(const char *text, int len) {
     if (conn)
         send(text, len);
 }
 
+/// Sends IAC verb option.
+/// @param verb DO, WILL and the like
+/// @param opt the option
 static void send3(uint8_t verb, uint8_t opt) {
     uint8_t msg[3] = {IAC, verb, opt};
     send(msg, 3);
 }
 
+/// Sends our window size.
 static void send_naws(void) {
     uint8_t msg[] = {IAC, SB, OPT_NAWS, 0, CONSOLE_COLS, 0, CONSOLE_ROWS, IAC, SE};
     send(msg, sizeof msg);
@@ -63,6 +90,8 @@ static void send_naws(void) {
 
 /// The server offers to do something (WILL) or stop (WONT). Answers are only
 /// sent when they change something, so the two sides never loop.
+/// @param opt the option
+/// @param will WILL
 static void server_will(uint8_t opt, bool will) {
     bool ok = will && (opt == OPT_ECHO || opt == OPT_SGA || opt == OPT_BINARY);
     if (opt == OPT_ECHO)
@@ -74,6 +103,8 @@ static void server_will(uint8_t opt, bool will) {
 }
 
 /// The server asks us to do something (DO) or stop (DONT).
+/// @param opt the option
+/// @param doit DO
 static void server_do(uint8_t opt, bool doit) {
     bool ok = doit && (opt == OPT_TTYPE || opt == OPT_NAWS || opt == OPT_SGA || opt == OPT_BINARY);
     if (us[opt] != (ok ? 1 : 2)) {
@@ -84,6 +115,9 @@ static void server_do(uint8_t opt, bool doit) {
         send_naws();
 }
 
+/// A subnegotiation: answers terminal type requests.
+/// @param sb its bytes after IAC SB
+/// @param n their count
 static void subnegotiation(const uint8_t *sb, int n) {
     if (n >= 2 && sb[0] == OPT_TTYPE && sb[1] == 1) {  // SEND
         // Offer ANSI first (what BBSes look for), then VT100.
@@ -99,6 +133,8 @@ static void subnegotiation(const uint8_t *sb, int n) {
 
 /// A key typed (or arriving on the serial port) to the server; false if the
 /// connection has gone.
+/// @param c the key
+/// @return still connected
 static bool send_key(int c) {
     uint8_t out[2] = {(uint8_t)c, 0};
     int len = 1;
@@ -123,6 +159,10 @@ static bool send_key(int c) {
 /// too and answers the server's questions for its own screen (BBSes then
 /// take this one for UTF-8): the console has answered already, so they are
 /// dropped.
+/// @param seq the sequence
+/// @param max room in seq
+/// @param answer set to it being an answer
+/// @return its length
 static int escape_sequence(char *seq, int max, bool *answer) {
     int n = 1;
     seq[0] = 0x1b;
@@ -151,6 +191,8 @@ static int escape_sequence(char *seq, int max, bool *answer) {
 }
 
 /// Feeds received bytes through the telnet protocol; text goes to the screen.
+/// @param p the bytes
+/// @param n their count
 static void receive(const uint8_t *p, int n) {
     static int state;  // 0 text, 1 after IAC, 2 after WILL/WONT/DO/DONT, 3 in SB, 4 IAC in SB
     static uint8_t verb, sb[32];

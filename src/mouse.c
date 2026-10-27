@@ -26,42 +26,53 @@
 #include "pico/stdlib.h"
 #include "tusb.h"
 
+/// Mice at once.
 #define MICE 4
 #define QUEUE 64  ///< a power of two
 
 // ---- Where things are in a report -------------------------------------------------------------------
 
+/// Where a value is in a report.
 typedef struct {
+    /// Its first bit and size in bits.
     ///@{
     uint16_t bit, size;
     ///@}
+    /// Signed; found.
     ///@{
     bool is_signed, valid;
     ///@}
 } field_t;
 
+/// Where a mouse's values are in its reports.
 typedef struct {
     uint8_t report_id;    ///< 0: reports aren't numbered
     /// relative
     ///@{
     field_t x, y, wheel;
     ///@}
-    uint16_t button_bit;
-    uint8_t buttons;
+    uint16_t button_bit;  ///< the first button's bit
+    uint8_t buttons;  ///< how many buttons
 } layout_t;
 
 static struct {
+    /// Mounted; in report protocol (not boot).
     ///@{
     bool mounted, report_protocol;
     ///@}
+    /// Its USB address and HID instance.
     ///@{
     uint8_t dev_addr, instance;
     ///@}
-    layout_t layout;
-} mice[MICE];
+    layout_t layout;  ///< where its values are
+} mice[MICE];  ///< the mice
 
 /// Finds a mouse's relative X, Y, wheel and buttons in a report descriptor
 /// (HID 1.11, 6.2.2): the first report with relative X and Y.
+/// @param desc the descriptor
+/// @param len its length
+/// @param out the layout
+/// @return found
 static bool parse(const uint8_t *desc, size_t len, layout_t *out) {
     typedef struct {
         uint16_t page;
@@ -171,6 +182,11 @@ static bool parse(const uint8_t *desc, size_t len, layout_t *out) {
     return true;
 }
 
+/// A field's value from a report.
+/// @param f the field
+/// @param data the report
+/// @param len its length
+/// @return the value
 static int32_t value(const field_t *f, const uint8_t *data, size_t len) {
     if (!f->valid)
         return 0;
@@ -187,16 +203,33 @@ static int32_t value(const field_t *f, const uint8_t *data, size_t len) {
 
 // ---- State, written on core 1 ----------------------------------------------------------------------------
 
+/// The pointer's position.
+///@{
 static volatile int16_t pos_x = DVI_WIDTH / 2, pos_y = DVI_HEIGHT / 2;
+///@}
+/// The buttons held.
 static volatile uint8_t held;
+/// The wheel's movement so far.
 static volatile int wheel_total;
+/// Mouse reports so far.
 static volatile int count;
+/// The events for core 0.
 static mouse_event_t queue[QUEUE];
-static volatile uint32_t q_head, q_tail;  ///< head: core 1 writes; tail: core 0
+/// The queue's ends. Head: core 1 writes; tail: core 0.
+///@{
+static volatile uint32_t q_head, q_tail;
+///@}
+/// When a button last went down, for double-clicks.
 static uint32_t last_down_ms;
+/// And where.
+///@{
 static int16_t last_down_x, last_down_y;
+///@}
+/// And which.
 static uint8_t last_down_button;
 
+/// Queues an event (dropped if the queue is full).
+/// @param e the event
 static void push(mouse_event_t e) {
     if (q_head - q_tail >= QUEUE)
         return;  // full: dropped (the position is still right)
@@ -209,9 +242,14 @@ static void push(mouse_event_t e) {
 /// the default, is half a pixel a count), and the leftover fractions so slow
 /// moves still move.
 static const uint8_t speeds[10] = {2, 3, 4, 6, 8, 10, 12, 14, 16, 20};
+/// The speed setting (1-10).
 static volatile int speed = 5;
+/// Acceleration on.
 static volatile bool accel = true;
+/// Fractions of a dot left over, in sixteenths.
+///@{
 static int frac_x, frac_y;
+///@}
 
 void mouse_set_speed(int s, bool acceleration) {
     speed = s < 1 ? 1 : s > 10 ? 10 : s;
@@ -223,6 +261,11 @@ void mouse_get_speed(int *s, bool *acceleration) {
     *acceleration = accel;
 }
 
+/// A report's movement: the pointer moved, the buttons' changes queued.
+/// @param dx X counts
+/// @param dy Y counts
+/// @param dw wheel counts
+/// @param buttons the buttons held
 static void moved(int dx, int dy, int dw, uint8_t buttons) {
     // With acceleration, fast sweeps go half as far again (above 12 counts a report).
     int ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy, k = speeds[speed - 1];
@@ -267,6 +310,10 @@ static void moved(int dx, int dy, int dw, uint8_t buttons) {
     }
 }
 
+/// A mouse's slot.
+/// @param dev_addr its address
+/// @param instance its HID instance
+/// @return the slot, or -1
 static int slot(uint8_t dev_addr, uint8_t instance) {
     for (int i = 0; i < MICE; ++i)
         if (mice[i].mounted && mice[i].dev_addr == dev_addr && mice[i].instance == instance)
@@ -350,6 +397,9 @@ bool mouse_report(uint8_t dev_addr, uint8_t instance, const uint8_t *r, uint16_t
 }
 
 /// TinyUSB says the protocol changed (or that it couldn't).
+/// @param dev_addr its address
+/// @param instance its HID instance
+/// @param protocol the protocol now
 void tuh_hid_set_protocol_complete_cb(uint8_t dev_addr, uint8_t instance, uint8_t protocol) {
     int i = slot(dev_addr, instance);
     if (i >= 0)

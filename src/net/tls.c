@@ -32,13 +32,20 @@
 #include "net.h"
 #include "pico/stdlib.h"
 
+/// The root certificates.
 #define CA_PATH          "0:/CACERT.PEM"
+/// The most roots indexed.
 #define CA_MAX           256
 #define PEM_MAX          8192   ///< largest certificate we accept, as PEM text
+/// How long the handshake may take.
 #define HANDSHAKE_TIMEOUT_MS 30000
 
 // ---- Time, for mbedTLS ---------------------------------------------------------
 
+/// mbedTLS's calloc: PSRAM.
+/// @param count how many
+/// @param size each one's size
+/// @return the memory, or NULL
 void *tls_calloc(size_t count, size_t size) {
     if (size && count > (size_t)-1 / size)
         return NULL;
@@ -48,14 +55,22 @@ void *tls_calloc(size_t count, size_t size) {
     return p;
 }
 
+/// mbedTLS's free.
+/// @param p the memory
 void tls_free(void *p) {
     psram_buffer_free(p);
 }
 
+/// mbedTLS's millisecond clock.
+/// @return the time since boot
 mbedtls_ms_time_t mbedtls_ms_time(void) {
     return (mbedtls_ms_time_t)to_ms_since_boot(get_absolute_time());
 }
 
+/// mbedTLS's gmtime_r.
+/// @param tt the time
+/// @param tm_buf where
+/// @return tm_buf
 struct tm *mbedtls_platform_gmtime_r(const mbedtls_time_t *tt, struct tm *tm_buf) {
     time_t t = (time_t)*tt;
     return gmtime_r(&t, tm_buf);
@@ -67,14 +82,23 @@ struct tm *mbedtls_platform_gmtime_r(const mbedtls_time_t *tt, struct tm *tm_buf
 typedef struct {
     uint32_t hash;    ///< of the certificate's subject (DER)
     uint32_t offset;  ///< where its PEM text starts in CACERT.PEM
-    uint16_t len;
+    uint16_t len;  ///< its length
 } ca_entry_t;
 static ca_entry_t *ca_index;  ///< CA_MAX
+/// The roots indexed.
 static int ca_count;
+/// The index's checksum.
 static uint32_t ca_sum;
 static FSIZE_t ca_file_size;  ///< the file the index was built from
+/// The file's date and time.
+///@{
 static WORD ca_file_date, ca_file_time;
+///@}
 
+/// FNV-1a.
+/// @param p the bytes
+/// @param n their count
+/// @return the hash
 static uint32_t hash(const uint8_t *p, size_t n) {
     uint32_t h = 2166136261u;  // FNV-1a
     while (n--)
@@ -83,6 +107,11 @@ static uint32_t hash(const uint8_t *p, size_t n) {
 }
 
 /// Reads `len` bytes of PEM text at `offset` and parses it.
+/// @param f the file
+/// @param offset where
+/// @param len how many
+/// @param crt the chain it is added to
+/// @return 0, or an mbedTLS error
 static int load_pem(FIL *f, uint32_t offset, uint16_t len, mbedtls_x509_crt *crt) {
     char *pem = malloc(len + 1);
     if (!pem)
@@ -97,12 +126,14 @@ static int load_pem(FIL *f, uint32_t offset, uint16_t len, mbedtls_x509_crt *crt
     return r;
 }
 
-/// Indexes CACERT.PEM unless the index is already up to date. Returns the
-/// number of roots, or -1 (with a message) if there's no usable file.
+/// The index's checksum, to see whether its cells have faded.
+/// @return the checksum
 static uint32_t index_sum(void) {
     return hash((const uint8_t *)ca_index, ca_count * sizeof *ca_index);
 }
 
+/// Indexes CACERT.PEM unless the index is already up to date.
+/// @return the number of roots, or -1 (with a message) if there's no usable file
 static int ca_load_index(void) {
     if (!ca_index && !(ca_index = psram_malloc(CA_MAX * sizeof *ca_index))) {
         printf("Not enough memory for the certificate index.\n");
@@ -190,6 +221,10 @@ static int ca_load_index(void) {
 }
 
 /// mbedTLS asks for the roots that could have issued `child`.
+/// @param unused unused
+/// @param child the certificate
+/// @param found set to the candidates
+/// @return 0, or -1
 static int ca_lookup(void *unused, const mbedtls_x509_crt *child, mbedtls_x509_crt **found) {
     *found = NULL;
     uint32_t h = hash(child->issuer_raw.p, child->issuer_raw.len);
@@ -232,30 +267,48 @@ static int ca_lookup(void *unused, const mbedtls_x509_crt *child, mbedtls_x509_c
 
 // ---- Connections ------------------------------------------------------------------
 
+/// A TLS connection.
 struct net_tls {
-    net_conn_t *conn;
-    mbedtls_ssl_context ssl;
-    mbedtls_ssl_config conf;
-    mbedtls_ctr_drbg_context drbg;
-    mbedtls_entropy_context entropy;
+    net_conn_t *conn;  ///< the TCP connection
+    mbedtls_ssl_context ssl;  ///< the session
+    mbedtls_ssl_config conf;  ///< its configuration
+    mbedtls_ctr_drbg_context drbg;  ///< its random numbers
+    mbedtls_entropy_context entropy;  ///< their entropy
 };
 
+/// Whether the clock has been set (from the network).
+/// @return set
 static bool clock_known(void) {
     return time(NULL) > 1700000000;  // after November 2023: set from the network
 }
 
 /// Without the real date, a certificate's validity period can't be checked;
 /// everything else still is.
+/// @param unused unused
+/// @param crt the certificate
+/// @param depth its depth in the chain
+/// @param flags the problems found
+/// @return 0
 static int check_cert(void *unused, mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
     if (!clock_known())
         *flags &= ~(MBEDTLS_X509_BADCERT_EXPIRED | MBEDTLS_X509_BADCERT_FUTURE);
     return 0;
 }
 
+/// mbedTLS's send.
+/// @param ctx the connection
+/// @param buf the bytes
+/// @param len how many
+/// @return len, or an error
 static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
     return net_conn_write(ctx, buf, len) ? (int)len : MBEDTLS_ERR_SSL_INTERNAL_ERROR;
 }
 
+/// mbedTLS's receive.
+/// @param ctx the connection
+/// @param buf where
+/// @param len how many
+/// @return bytes read, WANT_READ, or 0 when closed
 static int bio_recv(void *ctx, unsigned char *buf, size_t len) {
     int n = net_conn_read(ctx, buf, len);
     if (n > 0)
@@ -263,12 +316,17 @@ static int bio_recv(void *ctx, unsigned char *buf, size_t len) {
     return n == 0 ? MBEDTLS_ERR_SSL_WANT_READ : 0;  // 0 = the other end closed
 }
 
+/// Prints an mbedTLS error.
+/// @param what what failed
+/// @param r the error
 static void print_error(const char *what, int r) {
     char msg[100];
     mbedtls_strerror(r, msg, sizeof msg);
     printf("%s: %s\n", what, msg);
 }
 
+/// Frees a connection.
+/// @param t it
 static void free_tls(net_tls_t *t) {
     mbedtls_ssl_free(&t->ssl);
     mbedtls_ssl_config_free(&t->conf);

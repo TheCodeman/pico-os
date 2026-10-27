@@ -21,25 +21,39 @@
 #include "serial_console.h"
 #include "shell.h"
 
+/// The settings file.
 #define CONFIG_PATH     "0:/WIFI.CFG"
+/// How long to wait for a connection.
 #define CONNECT_WAIT_MS 30000
 #define RETRY_MS        30000  ///< how often a lost saved network is tried again
+/// The most networks a scan lists.
 #define SCAN_MAX        24
 
 static bool radio;              ///< the chip started
 static bool want;               ///< keep connected to `ssid` (retry when lost)
+/// The network and its password.
+///@{
 static char ssid[33], password[64];
+///@}
 static int reported;            ///< link status last reported
+/// When to try connecting again.
 static absolute_time_t retry_at;
 
+/// The station interface.
+/// @return it
 static struct netif *sta(void) {
     return &cyw43_state.netif[CYW43_ITF_STA];
 }
 
+/// The link's status.
+/// @return CYW43_LINK_*
 static int link_status(void) {
     return cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
 }
 
+/// Why connecting failed.
+/// @param status the link status
+/// @return the reason
 static const char *why(int status) {
     switch (status) {
     case CYW43_LINK_BADAUTH: return "wrong password";
@@ -49,6 +63,7 @@ static const char *why(int status) {
     }
 }
 
+/// Starts connecting.
 static void start_connect(void) {
     cyw43_arch_wifi_connect_async(ssid, password[0] ? password : NULL,
                                   password[0] ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN);
@@ -62,6 +77,7 @@ static int start_attempts;  ///< how many tries the radio needed (for debugging)
 
 /// Powers the radio up and loads its firmware. The driver otherwise does this
 /// lazily on the first command and only prints a warning if it fails.
+/// @return started
 static bool start_radio(void) {
     for (unsigned i = 0; i < sizeof clock_divs; ++i) {
         ++start_attempts;
@@ -108,6 +124,7 @@ void net_init(void) {
 // ---- Saved network ----------------------------------------------------------
 
 /// WIFI.CFG holds two lines, "ssid=..." and "password=...".
+/// @return loaded
 static bool load_config(void) {
     FIL f;
     if (f_open(&f, CONFIG_PATH, FA_READ) != FR_OK)
@@ -125,6 +142,8 @@ static bool load_config(void) {
     return ssid[0] != 0;
 }
 
+/// Saves WIFI.CFG.
+/// @return saved
 static bool save_config(void) {
     FIL f;
     if (f_open(&f, CONFIG_PATH, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
