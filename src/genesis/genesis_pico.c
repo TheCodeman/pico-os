@@ -58,39 +58,53 @@
 #include "tusb.h"
 #include "usb_keyboard.h"
 
+/// Where the games are.
 #define DEFAULT_DIR "/GENESIS"
+/// The longest path.
 #define PATH_LEN    320
 #define MAX_SKIP    4  ///< frames in a row not drawn when behind
 
 /// A frame in master clocks over the master clock: NTSC 896040 / 53693175
 /// (16.688 ms), PAL 1067040 / 53203424 (20.056 ms); in ns.
 #define FRAME_NS_NTSC 16688154u
-#define FRAME_NS_PAL  20055853u
+#define FRAME_NS_PAL  20055853u  ///< PAL
 
 /// The framebuffer: the picture (rows of 320), the machine's memory, the
 /// YM2612's main tables, the sound ring, then the core's hottest code
 /// (genesis_fast.h), linked to run there (src/ld/section_extra_post_data.incl)
 /// and copied in from flash before the machine starts.
 #define PIC_W      320
-#define PIC_ROWS   240
-#define MEM_AT     (PIC_W * PIC_ROWS)
-#define YM_AT      ((MEM_AT + GENESIS_MEM_SIZE + 3) & ~3)
-#define SOUND_AT   (YM_AT + GENESIS_YM_FAST_SIZE)
+#define PIC_ROWS   240  ///< rows
+#define MEM_AT     (PIC_W * PIC_ROWS)  ///< the machine's memory
+#define YM_AT      ((MEM_AT + GENESIS_MEM_SIZE + 3) & ~3)  ///< the YM2612's tables
+#define SOUND_AT   (YM_AT + GENESIS_YM_FAST_SIZE)  ///< the sound ring
 #define SOUND_RING 2048  ///< samples (int16), about 38 ms
+/// The sound ring.
 #define sound_ring ((int16_t *)(dvi_framebuf + SOUND_AT))
+/// The core's fast code: where it runs, its end, and where it is in flash.
+///@{
 extern char __genesis_fast_start[], __genesis_fast_end[], __genesis_fast_load[];
+///@}
 
+/// Whether the fast code fits after the sound ring.
+/// @return it does
 static bool fast_code_fits(void) {
     return (uint8_t *)__genesis_fast_start >= dvi_framebuf + SOUND_AT + SOUND_RING * 2;
 }
 
 // ---- Sound ----
 
-static volatile uint32_t sound_head, sound_tail;  ///< samples put in, taken out
+/// Samples put in and taken out.
+///@{
+static volatile uint32_t sound_head, sound_tail;
+///@}
 static uint32_t sound_pos;   ///< core 1: the next sample's position, 16.16 past sound_tail
 static uint32_t sound_step0;  ///< core 1: Genesis samples a 48 kHz sample, 16.16
 static bool sound_playing;    ///< core 1: once the ring has filled to half
-static volatile uint32_t sound_dropped, sound_short;  ///< samples lost to a full ring; 48 kHz samples with none
+/// Samples lost to a full ring, and 48 kHz samples with none ready.
+///@{
+static volatile uint32_t sound_dropped, sound_short;
+///@}
 
 /// Core 0, after each frame: the frame's samples into the ring.
 static void sound_frame(void) {
@@ -111,6 +125,9 @@ static void sound_frame(void) {
 /// Core 1, at 48 kHz: the next sample, between the two Genesis samples it
 /// falls between. The step is nudged by how full the ring is (half full
 /// is right), so it follows the emulation's real speed.
+/// @param left the left sample
+/// @param right the right
+/// @return true
 static bool __attribute__((section("genesis_fast"))) genesis_sound(int32_t *left, int32_t *right) {
     static int32_t last;
     uint32_t tail = sound_tail, have = __atomic_load_n(&sound_head, __ATOMIC_ACQUIRE) - tail;
@@ -138,6 +155,8 @@ static bool __attribute__((section("genesis_fast"))) genesis_sound(int32_t *left
     return true;
 }
 
+/// Starts the sound for NTSC or PAL.
+/// @param pal PAL
 static void sound_start(bool pal) {
     sound_head = sound_tail = 0;
     sound_pos = 0;
@@ -152,6 +171,11 @@ static void sound_start(bool pal) {
 
 // ---- The ROM ----
 
+/// A folder and a name joined.
+/// @param out the path
+/// @param n room in out
+/// @param dir the folder
+/// @param name the name
 static void path_join(char *out, size_t n, const char *dir, const char *name) {
     size_t len = strlen(dir);
     snprintf(out, n, "%s%s%s", dir, len && dir[len - 1] == '/' ? "" : "/", name);
@@ -163,6 +187,10 @@ static char failed[160] APP_OV_DATA(genesis);  ///< (the apps' SRAM area, while 
 /// Reads the cartridge into PSRAM, telling progress how far it has got (0 to
 /// 100). NULL (and why in failed) if it can't. The buffer is a little bigger
 /// than the file and zeroed after it, so a 32-bit read at the end stays inside.
+/// @param path the ROM
+/// @param size set to its size
+/// @param progress told how far it is, or NULL
+/// @return the ROM, or NULL
 static uint8_t *load_rom(const char *path, size_t *size, void (*progress)(const char *path, int percent)) {
     FIL f;
     if (f_open(&f, path, FA_READ) != FR_OK) {
@@ -203,6 +231,8 @@ static uint8_t *load_rom(const char *path, size_t *size, void (*progress)(const 
 }
 
 /// Loading progress on the console: the percentage, rewritten in place.
+/// @param path the ROM
+/// @param percent how far
 static void console_progress(const char *path, int percent) {
     if (!percent)
         printf("Loading %s   ", path);
@@ -212,6 +242,8 @@ static void console_progress(const char *path, int percent) {
 }
 
 /// And on the launcher's bottom line, with the file's name.
+/// @param path the ROM
+/// @param percent how far
 static void launcher_progress(const char *path, int percent) {
     const char *slash = strrchr(path, '/');
     genesis_launcher_progress(slash ? slash + 1 : path, percent);
@@ -223,12 +255,17 @@ static void launcher_progress(const char *path, int percent) {
 /// colours) as an RGB332 pixel, made again when CRAM changes.
 static uint8_t lut[256] APP_OV_DATA(genesis);
 static uint32_t lut_cram[32] APP_OV_DATA(genesis);  ///< the colours lut was made from (64 RGB565, in pairs)
+/// The colour table is good for the palette.
 static bool lut_valid;
 static volatile int pic_top;  ///< framebuffer rows above the picture
 
 /// Called as each line is drawn (on core 1): 320 colour numbers to RGB332.
 /// The palette is checked each line, as games change it between lines.
 static void __attribute__((section("genesis_fast")))
+/// @param ctx unused
+/// @param line the line
+/// @param pix the colour numbers
+/// @param pal the palette
 put_line(void *ctx, int line, const uint8_t *pix, const uint16_t *pal) {
     const uint32_t *pal32 = (const uint32_t *)pal;
     bool same = lut_valid;
@@ -256,6 +293,7 @@ put_line(void *ctx, int line, const uint8_t *pix, const uint16_t *pal) {
 }
 
 /// The rows shown: 224 lines in the middle of the 240, or all 240 (PAL's V30).
+/// @param height 224 or 240
 static void set_view(int height) {
     if (dvi_double_rows == height)
         return;
@@ -265,10 +303,12 @@ static void set_view(int height) {
 
 // ---- Keys and pads ----
 
+/// What the keys ask for.
 enum { ACT_NONE, ACT_RESET, ACT_EXIT, ACT_MENU };
 
 /// F9, F10 and F11 from the console (USB keyboard or serial): ESC [ 20 ~,
 /// ESC [ 21 ~ and ESC [ 23 ~. Everything else typed is dropped.
+/// @return ACT_NONE and the like
 static int console_keys(void) {
     static char seq[8];
     static int len;
@@ -298,6 +338,8 @@ static int console_keys(void) {
     return act;
 }
 
+/// The keyboard as pad 1: arrows, Z X C, Return.
+/// @return the buttons
 static unsigned keyboard_pad(void) {
     uint8_t keys[6], mods;
     unsigned pad = 0;
@@ -319,6 +361,8 @@ static unsigned keyboard_pad(void) {
 
 /// USB gamepad n: the stick or D-pad, buttons 1-3 A, B, C, and any of
 /// buttons 8-12 (where pads put Start and Select) Start.
+/// @param n the pad
+/// @return the buttons
 static unsigned gamepad(unsigned n) {
     uint8_t x, y;
     uint32_t b;
@@ -338,10 +382,13 @@ static unsigned gamepad(unsigned n) {
 
 // ---- The command ----
 
+/// The core's clock.
+/// @return microseconds
 static uint32_t clock_us(void) {
     return time_us_32();
 }
 
+/// How a game runs.
 typedef struct {
     long bench;     ///< frames to run as fast as it can, or 0
     bool one_core;  ///< draw on core 0 too
@@ -353,6 +400,8 @@ typedef struct {
 static char summary[1024];
 
 static void say(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+/// Adds to the summary.
+/// @param fmt printf's format
 static void say(const char *fmt, ...) {
     size_t len = strlen(summary);
     va_list ap;
@@ -364,6 +413,10 @@ static void say(const char *fmt, ...) {
 /// Runs the game at path until F10 (ACT_EXIT) or F9 (ACT_MENU), with the
 /// console's drawing already off; gives the screen back as 640x480, clear.
 /// ACT_NONE (and why in failed) if it couldn't start.
+/// @param path the ROM
+/// @param o how
+/// @param progress told how far loading is, or NULL
+/// @return ACT_EXIT or ACT_MENU
 static int run_game(const char *path, const options *o, void (*progress)(const char *path, int percent)) {
     failed[0] = 0;
     void *tables = psram_malloc(GENESIS_YM_SLOW_SIZE);
@@ -516,10 +569,12 @@ static int run_game(const char *path, const options *o, void (*progress)(const c
 /// Where the launcher was, kept between runs: in PSRAM, made the first time
 /// (SRAM is for what's running).
 static struct {
-    char dir[PATH_LEN];
-    char last[256];
+    char dir[PATH_LEN];  ///< the folder
+    char last[256];  ///< the last game played
 } *launch;
+/// The launcher's folder.
 #define launch_dir  (launch->dir)
+/// The last game.
 #define launch_last (launch->last)
 
 void genesis_main(int argc, char **argv) {

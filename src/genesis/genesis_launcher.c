@@ -36,47 +36,60 @@
 #include "trk.h"
 #include "usb_keyboard.h"
 
+/// The most entries in a folder.
 #define MAX_ENTRIES 1024
+/// The longest name.
 #define NAME_LEN    256
 
+/// A folder entry.
 typedef struct {
-    char name[NAME_LEN];
-    uint32_t size;
-    bool dir;
+    char name[NAME_LEN];  ///< its name
+    uint32_t size;  ///< its size
+    bool dir;  ///< a folder
 } entry;
 
 static entry *list;  ///< in PSRAM while the launcher is up
-static int count, folders, games;  ///< entries (".." too), subfolders, games
+/// Entries (".." too), subfolders and games.
+///@{
+static int count, folders, games;
+///@}
 
 /// The layout, in pixels (the 8x16 font: 80 x 30 characters).
 #define BAR_H    18
-#define BOX_X  8
-#define BOX_Y  22
-#define BOX_W  624
-#define BOX_H  434
-#define PATH_Y   (BOX_Y + 26)
-#define COUNT_Y  (PATH_Y + 24)
-#define LIST_X   24
-#define LIST_Y   (COUNT_Y + 24)
-#define LIST_COLS 44
-#define LIST_W   (LIST_COLS * 8 + 8)
-#define ROWS     19
-#define LIST_H   (ROWS * 16 + 4)
-#define SCROLL_X (LIST_X + LIST_W)
-#define INFO_X   (SCROLL_X + 24)
-#define INFO_W   (BOX_X + BOX_W - 16 - INFO_X)
-#define INFO_COLS ((INFO_W - 8) / 8)
-#define BUTTON_Y (LIST_Y + LIST_H + 12)
-#define STATUS_Y (DVI_HEIGHT - 18)
+#define BOX_X  8  ///< the box: left
+#define BOX_Y  22  ///< top
+#define BOX_W  624  ///< width
+#define BOX_H  434  ///< height
+#define PATH_Y   (BOX_Y + 26)  ///< the path's row
+#define COUNT_Y  (PATH_Y + 24)  ///< the count's row
+#define LIST_X   24  ///< the list: left
+#define LIST_Y   (COUNT_Y + 24)  ///< top
+#define LIST_COLS 44  ///< characters across
+#define LIST_W   (LIST_COLS * 8 + 8)  ///< width
+#define ROWS     19  ///< rows
+#define LIST_H   (ROWS * 16 + 4)  ///< height
+#define SCROLL_X (LIST_X + LIST_W)  ///< the scroll bar's left
+#define INFO_X   (SCROLL_X + 24)  ///< the info box: left
+#define INFO_W   (BOX_X + BOX_W - 16 - INFO_X)  ///< width
+#define INFO_COLS ((INFO_W - 8) / 8)  ///< characters across
+#define BUTTON_Y (LIST_Y + LIST_H + 12)  ///< the buttons' row
+#define STATUS_Y (DVI_HEIGHT - 18)  ///< the status line's row
 
 // ---- The folder ----
 
+/// Whether a file is a Genesis ROM (.bin .md .gen .smd).
+/// @param name its name
+/// @return it is
 static bool is_game(const char *name) {
     const char *dot = strrchr(name, '.');
     return dot && (!strcasecmp(dot, ".bin") || !strcasecmp(dot, ".md") || !strcasecmp(dot, ".gen") ||
                    !strcasecmp(dot, ".smd"));
 }
 
+/// qsort's comparison: folders first, ".." first, then by name.
+/// @param a an entry
+/// @param b another
+/// @return less, equal or more than 0
 static int entry_cmp(const void *a, const void *b) {
     const entry *x = a, *y = b;
     if (x->dir != y->dir)
@@ -88,11 +101,18 @@ static int entry_cmp(const void *a, const void *b) {
     return strcasecmp(x->name, y->name);
 }
 
+/// Whether a folder is the root.
+/// @param dir the folder
+/// @return it is
 static bool is_root(const char *dir) {
     return !dir[0] || !strcmp(dir, "/");
 }
 
 /// Reads dir into list; false (and why in err) if it can't.
+/// @param dir the folder
+/// @param err set to why not
+/// @param err_len room in err
+/// @return read
 static bool read_folder(const char *dir, char *err, size_t err_len) {
     count = folders = games = 0;
     DIR d;
@@ -124,6 +144,11 @@ static bool read_folder(const char *dir, char *err, size_t err_len) {
     return true;
 }
 
+/// A folder and a name joined.
+/// @param out the path
+/// @param n room in out
+/// @param dir the folder
+/// @param name the name
 static void join(char *out, size_t n, const char *dir, const char *name) {
     size_t len = strlen(dir);
     snprintf(out, n, "%s%s%s", dir, len && dir[len - 1] == '/' ? "" : "/", name);
@@ -131,14 +156,19 @@ static void join(char *out, size_t n, const char *dir, const char *name) {
 
 // ---- A cartridge's header ----
 
+/// A cartridge's header.
 typedef struct {
-    bool ok;
+    bool ok;  ///< it was read
+    /// The system, the overseas and domestic titles, the serial number and the regions.
     ///@{
     char system[17], title[49], domestic[49], serial[15], region[24];
     ///@}
 } rom_info;
 
 /// A header field: printable, runs of spaces made one, trimmed.
+/// @param out the text
+/// @param in the field
+/// @param len its length
 static void field(char *out, const uint8_t *in, int len) {
     int n = 0;
     for (int i = 0; i < len; i++) {
@@ -153,6 +183,9 @@ static void field(char *out, const uint8_t *in, int len) {
 
 /// The countries at $1F0: the letters J, U and E, or one hex digit of bits
 /// (1 Japan, 4 USA, 8 Europe) on later cartridges.
+/// @param out the text
+/// @param n room in out
+/// @param r the field
 static void region(char *out, size_t n, const uint8_t *r) {
     bool j = false, u = false, e = false;
     if (r[1] == ' ' && isxdigit(r[0]) && !strchr("JUE", r[0])) {
@@ -168,11 +201,20 @@ static void region(char *out, size_t n, const uint8_t *r) {
         snprintf(out, n, "?");
 }
 
+/// Reads bytes at a place in a file.
+/// @param f the file
+/// @param at where
+/// @param buf where they go
+/// @param n how many
+/// @return all read
 static bool read_at(FIL *f, FSIZE_t at, uint8_t *buf, UINT n) {
     UINT got;
     return f_lseek(f, at) == FR_OK && f_read(f, buf, n, &got) == FR_OK && got == n;
 }
 
+/// Reads a ROM's header.
+/// @param path the ROM
+/// @param ri set to what it says
 static void read_info(const char *path, rom_info *ri) {
     memset(ri, 0, sizeof *ri);
     uint8_t h[0x200];
@@ -204,6 +246,10 @@ static void read_info(const char *path, rom_info *ri) {
 
 // ---- Drawing ----
 
+/// A size as "512K" or "1.5M".
+/// @param out the text
+/// @param n room in out
+/// @param size the size
 static void size_text(char *out, size_t n, uint32_t size) {
     if (size >= 1024 * 1024)
         snprintf(out, n, "%lu.%luM", (unsigned long)(size >> 20), (unsigned long)((size & 0xfffff) * 10 >> 20));
@@ -211,6 +257,8 @@ static void size_text(char *out, size_t n, uint32_t size) {
         snprintf(out, n, "%luK", (unsigned long)((size + 1023) >> 10));
 }
 
+/// Draws the frame: the bars, the box and the buttons.
+/// @param dir the folder
 static void draw_frame(const char *dir) {
     gfx_fill(0, 0, DVI_WIDTH, DVI_HEIGHT, C_BG);
     // The menu bar's line.
@@ -233,6 +281,9 @@ static void draw_frame(const char *dir) {
     gfx_text(LIST_X + LIST_W - 128 + 4 + 36, BUTTON_Y + 3, "Cancel", -1, C_TEXT, C_FACE);
 }
 
+/// Draws the list.
+/// @param top the first row
+/// @param cur the row highlighted
 static void draw_list(int top, int cur) {
     for (int r = 0; r < ROWS; r++) {
         int i = top + r, y = LIST_Y + r * 16;
@@ -271,6 +322,8 @@ static void draw_list(int top, int cur) {
 }
 
 /// The highlighted game's header (or what the line is), in the box on the right.
+/// @param dir the folder
+/// @param cur the row highlighted
 static void draw_info(const char *dir, int cur) {
     gfx_fill(INFO_X, LIST_Y, INFO_W, LIST_H, C_FIELD);
     int x = INFO_X + 4, y = LIST_Y + 2;
@@ -335,11 +388,15 @@ static void draw_info(const char *dir, int cur) {
     gfx_text(x, y + 16, e->name, INFO_COLS, C_TEXT, C_FIELD);
 }
 
+/// The status line.
+/// @param text the text
+/// @param colour its colour
 static void draw_status(const char *text, uint8_t colour) {
     gfx_fill(0, STATUS_Y, DVI_WIDTH, 18, C_FACE);
     gfx_text(8, STATUS_Y + 1, text, 78, colour, C_FACE);
 }
 
+/// The keys, on the status line.
 static void draw_help(void) {
     draw_status("Return/Start play  Esc/F10 leave  Backspace up  F5 read again", C_LABEL);
 }
@@ -352,12 +409,14 @@ void genesis_launcher_progress(const char *what, int percent) {
 
 // ---- Keys ----
 
+/// The launcher's keys.
 enum {
     K_UP = 0x100, K_DOWN, K_LEFT, K_RIGHT, K_PGUP, K_PGDN, K_HOME, K_END, K_F5, K_F10,
     K_PLAY, K_BACK, K_LEAVE,
 };
 
 /// A key from the console (USB keyboard or serial), or -1.
+/// @return the key
 static int get_key(void) {
     int c = getchar_timeout_us(0);
     if (c != 0x1b)
@@ -390,6 +449,7 @@ static int get_key(void) {
 
 /// A USB gamepad: the D-pad (with repeat), button 1 or a Start button plays,
 /// button 2 goes up a folder.
+/// @return the key, or -1
 static int pad_key(void) {
     static uint32_t held_since, last_repeat;
     static int held = -1;

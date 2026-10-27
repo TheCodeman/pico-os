@@ -91,19 +91,27 @@ double port_seconds(void) {
 // is faster too; arrays and other big blocks go to PSRAM. When SRAM runs low,
 // small blocks go to PSRAM as well.
 
+/// Allocations from this size up go to PSRAM.
 #define BIG_BLOCK  512
 #define SRAM_KEEP  (24 * 1024)  ///< left for the system, the editor and network
 
+/// The SRAM heap's free bytes (above it and freed inside).
+/// @return them
 static size_t sram_free(void) {
     extern char __StackLimit;  // top of the heap, from the SDK's linker script
     struct mallinfo mi = mallinfo();
     return (size_t)(&__StackLimit - (char *)sbrk(0)) + mi.fordblks;
 }
 
+/// Whether memory is in PSRAM.
+/// @param p the memory
+/// @return it is
 static bool is_psram(const void *p) {
     return (uintptr_t)p >= 0x11000000u && (uintptr_t)p < 0x12000000u;
 }
 
+/// PSRAM's free bytes.
+/// @return them
 static size_t psram_free_bytes(void) {
     return psram_free_total();
 }
@@ -111,6 +119,8 @@ static size_t psram_free_bytes(void) {
 /// True if SRAM has room for n more bytes. Cheap in the usual case: the
 /// untouched space above the heap (mallinfo walks the whole heap, so it's only
 /// asked when that space is short).
+/// @param n the bytes
+/// @return there is room
 static bool sram_room(size_t n) {
     extern char __StackLimit;
     if ((size_t)(&__StackLimit - (char *)sbrk(0)) >= n + SRAM_KEEP)
@@ -190,13 +200,20 @@ bool port_stack_low(void) {
 // The page on show lives in the framebuffer; the others are kept in PSRAM and
 // swapped in by copying when SCREEN changes the visual page.
 
+/// Graphics pages.
 #define MAX_PAGES  8
+/// Bytes in a page.
 #define PAGE_BYTES (DVI_WIDTH * DVI_HEIGHT)
 
 static uint8_t *pages[MAX_PAGES];  ///< NULL until used; stale while on show
+/// The page on show.
 static int visual_page;
+/// Where drawing goes: the screen, or a page in PSRAM.
 static uint8_t *draw_fb = dvi_framebuf;
 
+/// Makes page n if it isn't yet.
+/// @param n the page
+/// @return it is there
 static bool need_page(int n) {
     if (!pages[n]) {
         pages[n] = psram_malloc(PAGE_BYTES);
@@ -265,15 +282,24 @@ void port_edit(const char *path) {
 #include "hardware/gpio.h"
 #include "hardware/pwm.h"
 
+/// GPIO pins.
 #define PIN_COUNT 48
+/// The LED's pin.
 #define LED_PIN   25
+/// The first ADC pin.
 #define ADC_FIRST 40
 
+/// What a pin is being used for.
 enum { UNUSED, INPUT, OUTPUT, PULLUP, PULLDOWN, PWM, ADC };
 static uint8_t pin_use[PIN_COUNT];      ///< what BASIC has set each pin to
+/// Each PWM slice's frequency.
 static float slice_freq[NUM_PWM_SLICES];
 
 /// "1000" or "8.5": the SDK's printf has no %g.
+/// @param f the frequency
+/// @param buf the text
+/// @param size room in buf
+/// @return buf
 static const char *freq_text(double f, char *buf, size_t size) {
     long whole = (long)(f + 0.05);
     int tenth = (int)((f + 0.05 - whole) * 10);
@@ -292,10 +318,16 @@ int port_led_pin(void) {
     return LED_PIN;
 }
 
-static int serial_tx = -1, serial_rx = -1;  ///< COM1's pins while it is open
+/// COM1's TX and RX pins while it is open (-1: closed).
+///@{
+static int serial_tx = -1, serial_rx = -1;
+///@}
 static int i2c_pins[2] = {-1, -1};          ///< SDA, SCL while I2C is open
 static int spi_pins[3] = {-1, -1, -1};      ///< SCK, MOSI, MISO while SPI is open
-static int serial_cts = -1, serial_rts = -1;  ///< its flow control pins while that is on
+/// Its flow control pins (CTS, RTS) while that is on.
+///@{
+static int serial_cts = -1, serial_rts = -1;
+///@}
 
 const char *port_pin_reserved(int pin) {
     if (pin == serial_tx || pin == serial_rx || pin == serial_cts || pin == serial_rts)
@@ -381,6 +413,7 @@ void port_pwm(int pin, double freq, double duty) {
     pin_use[pin] = PWM;
 }
 
+/// Starts the ADC, once.
 static void adc_start(void) {
     static bool started;
     if (!started) {
@@ -472,10 +505,15 @@ void port_pins_reset(void) {
 #include "hardware/irq.h"
 #include "hardware/uart.h"
 
+/// The receive ring's size.
 #define RX_SIZE 4096
 static uint8_t *rx_buf;  ///< RX_SIZE, while COM1 is open (SRAM is short)
-static volatile uint16_t rx_head, rx_tail;  ///< interrupt writes head, BASIC reads tail
+/// The ring's ends: the interrupt writes head, BASIC reads tail.
+///@{
+static volatile uint16_t rx_head, rx_tail;
+///@}
 
+/// UART1's interrupt: received bytes into the ring.
 static void serial_irq(void) {
     while (uart_is_readable(uart1)) {
         uint16_t next = (rx_head + 1) % RX_SIZE;
@@ -495,6 +533,10 @@ static void serial_irq(void) {
     }
 }
 
+/// Whether a pin can be UART1's TX (or RX).
+/// @param pin the pin
+/// @param tx TX (else RX)
+/// @return it can
 static bool uart1_pin(int pin, bool tx) {
     // UART1's TX/RX pins below GP30, as on every RP2 chip.
     static const int8_t txs[] = {4, 8, 20, 24}, rxs[] = {5, 9, 21, 25};
@@ -695,15 +737,26 @@ void port_mouse_pointer(bool on) {
 /// bit would only click, so no checksums.)
 static mod_song_t *music;   ///< a MOD, or
 static xm_song_t *xmusic;   ///< an XM
+/// Keeps the song's PSRAM fresh while it plays.
 static repeating_timer_t music_timer;
+/// It is running.
 static bool music_timer_on;
-static int music_part, music_volume = 100;  ///< the region being refreshed
+/// The region being refreshed, and the volume (0-100).
+///@{
+static int music_part, music_volume = 100;
+///@}
+/// Where in the region.
 static uint32_t music_off;
+/// MUSIC is paused.
 static bool music_paused;
 
 #define MUSIC_REFRESH_BYTES 512  ///< each 5 ms: ~100 KB a second, a short stop each time
 
 /// The song's k-th region of memory; false past the last.
+/// @param k the region
+/// @param base set to its start
+/// @param len set to its length
+/// @return there is one
 static bool music_region(int k, uint8_t **base, uint32_t *len) {
     *base = NULL;
     *len = 0;
@@ -739,6 +792,9 @@ static bool music_region(int k, uint8_t **base, uint32_t *len) {
     return false;
 }
 
+/// The refresh timer: rewrites a piece of the song's memory.
+/// @param t the timer
+/// @return true (keep going)
 static bool music_refresh(repeating_timer_t *t) {
     (void)t;
     uint8_t *base;
@@ -913,9 +969,14 @@ int port_music_state(int what) {
 #include "hardware/i2c.h"
 #include "hardware/spi.h"
 
+/// The I2C controller open, or NULL.
 static i2c_inst_t *i2c_bus;
+/// The SPI controller open, or NULL.
 static spi_inst_t *spi_bus;
 
+/// Why a pin can't be used, or NULL.
+/// @param pin the pin
+/// @return the reason, or NULL
 static const char *pin_free(int pin) {
     if (pin < 0 || pin >= PIN_COUNT)
         return "no such pin";

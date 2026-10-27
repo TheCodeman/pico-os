@@ -30,12 +30,14 @@
 #endif
 // And its copies of the VDP's state in the apps' SRAM area (app_overlay.h).
 #if defined(__arm__)
+/// Puts a variable in the apps' SRAM area (on the board).
 #define GENESIS_RAM __attribute__((section("app_ov_genesis.data")))
 #else
 #define GENESIS_RAM
 #endif
 
-/// What the core expects its platform to define.
+// The core's own variables (gwenesis, documented there).
+/** @cond GENESIS_CORE */
 extern unsigned char *VRAM, *ZRAM;
 extern unsigned char gwenesis_vdp_regs[0x20];
 extern unsigned int gwenesis_vdp_status;
@@ -44,17 +46,32 @@ extern unsigned short VSRAM[];
 extern unsigned char SAT_CACHE[];
 extern int screen_width, screen_height;
 extern int hint_pending;
+/** @endcond */
 
+/// The line being drawn (the core reads it).
 int scan_line;
+/// The YM2612's samples for the frame.
 int16_t *gwenesis_ym2612_buffer;
+/// Their count, and the YM2612's clock count.
+///@{
 int ym2612_index, ym2612_clock;
+///@}
+/// The SN76489's samples for the frame.
 int16_t *gwenesis_sn76489_buffer;
+/// Their count, and its clock count.
+///@{
 int sn76489_index, sn76489_clock;
+///@}
 
+/// The YM2612, the Z80 and the SN76489 are on.
+///@{
 static bool ym_on = true, z80_on = true, sn_on = true;
+///@}
+/// The clock for timing.
 static uint32_t (*clock_us)(void);
 
 genesis_times genesis_time;
+/// The two pads' buttons.
 static unsigned pads[2];
 
 // ---- Drawing, a line at a time, perhaps on another core ----
@@ -65,35 +82,45 @@ static unsigned pads[2];
 /// queued line, so it draws the line as it was even while the 68000 has moved
 /// on. VRAM is shared.
 unsigned char genesis_r_regs[0x20];
+/// The VSRAM copy the line drawer reads.
 unsigned short genesis_r_vsram[0x40] GENESIS_RAM;
+/// The sprite table copy it reads.
 unsigned char __attribute__((aligned(4))) genesis_r_sat[0x400] GENESIS_RAM;
 
+/// A line to draw: the VDP state it is drawn with.
 typedef struct {
-    genesis_line_fn fn;
-    void *ctx;
-    int16_t line;
-    uint8_t regs[0x20];
+    genesis_line_fn fn;  ///< where the line goes
+    void *ctx;  ///< its argument
+    int16_t line;  ///< the line
+    uint8_t regs[0x20];  ///< the VDP registers
     uint16_t vsram[40];  ///< the 40 VSRAM entries
-    uint16_t palette[64];
+    uint16_t palette[64];  ///< the palette (64 RGB565 colours)
 } line_job;
 _Static_assert(sizeof(line_job) <= 288, "GENESIS_DRAW_MEM is too small");
 
 static uint8_t *sat_queued;  ///< SAT_CACHE at the start of the last frame queued
 static line_job *queue;      ///< GENESIS_DRAW_QUEUE of them
 static uint8_t *draw_buf;    ///< the line being drawn (320, 4-aligned)
-static volatile uint32_t queue_head, queue_tail;  ///< lines queued, lines drawn
+/// Lines queued and lines drawn.
+///@{
+static volatile uint32_t queue_head, queue_tail;
+///@}
+/// Core 1 draws the lines.
 static bool worker;
 
 /// Pads are set by genesis_set_pad as they change.
 void gwenesis_io_get_buttons(void) {}
 
-/// Save states aren't kept yet: the core's calls go nowhere.
+// Save states aren't kept yet: the core's calls (its interface, documented
+// there) go nowhere.
+/** @cond GENESIS_CORE */
 SaveState *saveGwenesisStateOpenForRead(const char *name) { return NULL; }
 SaveState *saveGwenesisStateOpenForWrite(const char *name) { return NULL; }
 int saveGwenesisStateGet(SaveState *s, const char *tag) { return 0; }
 void saveGwenesisStateSet(SaveState *s, const char *tag, int value) {}
 void saveGwenesisStateGetBuffer(SaveState *s, const char *tag, void *buf, int len) {}
 void saveGwenesisStateSetBuffer(SaveState *s, const char *tag, void *buf, int len) {}
+/** @endcond */
 
 _Static_assert(GENESIS_YM_FAST_SIZE == YM2612_FAST_TABLES && GENESIS_YM_SLOW_SIZE == YM2612_SLOW_TABLES,
                "the YM2612's tables");
@@ -194,6 +221,9 @@ void genesis_render_wait(void) {
 }
 
 /// Queues line for drawing as the VDP is now (and draws it, without a worker).
+/// @param fn where the line goes
+/// @param ctx its argument
+/// @param line the line
 static void queue_line(genesis_line_fn fn, void *ctx, int line) {
     uint32_t head = queue_head;
     if (head - __atomic_load_n(&queue_tail, __ATOMIC_ACQUIRE) == GENESIS_DRAW_QUEUE) {
