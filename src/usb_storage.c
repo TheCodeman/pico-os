@@ -20,6 +20,7 @@
 #include "usb_hub_kick.h"
 #include "usb_log.h"
 
+/// The sector size.
 #define SECTOR_SIZE 512
 /// A transfer that takes longer than this means the drive has stopped
 /// answering (normal ones take milliseconds; a slow first write, a second).
@@ -27,19 +28,22 @@
 
 /// The first drive to attach is FatFs drive 0; others are ignored.
 static volatile uint8_t drive_addr;  ///< 0 = no drive
+/// Its size in sectors.
 static volatile uint32_t drive_sectors;
 
 /// One request at a time, from core 0 to core 1.
 enum { REQ_IDLE, REQ_PENDING, REQ_BUSY, REQ_DONE };
 static struct {
-    bool write;
-    uint8_t *buf;
-    uint32_t lba;
-    uint16_t count;
-    bool ok;
-    volatile int state;
-} req;
+    bool write;  ///< a write
+    uint8_t *buf;  ///< the data
+    uint32_t lba;  ///< the first sector
+    uint16_t count;  ///< the sector count
+    bool ok;  ///< it succeeded
+    volatile int state;  ///< REQ_IDLE and the like
+} req;  ///< the request
 
+/// TinyUSB: a drive attached.
+/// @param dev_addr its address
 void tuh_msc_mount_cb(uint8_t dev_addr) {
     uint32_t block_size = tuh_msc_get_block_size(dev_addr, 0);
     uint32_t blocks = tuh_msc_get_block_count(dev_addr, 0);
@@ -58,6 +62,8 @@ void tuh_msc_mount_cb(uint8_t dev_addr) {
     drive_addr = dev_addr;
 }
 
+/// TinyUSB: a drive gone.
+/// @param dev_addr its address
 void tuh_msc_umount_cb(uint8_t dev_addr) {
     if (dev_addr != drive_addr)
         return;
@@ -72,10 +78,18 @@ void tuh_msc_umount_cb(uint8_t dev_addr) {
 }
 
 /// How the drive is being used, read over SWD when looking into speed.
+/// Requests, sectors moved, and the largest request.
+///@{
 volatile uint32_t usb_storage_requests, usb_storage_sectors_moved, usb_storage_largest;
+///@}
+/// Microseconds waiting and transferring.
+///@{
 volatile uint32_t usb_storage_wait_us, usb_storage_xfer_us;
+///@}
+/// When the transfer started.
 static uint32_t xfer_start_us;
 
+/// When the request times out.
 static absolute_time_t req_deadline;
 static spin_lock_t *req_lock;  ///< guards PENDING -> BUSY / IDLE
 
@@ -88,6 +102,10 @@ static void report_stuck_drive(void) {
     usb_request_restart();
 }
 
+/// TinyUSB: a transfer finished.
+/// @param dev_addr its address
+/// @param cb_data the result
+/// @return true
 static bool transfer_done(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data) {
     usb_storage_xfer_us += time_us_32() - xfer_start_us;
     req.ok = cb_data->csw->status == MSC_CSW_STATUS_PASSED;
@@ -155,6 +173,12 @@ uint32_t usb_storage_sectors(void) {
 /// waiting for the hub, say) fails, rather than hanging the shell.
 #define START_TIMEOUT_MS 5000
 
+/// A read or write, done on core 1.
+/// @param write write
+/// @param buf the data
+/// @param lba the first sector
+/// @param count the sector count
+/// @return it worked
 static bool transfer(bool write, const BYTE *buf, LBA_t lba, UINT count) {
     if (!drive_addr || count == 0 || count > UINT16_MAX)
         return false;
@@ -203,14 +227,26 @@ static bool transfer(bool write, const BYTE *buf, LBA_t lba, UINT count) {
 
 // FatFs disk functions. Only drive 0 exists.
 
+/// FatFs: the drive's status.
+/// @param pdrv the drive
+/// @return 0 or STA_NOINIT
 DSTATUS disk_status(BYTE pdrv) {
     return pdrv == 0 && drive_addr ? 0 : STA_NOINIT;
 }
 
+/// FatFs: starts the drive.
+/// @param pdrv the drive
+/// @return its status
 DSTATUS disk_initialize(BYTE pdrv) {
     return disk_status(pdrv);
 }
 
+/// FatFs: reads sectors.
+/// @param pdrv the drive
+/// @param buff where
+/// @param sector the first
+/// @param count how many
+/// @return RES_OK or an error
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count) {
     if (pdrv != 0 || !drive_addr)
         return RES_NOTRDY;
@@ -218,6 +254,12 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count) {
 }
 
 #if !FF_FS_READONLY
+/// FatFs: writes sectors.
+/// @param pdrv the drive
+/// @param buff the data
+/// @param sector the first
+/// @param count how many
+/// @return RES_OK or an error
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count) {
     if (pdrv != 0 || !drive_addr)
         return RES_NOTRDY;
@@ -225,6 +267,11 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count) {
 }
 #endif
 
+/// FatFs: sync, sizes and the like.
+/// @param pdrv the drive
+/// @param cmd the command
+/// @param buff its data
+/// @return RES_OK or an error
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff) {
     if (pdrv != 0 || !drive_addr)
         return RES_NOTRDY;
@@ -248,6 +295,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff) {
 #if !FF_FS_NORTC && !FF_FS_READONLY
 /// File dates come from the clock (UTC; see net/clock.c), or 2026-01-01
 /// 00:00 until it has been set.
+/// @return the FAT time
 DWORD get_fattime(void) {
     time_t now = time(NULL);
     if (now < 1700000000)

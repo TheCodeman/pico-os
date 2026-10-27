@@ -19,22 +19,29 @@
 #include "pico/util/queue.h"
 #include "tusb.h"
 
+/// How long a key is held before it repeats.
 #define REPEAT_DELAY_MS 500
 #define REPEAT_RATE_MS  33  ///< about 30 characters a second
 
+/// Either shift.
 #define SHIFT (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT)
+/// Either control.
 #define CTRL  (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL)
+/// Either alt.
 #define ALT   (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)
 
 static queue_t chars;  ///< multicore-safe: core 1 adds, core 0 removes
 
 static struct {
+    /// Its USB address and HID instance.
     ///@{
     uint8_t dev_addr, instance;
     ///@}
-} keyboards[CFG_TUH_HID];
+} keyboards[CFG_TUH_HID];  ///< the keyboards
+/// Their count.
 static volatile int keyboard_count;
 
+/// Caps Lock is on.
 static bool caps_lock;
 static uint8_t leds;  ///< static: the LED report is sent asynchronously
 /// LED reports go out from usb_keyboard_task(), never from a TinyUSB callback
@@ -44,45 +51,64 @@ static uint8_t leds;  ///< static: the LED report is sent asynchronously
 /// panics if a control transfer starts while a flash drive is mid-transfer.
 /// A keyboard with no OUT endpoint just doesn't get its Caps Lock LED.
 static bool leds_pending;
+/// When the LED report may next go.
 static absolute_time_t leds_at;
+/// The last report.
 static hid_keyboard_report_t prev_report;
 static volatile uint8_t held_mods;  ///< for core 0: the last report's modifiers
 static volatile bool held_key;      ///< and whether it had a key
 /// The last report's keys for core 0, written between two changes of
 /// held_seq (odd while being written) so a reader can tell it got a whole one.
 static volatile uint32_t held_seq;
+/// The keys and modifiers.
+///@{
 static volatile uint8_t held_keys[6], held_keys_mods;
+///@}
 
 /// Two gamepads: the non-keyboard HID interfaces with a stick, first come
 /// first in slot 0; a slot keeps its pad until it is unplugged.
 #define PADS 2
 static struct {
-    bool mounted;
+    bool mounted;  ///< the slot is in use
     ///@{
     uint8_t dev_addr, instance;
     ///@}
-    hid_gamepad_layout layout;
-} pad[PADS];
+    hid_gamepad_layout layout;  ///< where its values are
+} pad[PADS];  ///< the pads
 static volatile uint32_t pad_state[PADS];  ///< x | y << 8 | buttons << 16, for core 0
+/// Each pad is plugged in.
 static volatile bool pad_present[PADS];
 
+/// A pad's slot.
+/// @param dev_addr its address
+/// @param instance its HID instance
+/// @return the slot, or -1
 static int pad_slot(uint8_t dev_addr, uint8_t instance) {
     for (int i = 0; i < PADS; ++i)
         if (pad[i].mounted && pad[i].dev_addr == dev_addr && pad[i].instance == instance)
             return i;
     return -1;
 }
+/// The key repeating and its modifiers.
+///@{
 static uint8_t repeat_key, repeat_mods;
+///@}
+/// When it next repeats.
 static absolute_time_t repeat_at;
 
 /// US layout, {unshifted, shifted}, indexed by HID usage code.
 static const uint8_t keycode_to_ascii[128][2] = {HID_KEYCODE_TO_ASCII};
 
+/// Queues a string (an escape sequence).
+/// @param s it
 static void put_string(const char *s) {
     for (; *s; ++s)
         queue_try_add(&chars, s);
 }
 
+/// Queues what a key types: a character or an escape sequence.
+/// @param key the HID usage
+/// @param mods the modifiers
 static void put_key(uint8_t key, uint8_t mods) {
     if (key == HID_KEY_PRINT_SCREEN || (key == HID_KEY_S && (mods & CTRL) && (mods & ALT))) {
         screenshot_request();
@@ -137,6 +163,7 @@ static void put_key(uint8_t key, uint8_t mods) {
     queue_try_add(&chars, &c);
 }
 
+/// Asks for the LED report to be sent.
 static void update_leds(void) {
     leds_pending = true;
 }
@@ -162,6 +189,10 @@ static void send_leds(void) {
     leds_at = make_timeout_time_ms(20);
 }
 
+/// Whether a report has a key.
+/// @param r the report
+/// @param key the HID usage
+/// @return it has
 static bool report_has_key(const hid_keyboard_report_t *r, uint8_t key) {
     for (int i = 0; i < 6; ++i)
         if (r->keycode[i] == key)
@@ -169,6 +200,8 @@ static bool report_has_key(const hid_keyboard_report_t *r, uint8_t key) {
     return false;
 }
 
+/// Publishes the held keys for core 0.
+/// @param r the report, or NULL for none
 static void set_held_keys(const hid_keyboard_report_t *r) {
     held_seq = held_seq + 1;
     __dmb();
@@ -181,6 +214,7 @@ static void set_held_keys(const hid_keyboard_report_t *r) {
 
 /// Boot-protocol reports list up to six keys held down. A key is newly
 /// pressed if it wasn't in the previous report.
+/// @param r the report
 static void handle_report(const hid_keyboard_report_t *r) {
     if (r->keycode[0] == 0x01)
         return;  // rollover error: too many keys held, report is meaningless
@@ -210,6 +244,11 @@ static void handle_report(const hid_keyboard_report_t *r) {
     set_held_keys(r);
 }
 
+/// TinyUSB: a HID interface mounted (keyboard, mouse or gamepad).
+/// @param dev_addr its address
+/// @param instance its HID instance
+/// @param desc_report its report descriptor
+/// @param desc_len its length
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_report,
                       uint16_t desc_len) {
     if (tuh_hid_interface_protocol(dev_addr, instance) != HID_ITF_PROTOCOL_KEYBOARD) {
@@ -245,6 +284,9 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     tuh_hid_receive_report(dev_addr, instance);
 }
 
+/// TinyUSB: a HID interface gone.
+/// @param dev_addr its address
+/// @param instance its HID instance
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
     mouse_unmounted(dev_addr, instance);
     int p = pad_slot(dev_addr, instance);
@@ -267,6 +309,11 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
     set_held_keys(NULL);
 }
 
+/// TinyUSB: a HID report.
+/// @param dev_addr its address
+/// @param instance its HID instance
+/// @param report the report
+/// @param len its length
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *report,
                                 uint16_t len) {
     if (tuh_hid_interface_protocol(dev_addr, instance) == HID_ITF_PROTOCOL_KEYBOARD &&
@@ -348,11 +395,17 @@ bool usb_gamepad_read_n(unsigned n, uint8_t *x, uint8_t *y, uint32_t *buttons) {
     return true;
 }
 
+/// A typed character.
+/// @return it, or -1
 static int raw_getc(void) {
     char c;
     return queue_try_remove(&chars, &c) ? (uint8_t)c : -1;
 }
 
+/// The SDK's stdio input: the typed characters.
+/// @param buf where
+/// @param len room
+/// @return the count, or PICO_ERROR_NO_DATA
 static int stdio_in_chars(char *buf, int len) {
     screenshot_poll(raw_getc);  // Print Screen was pressed: the box takes the keys
     radio_note_poll();          // the "Radio muted" note: shown, then taken away

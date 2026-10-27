@@ -162,6 +162,7 @@ void net_drive_ready(void) {
 
 // ---- Status messages --------------------------------------------------------
 
+/// Prints the IP address, gateway and DNS server.
 static void print_ip(void) {
     printf("IP %s", ip4addr_ntoa(netif_ip4_addr(sta())));
     printf(", gateway %s", ip4addr_ntoa(netif_ip4_gw(sta())));
@@ -224,12 +225,17 @@ bool net_need_link(void) {
 
 static struct {
     char ssid[33];
-    int16_t rssi;
-    uint8_t auth;
-    uint8_t channel;
-} found[SCAN_MAX];
+    int16_t rssi;  ///< its signal (dBm)
+    uint8_t auth;  ///< its security
+    uint8_t channel;  ///< its channel
+} found[SCAN_MAX];  ///< the networks the scan found
+/// Their count.
 static volatile int found_count;
 
+/// The scan's callback: adds or updates a network.
+/// @param env unused
+/// @param r the result
+/// @return 0
 static int on_scan(void *env, const cyw43_ev_scan_result_t *r) {
     if (!r->ssid_len)
         return 0;  // hidden network
@@ -255,10 +261,15 @@ static int on_scan(void *env, const cyw43_ev_scan_result_t *r) {
     return 0;
 }
 
+/// qsort's comparison: the strongest signal first.
+/// @param a a network
+/// @param b another
+/// @return less, equal or more than 0
 static int by_signal(const void *a, const void *b) {
     return ((const typeof(found[0]) *)b)->rssi - ((const typeof(found[0]) *)a)->rssi;
 }
 
+/// wifi scan: lists the networks around.
 static void scan(void) {
     found_count = 0;
     // Passive: listen for beacons instead of sending probe requests. The
@@ -292,6 +303,7 @@ static void scan(void) {
         printf("No networks found\n");
 }
 
+/// wifi: the connection's status.
 static void status(void) {
     int s = link_status();
     if (s == CYW43_LINK_UP) {
@@ -309,6 +321,9 @@ static void status(void) {
     }
 }
 
+/// Connects to a network, waiting (Esc stops) and saving it once connected.
+/// @param name the network
+/// @param pass its password, or NULL
 static void connect(const char *name, const char *pass) {
     snprintf(ssid, sizeof ssid, "%s", name);
     snprintf(password, sizeof password, "%s", pass ? pass : "");

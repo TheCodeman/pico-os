@@ -27,10 +27,14 @@
 #include "pico/stdlib.h"
 #include "psram_heap.h"
 
+/// The screen's width.
 #define W DVI_WIDTH
+/// Its height.
 #define H DVI_HEIGHT
+/// Where screenshots go.
 #define FOLDER "/SCREENSHOTS"
 
+/// A screenshot was asked for (Print Screen).
 static volatile bool wanted;
 
 void screenshot_request(void) {
@@ -53,6 +57,11 @@ void screenshot_next_name(char *out, int size) {
 
 // ---- PNG -----------------------------------------------------------------------------------------
 
+/// Updates a PNG CRC-32.
+/// @param c the CRC so far
+/// @param p the bytes
+/// @param n their count
+/// @return the CRC
 static uint32_t crc_update(uint32_t c, const uint8_t *p, size_t n) {
     // Bit by bit (no 1 KB table in SRAM; PNGs are small, so it is quick enough).
     for (size_t i = 0; i < n; ++i) {
@@ -66,12 +75,19 @@ static uint32_t crc_update(uint32_t c, const uint8_t *p, size_t n) {
 /// The picture, a row at a time: 640 RGB332 bytes for row y.
 typedef const uint8_t *(*rows_t)(const void *ctx, int y);
 
+/// A buffer's rows.
+/// @param ctx the buffer
+/// @param y the row
+/// @return its pixels
 static const uint8_t *rows_of_buffer(const void *ctx, int y) {
     return (const uint8_t *)ctx + y * W;
 }
 
 /// The screen as shown: line-doubled modes show each framebuffer row twice,
 /// dvi_double_top rows down, black around.
+/// @param ctx unused
+/// @param y the row
+/// @return its pixels
 static const uint8_t *rows_of_screen(const void *ctx, int y) {
     static const uint8_t black[W];
     (void)ctx;
@@ -84,22 +100,28 @@ static const uint8_t *rows_of_screen(const void *ctx, int y) {
 /// Deflate output, written to the file as IDAT chunks of a small buffer
 /// (nothing of the picture passes through PSRAM).
 typedef struct {
-    FIL *f;
-    uint8_t buf[2048];
-    size_t len;
-    uint32_t bits;
-    int nbits;
-    bool ok;
+    FIL *f;  ///< the file
+    uint8_t buf[2048];  ///< the chunk being filled
+    size_t len;  ///< its length
+    uint32_t bits;  ///< bits not yet a byte
+    int nbits;  ///< their count
+    bool ok;  ///< no write has failed
 } bitout_t;
 
 static bool write_chunk(FIL *f, const char *type, const uint8_t *data, uint32_t len);
 
+/// Writes the buffer as an IDAT chunk.
+/// @param o the output
 static void flush_out(bitout_t *o) {
     if (o->len && o->ok)
         o->ok = write_chunk(o->f, "IDAT", o->buf, o->len);
     o->len = 0;
 }
 
+/// Adds n bits, low first.
+/// @param o the output
+/// @param v the bits
+/// @param n their count
 static void put_bits(bitout_t *o, uint32_t v, int n) {  // LSB first
     o->bits |= v << o->nbits;
     o->nbits += n;
@@ -112,6 +134,10 @@ static void put_bits(bitout_t *o, uint32_t v, int n) {  // LSB first
     }
 }
 
+/// Adds a Huffman code, high bit first.
+/// @param o the output
+/// @param code the code
+/// @param n its length
 static void put_huff(bitout_t *o, uint32_t code, int n) {  // Huffman codes go MSB first
     uint32_t r = 0;
     for (int i = 0; i < n; ++i)
@@ -119,6 +145,9 @@ static void put_huff(bitout_t *o, uint32_t code, int n) {  // Huffman codes go M
     put_bits(o, r, n);
 }
 
+/// Adds a literal or length symbol with the fixed codes.
+/// @param o the output
+/// @param s the symbol (0-285)
 static void put_symbol(bitout_t *o, int s) {  // the fixed literal/length code
     if (s < 144)
         put_huff(o, 0x30 + s, 8);
@@ -130,6 +159,10 @@ static void put_symbol(bitout_t *o, int s) {  // the fixed literal/length code
         put_huff(o, 0xc0 + s - 280, 8);
 }
 
+/// Adds a match: its length and distance codes.
+/// @param o the output
+/// @param len the length (3-258)
+/// @param dist the distance
 static void put_match(bitout_t *o, int len, int dist) {
     static const uint16_t lbase[29] = {3,  4,  5,  6,  7,  8,  9,  10, 11,  13,  15,  17,  19,  23, 27,
                                        31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258};
@@ -152,6 +185,10 @@ static void put_match(bitout_t *o, int len, int dist) {
 
 /// The byte at position i of the rows as PNG stores them: each row a filter
 /// byte (0) then its pixels.
+/// @param rows the rows
+/// @param ctx their context
+/// @param i the position
+/// @return the byte
 static inline uint8_t raw_at(rows_t rows, const void *ctx, size_t i) {
     size_t x = i % (W + 1);
     return x ? rows(ctx, (int)(i / (W + 1)))[x - 1] : 0;
@@ -159,6 +196,9 @@ static inline uint8_t raw_at(rows_t rows, const void *ctx, size_t i) {
 
 /// zlib stream of the picture: runs of a pixel, the cell before, and the row
 /// above, with the fixed Huffman codes.
+/// @param rows the rows
+/// @param ctx their context
+/// @param o the output
 static void deflate_picture(rows_t rows, const void *ctx, bitout_t *o) {
     const size_t total = (size_t)(W + 1) * H;
     uint32_t a = 1, b = 0;  // Adler-32
@@ -201,6 +241,12 @@ static void deflate_picture(rows_t rows, const void *ctx, bitout_t *o) {
     flush_out(o);
 }
 
+/// Writes a PNG chunk: length, type, data and CRC.
+/// @param f the file
+/// @param type the type
+/// @param data the data
+/// @param len its length
+/// @return written
 static bool write_chunk(FIL *f, const char *type, const uint8_t *data, uint32_t len) {
     uint8_t head[8] = {len >> 24, len >> 16, len >> 8, len, type[0], type[1], type[2], type[3]};
     uint32_t c = crc_update(0xffffffffu, head + 4, 4);
@@ -213,6 +259,11 @@ static bool write_chunk(FIL *f, const char *type, const uint8_t *data, uint32_t 
     return ok && f_write(f, tail, 4, &n) == FR_OK && n == 4;
 }
 
+/// Writes a PNG: 8-bit, the RGB332 palette.
+/// @param f the file
+/// @param rows the rows
+/// @param ctx their context
+/// @return written
 static bool save_png(FIL *f, rows_t rows, const void *ctx) {
     uint8_t ihdr[13] = {0, 0, W >> 8, W & 0xff, 0, 0, H >> 8, H & 0xff, 8, 3, 0, 0, 0};
     uint8_t plte[768];
@@ -237,6 +288,11 @@ static bool save_png(FIL *f, rows_t rows, const void *ctx) {
     return ok && write_chunk(f, "IEND", NULL, 0);
 }
 
+/// Writes a BMP: 8-bit, the RGB332 palette.
+/// @param f the file
+/// @param rows the rows
+/// @param ctx their context
+/// @return written
 static bool save_bmp(FIL *f, rows_t rows, const void *ctx) {
     // 8-bit with the RGB332 palette, bottom row first.
     uint8_t hdr[54 + 256 * 4];
@@ -263,6 +319,12 @@ static bool save_bmp(FIL *f, rows_t rows, const void *ctx) {
     return ok;
 }
 
+/// Saves a picture, PNG or BMP by the name's extension.
+/// @param path the file
+/// @param rows the rows
+/// @param ctx their context
+/// @param err set to why it failed
+/// @return saved
 static bool save_rows(const char *path, rows_t rows, const void *ctx, const char **err) {
     FIL f;
     if (f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) {
@@ -289,16 +351,26 @@ void screenshot_capture(uint8_t *out) {
 
 // ---- The box -------------------------------------------------------------------------------------
 
+/// The box's width in characters.
 #define BOX_COLS 56
 #define C_BOX   0xb6  ///< light grey
-#define C_INK   0x00
+#define C_INK   0x00  ///< black
 #define C_TITLE 0x03  ///< blue
-#define C_EDIT  0xff
-#define C_GOOD  0x10
-#define C_BAD   0xa0
+#define C_EDIT  0xff  ///< white
+#define C_GOOD  0x10  ///< green
+#define C_BAD   0xa0  ///< red
 
+/// The box's top left.
+///@{
 static int box_x, box_y;
+///@}
 
+/// Draws a character in the box.
+/// @param col its column
+/// @param line its line
+/// @param ch the character
+/// @param fg its colour
+/// @param bg the background
 static void glyph(int col, int line, uint8_t ch, uint8_t fg, uint8_t bg) {
     int x = box_x + col * 8, y = box_y + line * 16;
     if (x < 0 || y < 0 || x + 8 > W || y + 16 > H)
@@ -309,11 +381,23 @@ static void glyph(int col, int line, uint8_t ch, uint8_t fg, uint8_t bg) {
             dvi_framebuf[(y + r) * W + x + c] = g[r] & (0x80 >> c) ? fg : bg;
 }
 
+/// Draws text in the box, padded with spaces.
+/// @param col its column
+/// @param line its line
+/// @param width the width
+/// @param s the text
+/// @param fg its colour
+/// @param bg the background
 static void text(int col, int line, int width, const char *s, uint8_t fg, uint8_t bg) {
     for (int i = 0; i < width; ++i)
         glyph(col + i, line, *s ? (uint8_t)*s++ : ' ', fg, bg);
 }
 
+/// Draws the box: the file name being typed and a status line.
+/// @param name the name
+/// @param cursor the cursor in it
+/// @param status the status
+/// @param status_fg its colour
 static void draw_box(const char *name, int cursor, const char *status, uint8_t status_fg) {
     static const char *title = " Screenshot ";
     for (int l = 0; l < 6; ++l)
@@ -338,6 +422,10 @@ static void draw_box(const char *name, int cursor, const char *status, uint8_t s
     text(2, 4, BOX_COLS - 4, status, status_fg, C_BOX);
 }
 
+/// Waits for a key.
+/// @param getc where keys come from
+/// @param us how long
+/// @return the key, or -1
 static int key_wait(int (*getc)(void), uint32_t us) {
     absolute_time_t until = make_timeout_time_us(us);
     do {
@@ -353,6 +441,8 @@ static int key_wait(int (*getc)(void), uint32_t us) {
 /// checked: this board's PSRAM has been seen to drop bits under load.
 static uint8_t *under;
 
+/// Saves the picture under the box (or puts it back), until the frame stops changing.
+/// @param save save (else put back)
 static void copy_box(bool save) {
     int rows = 6 * 16, w = BOX_COLS * 8;
     for (int tries = 0; tries < 4; ++tries) {

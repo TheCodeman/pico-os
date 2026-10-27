@@ -510,6 +510,9 @@ void image_fit(const image_t *img, int *x, int *y, int *w, int *h) {
 
 // ---- Saving ---------------------------------------------------------------------
 
+/// @def PUT32(o, v)
+/// Stores v little-endian at hdr[o] (image_save_bmp's header).
+
 bool image_save_bmp(const char *path, const uint8_t *fb, const char **err) {
     uint8_t hdr[54 + 256 * 4];
     uint32_t pixels = 54 + 256 * 4, size = pixels + SCREEN_W * SCREEN_H;
