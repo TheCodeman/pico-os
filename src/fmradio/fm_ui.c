@@ -566,6 +566,13 @@ static void show(void) {
     memcpy(dvi_framebuf, F->g, W * H);
 }
 
+/// Copies rows of the picture onto the screen.
+/// @param y the first row
+/// @param h how many
+static void show_rows(int y, int h) {
+    memcpy(dvi_framebuf + y * W, F->g + y * W, h * W);
+}
+
 /// Sets a message for the title strip (for 4 seconds).
 /// @param fmt printf's format
 static void message(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -1165,11 +1172,17 @@ static bool panel(void) {
                 F->status_dirty = true;
             next_poll = now + 20;
         }
-        // The signal flickers and RDS text comes a character at a time: drawing
-        // the whole panel for each change would leave the mouse arrow lagging.
+        // The signal flickers and RDS text comes a character at a time: only
+        // the display is drawn again for them (the whole panel, in PSRAM,
+        // takes about 100 ms), and at most four times a second.
         if (F->status_dirty && (int32_t)(now - next_status_draw) >= 0) {
             F->status_dirty = false;
-            F->dirty = true;
+            if (F->asking_quit) {  // the question covers part of the display
+                F->dirty = true;
+            } else if (!F->dirty) {
+                draw_display();
+                show_rows(DISP_Y, DISP_H);
+            }
             next_status_draw = now + 250;
         }
         bool msg_on = F->msg[0] && now < F->msg_until;

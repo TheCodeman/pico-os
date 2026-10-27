@@ -207,6 +207,8 @@ static int32_t value(const field_t *f, const uint8_t *data, size_t len) {
 ///@{
 static volatile int16_t pos_x = DVI_WIDTH / 2, pos_y = DVI_HEIGHT / 2;
 ///@}
+/// The arrow's mode (MOUSE_POINTER_...), set on core 0.
+static volatile int mode;
 /// The buttons held.
 static volatile uint8_t held;
 /// The wheel's movement so far.
@@ -280,6 +282,12 @@ static void moved(int dx, int dy, int dw, uint8_t buttons) {
     bool move = x != pos_x || y != pos_y;
     pos_x = x;
     pos_y = y;
+    // The arrow follows the mouse at once, however long the program takes
+    // to call mouse_pointer_update() (a full redraw can take 100 ms).
+    if (mode == MOUSE_POINTER_ARROW) {
+        dvi_arrow_x = (int16_t)x;
+        dvi_arrow_y = (int16_t)y;
+    }
     if (move)
         push((mouse_event_t){MOUSE_MOVE, 0, held, 0, (int16_t)x, (int16_t)y, false});
     uint8_t was = held;
@@ -454,7 +462,6 @@ void mouse_warp(int x, int y) {
 /// nothing here touches the framebuffer: no save-under to get out of step
 /// with what is drawn beneath it, and no flicker from taking it off and
 /// putting it back around each redraw.
-static int mode;
 
 void mouse_pointer(int m) {
     if (m == mode)
