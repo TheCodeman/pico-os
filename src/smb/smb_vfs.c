@@ -30,6 +30,10 @@
 #include "smb_vfs.h"
 #include "shell.h"
 
+// FatFs's own functions, as the linker's --wrap names them: the __wrap_
+// versions below go to them for anything not on a share. (FatFs documents
+// them; they are left out of these documents.)
+/** @cond FATFS_REAL */
 FRESULT __real_f_open(FIL *fp, const TCHAR *path, BYTE mode);
 FRESULT __real_f_close(FIL *fp);
 FRESULT __real_f_read(FIL *fp, void *buff, UINT btr, UINT *br);
@@ -46,58 +50,70 @@ FRESULT __real_f_mkdir(const TCHAR *path);
 FRESULT __real_f_chdir(const TCHAR *path);
 FRESULT __real_f_getcwd(TCHAR *buff, UINT len);
 TCHAR *__real_f_gets(TCHAR *buff, int len, FIL *fp);
+/** @endcond */
 
+/// Shares mounted at once.
 #define MAX_MOUNTS 4
+/// Share files open at once.
 #define MAX_FILES  8
+/// Share folders open at once.
 #define MAX_DIRS   4
+/// The longest path.
 #define PATH_MAX_  300
+/// Saved logins.
 #define CREDS_FILE "/SMB/CREDS"
 
+/// A mounted share.
 typedef struct {
-    bool used;
+    bool used;  ///< in use
     char point[24];  ///< "/NET"
+    /// Where it is and how to log in.
     ///@{
     char host[64], share[80], domain[32], user[64], password[64];
     ///@}
-    uint16_t port;
-    smb_t *smb;
+    uint16_t port;  ///< the server's port
+    smb_t *smb;  ///< the connection
     unsigned gen;  ///< bumped on each (re)connection: older handles are stale
 } mount_t;
 
 static mount_t *mounts;  ///< MAX_MOUNTS of them, in PSRAM from the first mount on
+/// Shares mounted.
 static int mount_count;
 static char vcwd[PATH_MAX_];  ///< the current folder when it is on a share, else ""
 
 static FATFS share_fs;  ///< what an SMB FIL's obj.fs points to
 
 static struct {
-    FIL *fp;
-    mount_t *m;
-    unsigned gen;
-    smb_fid_t fid;
+    FIL *fp;  ///< FatFs's handle
+    mount_t *m;  ///< its share
+    unsigned gen;  ///< the share's connection count when it opened
+    smb_fid_t fid;  ///< the server's handle
     /// f_gets reads ahead into this
     uint8_t *cache;
-    FSIZE_t cache_at;
-    UINT cache_len;
-} files[MAX_FILES];
+    FSIZE_t cache_at;  ///< where the read-ahead is
+    UINT cache_len;  ///< and its length
+} files[MAX_FILES];  ///< share files open
 
 typedef struct {
-    smb_info_t info;
+    smb_info_t info;  ///< its details
     char name[];  ///< NUL-terminated, then the next entry (4-aligned)
 } entry_t;
 
 static struct {
-    DIR *dp;
+    DIR *dp;  ///< FatFs's handle
     bool root;     ///< FatFs's root: the mount points are listed after its entries
     int next;      ///< root: the next mount to list
     uint8_t *list;  ///< share folder: its entries (PSRAM)
+    /// The entries' length and room, and the next one.
     ///@{
     size_t len, cap, pos;
     ///@}
-} dirs[MAX_DIRS];
+} dirs[MAX_DIRS];  ///< share folders open
 
 // ---- Paths -------------------------------------------------------------------------------
 
+/// Makes a path absolute and tidy (/ \ . .. and empty parts).
+/// @param path the path, in place
 static void normalise(char *path) {
     // Splits on / and \, drops "." and empty parts, and applies "..".
     char out[PATH_MAX_];
@@ -131,6 +147,9 @@ static void normalise(char *path) {
     strcpy(path, out);
 }
 
+/// A path from the current folder.
+/// @param path the path
+/// @param out the absolute path
 static void make_absolute(const char *path, char *out) {
     if (path[0] == '/' || path[0] == '\\') {
         snprintf(out, PATH_MAX_, "%s", path);
@@ -151,6 +170,11 @@ static void make_absolute(const char *path, char *out) {
     normalise(out);
 }
 
+/// Whether texts match, any case.
+/// @param a one
+/// @param b the other
+/// @param n their length
+/// @return they match
 static bool same_text(const char *a, const char *b, size_t n) {
     for (size_t i = 0; i < n; ++i) {
         char x = a[i], y = b[i];
@@ -168,6 +192,11 @@ static bool same_text(const char *a, const char *b, size_t n) {
 /// share ("" for its top); fat_path, what to give FatFs otherwise (the
 /// absolute path when the current folder is on a share, as FatFs's own
 /// current folder is then somewhere else).
+/// @param path the path
+/// @param rel set to the path in the share
+/// @param fat_path set to FatFs's path
+/// @param abs_buf room for an absolute path
+/// @return the share, or NULL
 static mount_t *route(const TCHAR *path, char *rel, const TCHAR **fat_path, char *abs_buf) {
     *fat_path = path;
     if (!mount_count && !vcwd[0])
@@ -204,6 +233,9 @@ bool smb_path_on_share(const char *path) {
 
 // ---- Connections ------------------------------------------------------------------------
 
+/// A share's connection, connecting again if it dropped.
+/// @param m the share
+/// @return it, or NULL
 static smb_t *conn(mount_t *m) {
     if (smb_alive(m->smb))
         return m->smb;
@@ -218,6 +250,9 @@ static smb_t *conn(mount_t *m) {
     return m->smb;
 }
 
+/// FatFs's result for an SMB status.
+/// @param st the status
+/// @return the result
 static FRESULT fr(uint32_t st) {
     switch (st) {
     case SMB_OK: return FR_OK;
@@ -237,6 +272,10 @@ static FRESULT fr(uint32_t st) {
     return FR_INT_ERR;
 }
 
+/// FatFs's details for a share's entry.
+/// @param fno set
+/// @param name its name
+/// @param in its details
 static void fill_info(FILINFO *fno, const char *name, const smb_info_t *in) {
     memset(fno, 0, sizeof *fno);
     fno->fsize = in->size;
@@ -255,6 +294,9 @@ static void fill_info(FILINFO *fno, const char *name, const smb_info_t *in) {
 
 // ---- Files --------------------------------------------------------------------------------
 
+/// A share file's slot.
+/// @param fp FatFs's handle
+/// @return the slot, or -1 (FatFs's file)
 static int file_slot(FIL *fp) {
     if (fp->obj.fs != &share_fs)
         return -1;
@@ -265,6 +307,8 @@ static int file_slot(FIL *fp) {
 }
 
 /// The slot's connection if its handle is still good, else NULL.
+/// @param i the slot
+/// @return it, or NULL
 static smb_t *file_conn(int i) {
     mount_t *m = files[i].m;
     if (!m->used || files[i].gen != m->gen || !smb_alive(m->smb))
@@ -272,6 +316,11 @@ static smb_t *file_conn(int i) {
     return m->smb;
 }
 
+/// f_open, on a share (else FatFs's).
+/// @param fp the handle
+/// @param path the path
+/// @param mode FA_*
+/// @return FR_OK or an error
 FRESULT __wrap_f_open(FIL *fp, const TCHAR *path, BYTE mode) {
     char rel[PATH_MAX_], abs[PATH_MAX_];
     const TCHAR *fat;
@@ -315,6 +364,9 @@ FRESULT __wrap_f_open(FIL *fp, const TCHAR *path, BYTE mode) {
     return FR_OK;
 }
 
+/// f_close, on a share (else FatFs's).
+/// @param fp the handle
+/// @return FR_OK or an error
 FRESULT __wrap_f_close(FIL *fp) {
     int i = file_slot(fp);
     if (i < 0)
@@ -327,6 +379,12 @@ FRESULT __wrap_f_close(FIL *fp) {
     return fr(st);
 }
 
+/// f_read, on a share (else FatFs's).
+/// @param fp the handle
+/// @param buff where
+/// @param btr how many
+/// @param br set to how many were read
+/// @return FR_OK or an error
 FRESULT __wrap_f_read(FIL *fp, void *buff, UINT btr, UINT *br) {
     *br = 0;
     int i = file_slot(fp);
@@ -343,6 +401,12 @@ FRESULT __wrap_f_read(FIL *fp, void *buff, UINT btr, UINT *br) {
     return fr(st);
 }
 
+/// f_write, on a share (else FatFs's).
+/// @param fp the handle
+/// @param buff the bytes
+/// @param btw how many
+/// @param bw set to how many were written
+/// @return FR_OK or an error
 FRESULT __wrap_f_write(FIL *fp, const void *buff, UINT btw, UINT *bw) {
     *bw = 0;
     int i = file_slot(fp);
@@ -363,6 +427,10 @@ FRESULT __wrap_f_write(FIL *fp, const void *buff, UINT btw, UINT *bw) {
     return fr(st);
 }
 
+/// f_lseek, on a share (else FatFs's).
+/// @param fp the handle
+/// @param ofs where
+/// @return FR_OK or an error
 FRESULT __wrap_f_lseek(FIL *fp, FSIZE_t ofs) {
     int i = file_slot(fp);
     if (i < 0)
@@ -373,6 +441,9 @@ FRESULT __wrap_f_lseek(FIL *fp, FSIZE_t ofs) {
     return FR_OK;
 }
 
+/// f_sync, on a share (else FatFs's).
+/// @param fp the handle
+/// @return FR_OK or an error
 FRESULT __wrap_f_sync(FIL *fp) {
     int i = file_slot(fp);
     if (i < 0)
@@ -381,6 +452,11 @@ FRESULT __wrap_f_sync(FIL *fp) {
     return s ? fr(smb_flush(s, &files[i].fid)) : FR_DISK_ERR;
 }
 
+/// f_gets, on a share (else FatFs's).
+/// @param buff where
+/// @param len room
+/// @param fp the handle
+/// @return buff, or NULL at the end
 TCHAR *__wrap_f_gets(TCHAR *buff, int len, FIL *fp) {
     int i = file_slot(fp);
     if (i < 0)
@@ -411,6 +487,10 @@ TCHAR *__wrap_f_gets(TCHAR *buff, int len, FIL *fp) {
     return n ? buff : NULL;
 }
 
+/// f_printf, for both kinds of file.
+/// @param fp the handle
+/// @param fmt printf's format
+/// @return characters written, or -1
 int __wrap_f_printf(FIL *fp, const TCHAR *fmt, ...) {
     // Both kinds of file: format, then write (FatFs's own f_printf would go
     // round this file's f_write).
@@ -439,6 +519,9 @@ int __wrap_f_printf(FIL *fp, const TCHAR *fmt, ...) {
 
 // ---- Folders ------------------------------------------------------------------------------
 
+/// A share folder's slot.
+/// @param dp FatFs's handle
+/// @return the slot, or -1
 static int dir_slot(DIR *dp) {
     for (int i = 0; i < MAX_DIRS; ++i)
         if (dirs[i].dp == dp)
@@ -446,6 +529,10 @@ static int dir_slot(DIR *dp) {
     return -1;
 }
 
+/// smb_list's callback: adds an entry to a folder's list.
+/// @param ctx the slot
+/// @param name its name
+/// @param info its details
 static void add_entry(void *ctx, const char *name, const smb_info_t *info) {
     int i = (int)(intptr_t)ctx;
     size_t need = (sizeof(entry_t) + strlen(name) + 1 + 3) & ~(size_t)3;
@@ -465,6 +552,10 @@ static void add_entry(void *ctx, const char *name, const smb_info_t *info) {
     dirs[i].len += need;
 }
 
+/// f_opendir, on a share (else FatFs's; the root lists the mount points too).
+/// @param dp the handle
+/// @param path the path
+/// @return FR_OK or an error
 FRESULT __wrap_f_opendir(DIR *dp, const TCHAR *path) {
     char rel[PATH_MAX_], abs[PATH_MAX_];
     const TCHAR *fat;
@@ -505,6 +596,10 @@ FRESULT __wrap_f_opendir(DIR *dp, const TCHAR *path) {
     return FR_OK;
 }
 
+/// f_readdir, on a share (else FatFs's).
+/// @param dp the handle
+/// @param fno set to the next entry (NULL: back to the start)
+/// @return FR_OK or an error
 FRESULT __wrap_f_readdir(DIR *dp, FILINFO *fno) {
     int i = dir_slot(dp);
     if (i < 0)
@@ -540,6 +635,9 @@ FRESULT __wrap_f_readdir(DIR *dp, FILINFO *fno) {
     return FR_OK;
 }
 
+/// f_closedir, on a share (else FatFs's).
+/// @param dp the handle
+/// @return FR_OK or an error
 FRESULT __wrap_f_closedir(DIR *dp) {
     int i = dir_slot(dp);
     if (i < 0)
@@ -555,6 +653,10 @@ FRESULT __wrap_f_closedir(DIR *dp) {
 
 // ---- Names ------------------------------------------------------------------------------------
 
+/// f_stat, on a share (else FatFs's).
+/// @param path the path
+/// @param fno set to its details, or NULL
+/// @return FR_OK or an error
 FRESULT __wrap_f_stat(const TCHAR *path, FILINFO *fno) {
     char rel[PATH_MAX_], abs[PATH_MAX_];
     const TCHAR *fat;
@@ -581,6 +683,9 @@ FRESULT __wrap_f_stat(const TCHAR *path, FILINFO *fno) {
     return FR_OK;
 }
 
+/// f_unlink, on a share (else FatFs's).
+/// @param path the path
+/// @return FR_OK or an error
 FRESULT __wrap_f_unlink(const TCHAR *path) {
     char rel[PATH_MAX_], abs[PATH_MAX_];
     const TCHAR *fat;
@@ -593,6 +698,9 @@ FRESULT __wrap_f_unlink(const TCHAR *path) {
     return s ? fr(smb_delete(s, rel)) : FR_NOT_READY;
 }
 
+/// f_mkdir, on a share (else FatFs's).
+/// @param path the path
+/// @return FR_OK or an error
 FRESULT __wrap_f_mkdir(const TCHAR *path) {
     char rel[PATH_MAX_], abs[PATH_MAX_];
     const TCHAR *fat;
@@ -605,6 +713,10 @@ FRESULT __wrap_f_mkdir(const TCHAR *path) {
     return s ? fr(smb_mkdir(s, rel)) : FR_NOT_READY;
 }
 
+/// f_rename, on a share (else FatFs's; not from one to the other).
+/// @param path_old the old path
+/// @param path_new the new one
+/// @return FR_OK or an error
 FRESULT __wrap_f_rename(const TCHAR *path_old, const TCHAR *path_new) {
     char rel1[PATH_MAX_], rel2[PATH_MAX_], abs1[PATH_MAX_], abs2[PATH_MAX_];
     const TCHAR *fat1, *fat2;
@@ -618,6 +730,9 @@ FRESULT __wrap_f_rename(const TCHAR *path_old, const TCHAR *path_new) {
     return s ? fr(smb_rename(s, rel1, rel2)) : FR_NOT_READY;
 }
 
+/// f_chdir, onto a share too.
+/// @param path the path
+/// @return FR_OK or an error
 FRESULT __wrap_f_chdir(const TCHAR *path) {
     char rel[PATH_MAX_], abs[PATH_MAX_];
     const TCHAR *fat;
@@ -643,6 +758,10 @@ FRESULT __wrap_f_chdir(const TCHAR *path) {
     return FR_OK;
 }
 
+/// f_getcwd, a share's folder too.
+/// @param buff where
+/// @param len room
+/// @return FR_OK or an error
 FRESULT __wrap_f_getcwd(TCHAR *buff, UINT len) {
     if (!vcwd[0])
         return __real_f_getcwd(buff, len);
@@ -654,6 +773,11 @@ FRESULT __wrap_f_getcwd(TCHAR *buff, UINT len) {
 
 // ---- mount and umount ----------------------------------------------------------------------
 
+/// Reads a line typed (secret: shown as stars).
+/// @param buf the line
+/// @param max room in buf
+/// @param secret a password
+/// @return Enter (else cancelled)
 static bool read_line(char *buf, size_t max, bool secret) {
     size_t n = 0;
     fflush(stdout);
@@ -687,6 +811,11 @@ static bool read_line(char *buf, size_t max, bool secret) {
 /// /SMB/CREDS: one line per share, "//server/share domain\user password"
 /// (plain text, as WIFI.CFG). Fills user/domain/password if the share is
 /// there.
+/// @param key "//server/share"
+/// @param domain set to the domain
+/// @param user set to the user
+/// @param password set to the password
+/// @return found
 static bool find_creds(const char *key, char *domain, char *user, char *password) {
     FIL f;
     if (__wrap_f_open(&f, CREDS_FILE, FA_READ) != FR_OK)
@@ -719,6 +848,11 @@ static bool find_creds(const char *key, char *domain, char *user, char *password
     return found;
 }
 
+/// Adds a login to /SMB/CREDS.
+/// @param key "//server/share"
+/// @param domain the domain
+/// @param user the user
+/// @param password the password
 static void save_creds(const char *key, const char *domain, const char *user, const char *password) {
     __wrap_f_mkdir("/SMB");
     FIL f;
@@ -731,6 +865,7 @@ static void save_creds(const char *key, const char *domain, const char *user, co
     printf("Saved in %s (in plain text: keep the drive safe).\n", CREDS_FILE);
 }
 
+/// Lists the shares mounted.
 static void list_mounts(void) {
     if (!mount_count || !mounts) {
         printf("No shares mounted. mount //server/share [/NET] mounts one.\n");

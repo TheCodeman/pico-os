@@ -30,49 +30,56 @@
 
 #define CHUNK       65536                 ///< biggest read or write we ask for
 #define BUF_SIZE    (CHUNK + 4 + 64 + 256)  ///< NetBIOS + header + body + data
+/// How long to wait for the server.
 #define TIMEOUT_MS  30000
 
+/// SMB2 commands.
 enum {
     NEGOTIATE = 0, SESSION_SETUP = 1, LOGOFF = 2, TREE_CONNECT = 3, TREE_DISCONNECT = 4,
     CREATE = 5, CLOSE = 6, FLUSH = 7, READ = 8, WRITE = 9, QUERY_DIRECTORY = 14,
     SET_INFO = 17,
 };
 
-#define FLAG_RESPONSE 0x1
-#define FLAG_ASYNC    0x2
-#define FLAG_SIGNED   0x8
+#define FLAG_RESPONSE 0x1  ///< header flag: an answer
+#define FLAG_ASYNC    0x2  ///< header flag: an async answer (an interim STATUS_PENDING)
+#define FLAG_SIGNED   0x8  ///< header flag: signed
 
+/// The answer is still coming.
 #define STATUS_PENDING          0x00000103u
+/// Login: another round is wanted.
 #define STATUS_MORE_PROCESSING  0xC0000016u
 
 /// CREATE: access, dispositions, options
 #define FILE_READ_DATA        0x00000001
-#define FILE_WRITE_DATA       0x00000002
-#define FILE_APPEND_DATA      0x00000004
-#define FILE_READ_ATTRIBUTES  0x00000080
-#define FILE_WRITE_ATTRIBUTES 0x00000100
-#define ACCESS_DELETE         0x00010000
-#define SYNCHRONIZE           0x00100000
-#define DISP_OPEN             1
-#define DISP_CREATE           2
-#define DISP_OPEN_IF          3
-#define DISP_OVERWRITE_IF     5
-#define OPT_DIRECTORY         0x00000001
-#define OPT_NON_DIRECTORY     0x00000040
+#define FILE_WRITE_DATA       0x00000002  ///< write data
+#define FILE_APPEND_DATA      0x00000004  ///< append data
+#define FILE_READ_ATTRIBUTES  0x00000080  ///< read attributes
+#define FILE_WRITE_ATTRIBUTES 0x00000100  ///< write attributes
+#define ACCESS_DELETE         0x00010000  ///< delete
+#define SYNCHRONIZE           0x00100000  ///< synchronize
+#define DISP_OPEN             1  ///< disposition: open
+#define DISP_CREATE           2  ///< create
+#define DISP_OPEN_IF          3  ///< open, or create
+#define DISP_OVERWRITE_IF     5  ///< overwrite, or create
+#define OPT_DIRECTORY         0x00000001  ///< option: a folder
+#define OPT_NON_DIRECTORY     0x00000040  ///< option: not a folder
 
+/// A connection to a share.
 struct smb {
-    net_conn_t *conn;
+    net_conn_t *conn;  ///< the TCP connection
     uint8_t *buf;  ///< PSRAM
+    /// The next message id, and the session.
     ///@{
     uint64_t msg_id, session_id;
     ///@}
-    uint32_t tree_id;
-    uint16_t dialect;
+    uint32_t tree_id;  ///< the share's tree id
+    uint16_t dialect;  ///< the dialect agreed (0x0202-0x0311)
     bool sign;  ///< requests are signed (and signed answers checked)
-    bool guest;
-    bool dead;
-    uint8_t signing_key[16];
+    bool guest;  ///< logged in as a guest
+    bool dead;  ///< the connection has failed
+    uint8_t signing_key[16];  ///< the session's signing key
     uint8_t preauth[64];  ///< 3.1.1: hash of the negotiate and login messages
+    /// The server's largest read, write and transaction.
     ///@{
     uint32_t max_read, max_write, max_trans;
     ///@}
@@ -81,34 +88,56 @@ struct smb {
 
 // ---- Little helpers -----------------------------------------------------------------
 
+/// Stores 16 bits little-endian.
+/// @param p where
+/// @param v the value
 static void put16(uint8_t *p, uint16_t v) {
     p[0] = v;
     p[1] = v >> 8;
 }
 
+/// Stores 32 bits little-endian.
+/// @param p where
+/// @param v the value
 static void put32(uint8_t *p, uint32_t v) {
     put16(p, v);
     put16(p + 2, v >> 16);
 }
 
+/// Stores 64 bits little-endian.
+/// @param p where
+/// @param v the value
 static void put64(uint8_t *p, uint64_t v) {
     put32(p, v);
     put32(p + 4, v >> 32);
 }
 
+/// Reads 16 bits little-endian.
+/// @param p where
+/// @return the value
 static uint16_t get16(const uint8_t *p) {
     return p[0] | p[1] << 8;
 }
 
+/// Reads 32 bits little-endian.
+/// @param p where
+/// @return the value
 static uint32_t get32(const uint8_t *p) {
     return get16(p) | (uint32_t)get16(p + 2) << 16;
 }
 
+/// Reads 64 bits little-endian.
+/// @param p where
+/// @return the value
 static uint64_t get64(const uint8_t *p) {
     return get32(p) | (uint64_t)get32(p + 4) << 32;
 }
 
 /// Code page 437 text to UTF-16LE, / becoming \ (for paths). Bytes written.
+/// @param s the text
+/// @param out the UTF-16
+/// @param max_bytes room in out
+/// @return bytes written
 static int to_utf16(const char *s, uint8_t *out, int max_bytes) {
     int n = 0;
     for (; *s && n + 2 <= max_bytes; ++s) {
@@ -125,6 +154,10 @@ static int to_utf16(const char *s, uint8_t *out, int max_bytes) {
 }
 
 /// UTF-16LE to code page 437 ('?' for what it hasn't got).
+/// @param in the UTF-16
+/// @param bytes its length
+/// @param out the text
+/// @param size room in out
 static void from_utf16(const uint8_t *in, int bytes, char *out, int size) {
     int n = 0;
     for (int i = 0; i + 1 < bytes && n < size - 1; i += 2) {
@@ -141,8 +174,12 @@ static void from_utf16(const uint8_t *in, int bytes, char *out, int size) {
 
 // ---- MD4 (for the NT password hash; mbedTLS 3 has dropped it) ------------------------
 
+/// Rotates left.
 #define ROTL(x, n) ((x) << (n) | (x) >> (32 - (n)))
 
+/// One MD4 block.
+/// @param h the state
+/// @param p 64 bytes
 static void md4_block(uint32_t h[4], const uint8_t *p) {
     uint32_t x[16];
     for (int i = 0; i < 16; ++i)
@@ -166,6 +203,10 @@ static void md4_block(uint32_t h[4], const uint8_t *p) {
     h[0] += a, h[1] += b, h[2] += c, h[3] += d;
 }
 
+/// MD4 (for the NT password hash).
+/// @param msg the message
+/// @param len its length
+/// @param out the hash
 static void md4(const uint8_t *msg, size_t len, uint8_t out[16]) {
     uint32_t h[4] = {0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476};
     size_t i = 0;
@@ -184,6 +225,15 @@ static void md4(const uint8_t *msg, size_t len, uint8_t out[16]) {
         put32(out + 4 * k, h[k]);
 }
 
+/// HMAC of two parts.
+/// @param type the hash
+/// @param key the key
+/// @param key_len its length
+/// @param a the first part
+/// @param a_len its length
+/// @param b the second part (or NULL)
+/// @param b_len its length
+/// @param out the MAC
 static void hmac(mbedtls_md_type_t type, const uint8_t *key, size_t key_len, const uint8_t *a,
                  size_t a_len, const uint8_t *b, size_t b_len, uint8_t *out) {
     mbedtls_md_context_t ctx;
@@ -198,6 +248,12 @@ static void hmac(mbedtls_md_type_t type, const uint8_t *key, size_t key_len, con
 }
 
 /// SP800-108 counter-mode KDF with HMAC-SHA256, 128 bits out (MS-SMB2 3.1.4.2).
+/// @param key the key
+/// @param label the label
+/// @param label_len its length (with its NUL)
+/// @param context the context
+/// @param context_len its length
+/// @param out the key made
 static void kdf(const uint8_t key[16], const char *label, int label_len, const uint8_t *context,
                 int context_len, uint8_t out[16]) {
     uint8_t data[128], full[32];
@@ -213,12 +269,19 @@ static void kdf(const uint8_t key[16], const char *label, int label_len, const u
 
 // ---- Messages -----------------------------------------------------------------------
 
+/// The request's body, after the transport and SMB2 headers.
+/// @param s the connection
+/// @return it
 static uint8_t *body(smb_t *s) {
     return s->buf + 4 + 64;
 }
 
 /// The message's signature (computed with its signature field zeroed; out
 /// may be that field).
+/// @param s the connection
+/// @param msg the message
+/// @param len its length
+/// @param out the signature
 static void signature_of(smb_t *s, uint8_t *msg, size_t len, uint8_t out[16]) {
     uint8_t saved[16], sig[32];
     memcpy(saved, msg + 48, 16);
@@ -232,6 +295,11 @@ static void signature_of(smb_t *s, uint8_t *msg, size_t len, uint8_t out[16]) {
     memcpy(out, sig, 16);
 }
 
+/// Reads exactly n bytes (the server may take TIMEOUT_MS).
+/// @param s the connection
+/// @param p where
+/// @param n how many
+/// @return read
 static bool read_exact(smb_t *s, uint8_t *p, size_t n) {
     uint64_t last = time_us_64();
     while (n) {
@@ -265,6 +333,14 @@ static bool read_exact(smb_t *s, uint8_t *p, size_t n) {
 /// Sends the request whose body (body_len bytes) is in place and waits for
 /// its answer. The answer's status; *rbody/*rlen are its body. hash_request:
 /// fold the request into the 3.1.1 pre-authentication hash.
+/// @param s the connection
+/// @param cmd the command
+/// @param body_len the body's length
+/// @param charge credits it costs
+/// @param hash_request fold it into the pre-authentication hash
+/// @param rbody set to the answer's body
+/// @param rlen set to its length
+/// @return the status
 static uint32_t exchange(smb_t *s, uint16_t cmd, size_t body_len, uint16_t charge,
                          bool hash_request, uint8_t **rbody, size_t *rlen) {
     if (s->dead)
@@ -337,6 +413,7 @@ static uint32_t exchange(smb_t *s, uint16_t cmd, size_t body_len, uint16_t charg
 }
 
 /// Folds the last answer into the pre-authentication hash.
+/// @param s the connection
 static void hash_response(smb_t *s) {
     uint8_t data[64];
     memcpy(data, s->preauth, 64);
@@ -351,6 +428,9 @@ static void hash_response(smb_t *s) {
 
 // ---- Negotiate and log in ---------------------------------------------------------------
 
+/// NEGOTIATE: the dialect (2.0.2 to 3.1.1) and the server's limits.
+/// @param s the connection
+/// @return the status
 static uint32_t negotiate(smb_t *s) {
     static const uint16_t dialects[] = {0x0202, 0x0210, 0x0300, 0x0302, 0x0311};
     uint8_t *b = body(s);
@@ -393,6 +473,9 @@ static uint32_t negotiate(smb_t *s) {
 #define NTLM_FLAGS 0xa0888215u  ///< unicode, target, sign, NTLM, always sign,
                                 // extended session security, target info, 128-bit
 
+/// The NTLMSSP NEGOTIATE message.
+/// @param out where
+/// @return its length
 static int ntlm_negotiate(uint8_t *out) {
     memset(out, 0, 32);
     memcpy(out, "NTLMSSP", 8);
@@ -403,6 +486,15 @@ static int ntlm_negotiate(uint8_t *out) {
 
 /// Builds the AUTHENTICATE message from the server's CHALLENGE; sets the
 /// session key. Its length, or -1 if the challenge is bad.
+/// @param chal the CHALLENGE
+/// @param chal_len its length
+/// @param domain the domain
+/// @param user the user
+/// @param password the password
+/// @param out the message
+/// @param max room in out
+/// @param session_key set to the session key
+/// @return its length, or -1
 static int ntlm_authenticate(const uint8_t *chal, size_t chal_len, const char *domain,
                              const char *user, const char *password, uint8_t *out, int max,
                              uint8_t session_key[16]) {
@@ -512,6 +604,12 @@ static int ntlm_authenticate(const uint8_t *chal, size_t chal_len, const char *d
     return off;
 }
 
+/// SESSION_SETUP: logs in with NTLMv2 (or as a guest).
+/// @param s the connection
+/// @param domain the domain
+/// @param user the user
+/// @param password the password
+/// @return the status
 static uint32_t session_setup(smb_t *s, const char *domain, const char *user, const char *password) {
     uint8_t *b = body(s);
     uint8_t *r;
@@ -574,6 +672,11 @@ static uint32_t session_setup(smb_t *s, const char *domain, const char *user, co
     return 0;
 }
 
+/// TREE_CONNECT: to \\host\share.
+/// @param s the connection
+/// @param host the server
+/// @param share the share
+/// @return the status
 static uint32_t tree_connect(smb_t *s, const char *host, const char *share) {
     uint8_t *b = body(s);
     char path[300];
@@ -676,6 +779,15 @@ void smb_describe(smb_t *s, char *out, int size) {
 
 // ---- Files ------------------------------------------------------------------------------
 
+/// CREATE: opens or makes a file or folder.
+/// @param s the connection
+/// @param path the path in the share
+/// @param access FILE_READ_DATA and the like
+/// @param disposition DISP_*
+/// @param options OPT_*
+/// @param fid set to its handle
+/// @param info set to its details, or NULL
+/// @return the status
 static uint32_t create(smb_t *s, const char *path, uint32_t access, uint32_t disposition,
                        uint32_t options, smb_fid_t *fid, smb_info_t *info) {
     uint8_t *b = body(s);
@@ -736,6 +848,10 @@ uint32_t smb_close(smb_t *s, const smb_fid_t *fid) {
     return exchange(s, CLOSE, 24, 1, false, &r, &rlen);
 }
 
+/// A read's or write's size.
+/// @param s the connection
+/// @param max the most wanted (0: no limit)
+/// @return the size
 static uint32_t chunk(smb_t *s, uint32_t max) {
     uint32_t c = CHUNK;
     if (max && max < c)

@@ -13,16 +13,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SOH 0x01
-#define STX 0x02
-#define EOT 0x04
-#define ACK 0x06
-#define BS  0x08
-#define NAK 0x15
-#define CAN 0x18
-#define SUB 0x1a
-#define XON 0x11
+#define SOH 0x01  ///< start of a 128-byte block
+#define STX 0x02  ///< start of a 1024-byte block
+#define EOT 0x04  ///< end of the file
+#define ACK 0x06  ///< acknowledged
+#define BS  0x08  ///< backspace
+#define NAK 0x15  ///< not acknowledged
+#define CAN 0x18  ///< cancel
+#define SUB 0x1a  ///< the padding in a last block
+#define XON 0x11  ///< XON
 
+/// How often a block is tried.
 #define RETRIES 10
 
 /// Results of the reading helpers besides a byte (all negative).
@@ -31,16 +32,17 @@
 #define R_CANCEL  (-3)        ///< the other end cancelled
 #define R_BAD     (-4)        ///< garbled: CRC or framing error
 
+/// A transfer's state.
 typedef struct {
-    const xfer_io_t *io;
-    xfer_progress_t prog;
-    xfer_result_t *res;
-    char name[64];
+    const xfer_io_t *io;  ///< the callbacks
+    xfer_progress_t prog;  ///< the progress shown
+    xfer_result_t *res;  ///< the result
+    char name[64];  ///< the file's name
     /// ZMODEM
     bool rx_crc32;      ///< the header just read was ZBIN32: its data uses CRC-32
     uint8_t last_sent;  ///< for escaping CR after @
-    uint8_t out[1100];
-    int out_len;
+    uint8_t out[1100];  ///< bytes to send, gathered
+    int out_len;  ///< their count
 } xs_t;
 
 const char *xfer_proto_name(xfer_proto_t proto) {
@@ -55,6 +57,11 @@ const char *xfer_proto_name(xfer_proto_t proto) {
 
 // ---- Shared ---------------------------------------------------------------------
 
+/// XMODEM's CRC-16 (CCITT).
+/// @param crc the CRC so far
+/// @param p the bytes
+/// @param n their count
+/// @return the CRC
 static uint16_t crc16(uint16_t crc, const uint8_t *p, int n) {
     while (n--) {
         crc ^= (uint16_t)*p++ << 8;
@@ -64,6 +71,11 @@ static uint16_t crc16(uint16_t crc, const uint8_t *p, int n) {
     return crc;
 }
 
+/// ZMODEM's CRC-32.
+/// @param crc the CRC so far
+/// @param p the bytes
+/// @param n their count
+/// @return the CRC
 static uint32_t crc32(uint32_t crc, const uint8_t *p, int n) {
     while (n--) {
         crc ^= *p++;
@@ -73,19 +85,33 @@ static uint32_t crc32(uint32_t crc, const uint8_t *p, int n) {
     return crc;
 }
 
+/// A byte from the line.
+/// @param s the transfer
+/// @param ms how long to wait
+/// @return the byte, or a negative R_ value
 static int rd(xs_t *s, unsigned ms) {
     return s->io->getc(s->io->ctx, ms);
 }
 
+/// Sends bytes.
+/// @param s the transfer
+/// @param p the bytes
+/// @param n their count
 static void wr(xs_t *s, const void *p, int n) {
     s->io->write(s->io->ctx, p, n);
 }
 
+/// Sends a byte.
+/// @param s the transfer
+/// @param c it
 static void wr1(xs_t *s, uint8_t c) {
     wr(s, &c, 1);
 }
 
 /// Reads and drops whatever arrives until the line is quiet for `ms`.
+/// @param s the transfer
+/// @param ms the quiet time
+/// @return 0, or a negative R_ value
 static int purge(xs_t *s, unsigned ms) {
     int c;
     while ((c = rd(s, ms)) >= 0)
@@ -93,11 +119,18 @@ static int purge(xs_t *s, unsigned ms) {
     return c == R_ABORT ? R_ABORT : 0;
 }
 
+/// Reports the progress.
+/// @param s the transfer
 static void progress(xs_t *s) {
     if (s->io->progress)
         s->io->progress(s->io->ctx, &s->prog);
 }
 
+/// Sets the result.
+/// @param s the transfer
+/// @param ok it worked
+/// @param fmt the message, printf's format with one %s
+/// @param arg its argument
 static void say(xs_t *s, bool ok, const char *fmt, const char *arg) {
     s->res->ok = ok;
     snprintf(s->res->message, sizeof s->res->message, fmt, arg);
@@ -105,12 +138,16 @@ static void say(xs_t *s, bool ok, const char *fmt, const char *arg) {
 
 /// Tells the other end to stop: CANs (five or more stop all three
 /// protocols), then backspaces to wipe them from a terminal.
+/// @param s the transfer
 static void send_cancel(xs_t *s) {
     static const uint8_t seq[] = {CAN, CAN, CAN, CAN, CAN, CAN, CAN, CAN,
                                   BS,  BS,  BS,  BS,  BS,  BS,  BS,  BS};
     wr(s, seq, sizeof seq);
 }
 
+/// Ends a transfer that was stopped.
+/// @param s the transfer
+/// @param why R_CANCEL, R_ABORT or R_TIMEOUT
 static void stopped(xs_t *s, int why) {
     if (why == R_CANCEL) {
         say(s, false, "The other end cancelled.", NULL);
@@ -124,6 +161,8 @@ static void stopped(xs_t *s, int why) {
 }
 
 /// The last part of a path: what is sent as the name.
+/// @param path the path
+/// @return its last part
 static const char *base_name(const char *path) {
     const char *b = path;
     for (const char *p = path; *p; ++p)
@@ -134,6 +173,9 @@ static const char *base_name(const char *path) {
 
 /// A received name made safe: no folders, no leading dots, no control
 /// characters.
+/// @param in the name
+/// @param out the safe name
+/// @param size room in out
 static void clean_name(const char *in, char *out, int size) {
     const char *b = base_name(in);
     while (*b == '.')
@@ -146,6 +188,9 @@ static void clean_name(const char *in, char *out, int size) {
         snprintf(out, size, "RECEIVED.BIN");
 }
 
+/// Counts a file done.
+/// @param s the transfer
+/// @param bytes its size
 static void file_done(xs_t *s, uint32_t bytes) {
     ++s->res->files;
     s->res->bytes += bytes;
@@ -156,6 +201,12 @@ static void file_done(xs_t *s, uint32_t bytes) {
 
 /// Reads one block. Returns its length (128 or 1024) with its number in
 /// *seq, 0 for EOT, or a negative R_ value.
+/// @param s the transfer
+/// @param crc CRC-16 (else a checksum)
+/// @param buf where
+/// @param seq set to its number
+/// @param timeout_ms how long to wait
+/// @return its length, 0 for EOT, or a negative R_ value
 static int read_block(xs_t *s, bool crc, uint8_t *buf, int *seq, unsigned timeout_ms) {
     int c = rd(s, timeout_ms);
     if (c < 0)
@@ -200,6 +251,10 @@ static int read_block(xs_t *s, bool crc, uint8_t *buf, int *seq, unsigned timeou
     return len;
 }
 
+/// Receives by XMODEM or YMODEM.
+/// @param s the transfer
+/// @param ymodem YMODEM (file names and sizes in block 0)
+/// @param xname XMODEM: the file's name
 static void xy_receive(xs_t *s, bool ymodem, const char *xname) {
     uint8_t *buf = malloc(1024);
     if (!buf) {
@@ -334,6 +389,9 @@ out:
 
 /// Waits for the receiver's go-ahead: 'C' (CRC) or NAK (checksum). Returns
 /// the character or a negative R_ value.
+/// @param s the transfer
+/// @param timeout_ms how long to wait
+/// @return 'C', NAK, or a negative R_ value
 static int wait_start(xs_t *s, unsigned timeout_ms) {
     unsigned waited = 0;
     while (waited < timeout_ms) {
@@ -353,6 +411,8 @@ static int wait_start(xs_t *s, unsigned timeout_ms) {
 }
 
 /// Waits for ACK (1), NAK (0) or a negative R_ value.
+/// @param s the transfer
+/// @return 1, 0 or a negative R_ value
 static int wait_ack(xs_t *s) {
     for (;;) {
         int c = rd(s, 10000);
@@ -369,6 +429,12 @@ static int wait_ack(xs_t *s) {
 }
 
 /// Sends one block until it is ACKed. 1 sent, else a negative R_ value.
+/// @param s the transfer
+/// @param seq its number
+/// @param data its bytes
+/// @param len 128 or 1024
+/// @param crc CRC-16 (else a checksum)
+/// @return 1, or a negative R_ value
 static int send_block(xs_t *s, int seq, const uint8_t *data, int len, bool crc) {
     uint8_t head[3] = {len == 1024 ? STX : SOH, (uint8_t)seq, (uint8_t)~seq};
     uint8_t tail[2];
@@ -400,6 +466,9 @@ static int send_block(xs_t *s, int seq, const uint8_t *data, int len, bool crc) 
     return R_TIMEOUT;
 }
 
+/// Sends EOT until it is acknowledged.
+/// @param s the transfer
+/// @return 1, or a negative R_ value
 static int send_eot(xs_t *s) {
     for (int tries = 0; tries < RETRIES; ++tries) {
         wr1(s, EOT);
@@ -412,6 +481,11 @@ static int send_eot(xs_t *s) {
     return R_TIMEOUT;
 }
 
+/// Sends by XMODEM, XMODEM-1K or YMODEM.
+/// @param s the transfer
+/// @param proto the protocol
+/// @param paths the files
+/// @param count their count
 static void xy_send(xs_t *s, xfer_proto_t proto, const char *const *paths, int count) {
     bool ymodem = proto == XFER_YMODEM;
     uint8_t *buf = malloc(1024);
@@ -503,12 +577,13 @@ out:
 
 // ---- ZMODEM -------------------------------------------------------------------------
 
-#define ZPAD   '*'
-#define ZDLE   0x18
-#define ZBIN   'A'
-#define ZHEX   'B'
-#define ZBIN32 'C'
+#define ZPAD   '*'  ///< frame start padding
+#define ZDLE   0x18  ///< the escape character
+#define ZBIN   'A'  ///< binary header, CRC-16
+#define ZHEX   'B'  ///< hex header
+#define ZBIN32 'C'  ///< binary header, CRC-32
 
+/// ZMODEM frame types.
 enum {
     ZRQINIT, ZRINIT, ZSINIT, ZACK, ZFILE, ZSKIP, ZNAK, ZABORT, ZFIN, ZRPOS, ZDATA, ZEOF,
     ZFERR, ZCRC, ZCHALLENGE, ZCOMPL, ZCAN, ZFREECNT, ZCOMMAND, ZSTDERR,
@@ -518,26 +593,32 @@ enum {
 #define ZCRCG 'i'  ///< ... frame goes on
 #define ZCRCQ 'j'  ///< ... frame goes on, ZACK wanted
 #define ZCRCW 'k'  ///< ... frame ends, ZACK wanted
-#define ZRUB0 'l'
-#define ZRUB1 'm'
+#define ZRUB0 'l'  ///< an escaped 0x7f
+#define ZRUB1 'm'  ///< an escaped 0xff
 
 /// Header bytes: positions P0 (low) .. P3, or flags F3 .. F0.
 #define ZF0 3
-#define ZF1 2
+#define ZF1 2  ///< flag byte F1
 
-#define CANFDX  0x01
-#define CANOVIO 0x02
-#define CANFC32 0x20
-#define ZCBIN   1
-#define ZCRESUM 3
+#define CANFDX  0x01  ///< ZRINIT flag: full duplex
+#define CANOVIO 0x02  ///< ZRINIT flag: can receive while writing
+#define CANFC32 0x20  ///< ZRINIT flag: takes CRC-32
+#define ZCBIN   1  ///< ZFILE conversion: binary
+#define ZCRESUM 3  ///< ZFILE conversion: resume
 
 #define Z_BUFLEN  4096  ///< we ask the sender to wait for an ACK this often
-#define Z_SUBPACK 1024
+#define Z_SUBPACK 1024  ///< data subpacket size
 
+/// A header's position (P0-P3).
+/// @param h the header's bytes
+/// @return the position
 static uint32_t hdr_pos(const uint8_t h[4]) {
     return h[0] | (uint32_t)h[1] << 8 | (uint32_t)h[2] << 16 | (uint32_t)h[3] << 24;
 }
 
+/// A position into a header.
+/// @param h the header's bytes
+/// @param pos the position
 static void pos_hdr(uint8_t h[4], uint32_t pos) {
     h[0] = pos;
     h[1] = pos >> 8;
@@ -545,12 +626,17 @@ static void pos_hdr(uint8_t h[4], uint32_t pos) {
     h[3] = pos >> 24;
 }
 
+/// Sends what was gathered.
+/// @param s the transfer
 static void zflush(xs_t *s) {
     if (s->out_len)
         wr(s, s->out, s->out_len);
     s->out_len = 0;
 }
 
+/// Gathers a byte to send.
+/// @param s the transfer
+/// @param c the byte
 static void zraw(xs_t *s, uint8_t c) {
     if (s->out_len == sizeof s->out)
         zflush(s);
@@ -560,6 +646,8 @@ static void zraw(xs_t *s, uint8_t c) {
 
 /// One byte with ZDLE escaping: ZDLE, the flow control characters and CR
 /// after @ (which some networks take as a command).
+/// @param s the transfer
+/// @param c the byte
 static void zesc(xs_t *s, uint8_t c) {
     uint8_t low = c & 0x7f;
     if (c == ZDLE || low == 0x10 || low == 0x11 || low == 0x13 ||
@@ -571,12 +659,19 @@ static void zesc(xs_t *s, uint8_t c) {
     }
 }
 
+/// A byte as two hex digits.
+/// @param s the transfer
+/// @param c the byte
 static void zhex_byte(xs_t *s, uint8_t c) {
     static const char hex[] = "0123456789abcdef";
     zraw(s, hex[c >> 4]);
     zraw(s, hex[c & 15]);
 }
 
+/// Sends a hex header.
+/// @param s the transfer
+/// @param type its type
+/// @param h its 4 bytes
 static void zsend_hex_header(xs_t *s, int type, const uint8_t h[4]) {
     uint8_t b[5] = {(uint8_t)type, h[0], h[1], h[2], h[3]};
     zraw(s, ZPAD);
@@ -595,6 +690,10 @@ static void zsend_hex_header(xs_t *s, int type, const uint8_t h[4]) {
     zflush(s);
 }
 
+/// Sends a binary header (CRC-16).
+/// @param s the transfer
+/// @param type its type
+/// @param h its 4 bytes
 static void zsend_bin_header(xs_t *s, int type, const uint8_t h[4]) {
     uint8_t b[5] = {(uint8_t)type, h[0], h[1], h[2], h[3]};
     zraw(s, ZPAD);
@@ -608,6 +707,11 @@ static void zsend_bin_header(xs_t *s, int type, const uint8_t h[4]) {
     zflush(s);
 }
 
+/// Sends a data subpacket.
+/// @param s the transfer
+/// @param buf the data
+/// @param len its length
+/// @param end its frame end (ZCRCE..ZCRCW)
 static void zsend_data(xs_t *s, const uint8_t *buf, int len, uint8_t end) {
     for (int i = 0; i < len; ++i)
         zesc(s, buf[i]);
@@ -623,6 +727,9 @@ static void zsend_data(xs_t *s, const uint8_t *buf, int len, uint8_t end) {
 
 /// The next byte of an escaped stream: 0-255, a frame end (ZCRCx | 0x100),
 /// or a negative R_ value.
+/// @param s the transfer
+/// @param ms how long to wait
+/// @return the byte, frame end or R_ value
 static int zdl_read(xs_t *s, unsigned ms) {
     int c;
     for (;;) {
@@ -663,6 +770,9 @@ static int zdl_read(xs_t *s, unsigned ms) {
     }
 }
 
+/// A hex digit's value.
+/// @param c the character
+/// @return 0-15, or -1
 static int hex_digit(int c) {
     if (c >= '0' && c <= '9')
         return c - '0';
@@ -675,6 +785,10 @@ static int hex_digit(int c) {
 
 /// Waits for a header (skipping anything else). Its type, or a negative R_
 /// value (R_BAD for a damaged one).
+/// @param s the transfer
+/// @param h set to its 4 bytes
+/// @param timeout_ms how long to wait
+/// @return its type, or a negative R_ value
 static int zget_header(xs_t *s, uint8_t h[4], unsigned timeout_ms) {
     int cans = 0;
     for (;;) {
@@ -739,6 +853,11 @@ static int zget_header(xs_t *s, uint8_t h[4], unsigned timeout_ms) {
 
 /// Reads a data subpacket into buf. Its frame end (ZCRCE..ZCRCW) with the
 /// length in *len, or a negative R_ value.
+/// @param s the transfer
+/// @param buf where
+/// @param max room in buf
+/// @param len set to the length
+/// @return the frame end, or a negative R_ value
 static int zget_data(xs_t *s, uint8_t *buf, int max, int *len) {
     int n = 0;
     for (;;) {
@@ -773,24 +892,36 @@ static int zget_data(xs_t *s, uint8_t *buf, int max, int *len) {
     }
 }
 
+/// Sends a header with a position.
+/// @param s the transfer
+/// @param type its type
+/// @param pos the position
 static void zsend_pos(xs_t *s, int type, uint32_t pos) {
     uint8_t h[4];
     pos_hdr(h, pos);
     zsend_hex_header(s, type, h);
 }
 
+/// Sends ZRINIT: our buffer and abilities.
+/// @param s the transfer
 static void zsend_rinit(xs_t *s) {
     uint8_t h[4] = {Z_BUFLEN & 0xff, Z_BUFLEN >> 8, 0, CANFDX | CANFC32};
     zsend_hex_header(s, ZRINIT, h);
 }
 
 /// Ends a ZMODEM session we cancelled or that failed.
+/// @param s the transfer
+/// @param why the R_ value
+/// @param msg the message, or NULL
+/// @param arg its argument
 static void zabort(xs_t *s, int why, const char *msg, const char *arg) {
     stopped(s, why == R_CANCEL || why == R_ABORT ? why : R_TIMEOUT);
     if (msg)
         say(s, false, msg, arg);
 }
 
+/// Receives by ZMODEM.
+/// @param s the transfer
 static void z_receive(xs_t *s) {
     uint8_t *buf = malloc(Z_SUBPACK + 16);
     uint8_t *wbuf = malloc(Z_BUFLEN + Z_SUBPACK);
@@ -970,6 +1101,10 @@ static void z_receive(xs_t *s) {
 
 /// Waits for the receiver's next header, answering ZCHALLENGE. Its type or
 /// a negative R_ value.
+/// @param s the transfer
+/// @param h set to its 4 bytes
+/// @param timeout_ms how long to wait
+/// @return its type, or a negative R_ value
 static int zwait(xs_t *s, uint8_t h[4], unsigned timeout_ms) {
     for (;;) {
         int type = zget_header(s, h, timeout_ms);
@@ -983,6 +1118,12 @@ static int zwait(xs_t *s, uint8_t h[4], unsigned timeout_ms) {
 
 /// Sends one file's data from `pos`. 1 done (receiver took ZEOF), 0 skipped,
 /// else a negative R_ value.
+/// @param s the transfer
+/// @param f the file
+/// @param size its size
+/// @param pos where to start
+/// @param rxbuflen the receiver's buffer (0: no limit)
+/// @return 1, 0 or a negative R_ value
 static int z_send_data(xs_t *s, void *f, uint32_t size, uint32_t pos, unsigned rxbuflen) {
     uint8_t buf[Z_SUBPACK];
     int retries = 0;            // restarts without getting further
@@ -1086,6 +1227,10 @@ static int z_send_data(xs_t *s, void *f, uint32_t size, uint32_t pos, unsigned r
     }
 }
 
+/// Sends by ZMODEM.
+/// @param s the transfer
+/// @param paths the files
+/// @param count their count
 static void z_send(xs_t *s, const char *const *paths, int count) {
     uint8_t h[4] = {0};
     wr(s, "rz\r", 3);  // starts rz on a Unix shell at the far end
