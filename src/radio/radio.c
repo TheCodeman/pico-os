@@ -46,8 +46,11 @@
 #define RING_SIZE      (256 * 1024)  ///< about 16 s at 128 kbit/s
 #define PREBUFFER      (40 * 1024)   ///< before playing starts (or again after running dry)
 #define INBUF_SIZE     4096          ///< the decoder's window on the stream
+/// The longest reply header.
 #define HEADER_MAX     4096
+/// Redirects followed.
 #define MAX_REDIRECTS  5
+/// How often the stream is read (ms).
 #define PUMP_MS        4
 #define IDLE_MS        15000         ///< nothing arriving for this long: the stream has gone
 
@@ -65,14 +68,26 @@ typedef struct {
     net_tls_t *tls;
 } stream_t;
 
+/// Reads.
+/// @param s the stream
+/// @param buf where
+/// @param max how many
+/// @return what net_tls_read or net_conn_read returns
 static int s_read(stream_t *s, void *buf, size_t max) {
     return s->tls ? net_tls_read(s->tls, buf, max) : net_conn_read(s->conn, buf, max);
 }
 
+/// Writes.
+/// @param s the stream
+/// @param data the bytes
+/// @param len how many
+/// @return written
 static bool s_write(stream_t *s, const void *data, size_t len) {
     return s->tls ? net_tls_write(s->tls, data, len) : net_conn_write(s->conn, data, len);
 }
 
+/// Closes (and forgets) the connection.
+/// @param s the stream
 static void s_close(stream_t *s) {
     if (s->tls)
         net_tls_end(s->tls);
@@ -82,6 +97,10 @@ static void s_close(stream_t *s) {
     s->conn = NULL;
 }
 
+/// Connects, with TLS for https (certificates not checked).
+/// @param s the stream
+/// @param u the URL
+/// @return connected
 static bool s_open(stream_t *s, const url_t *u) {
     s->tls = NULL;
     // Radio streams: no certificate check (most stations' certificates are
@@ -98,6 +117,10 @@ static bool s_open(stream_t *s, const url_t *u) {
 }
 
 /// [http[s]://]host[:port][/path]; a redirect may give "/path" or "//host/path".
+/// @param s the text
+/// @param u the parts
+/// @param base the URL redirected from, or NULL
+/// @return parsed
 static bool parse_url(const char *s, url_t *u, const url_t *base) {
     while (*s == ' ')
         ++s;
@@ -138,6 +161,11 @@ static bool parse_url(const char *s, url_t *u, const url_t *base) {
 }
 
 /// Finds header `name` (case-insensitive) in hdr and copies its value.
+/// @param hdr the header
+/// @param name the field
+/// @param out its value
+/// @param size room in out
+/// @return found
 static bool header(const char *hdr, const char *name, char *out, size_t size) {
     size_t n = strlen(name);
     for (const char *p = strchr(hdr, '\n'); p; p = strchr(p, '\n')) {
@@ -160,6 +188,13 @@ static const char *fail;  ///< why the last request failed
 
 /// Sends a GET and reads the reply's header into hdr (0-terminated). The body
 /// bytes read past it go to body (at most body_max); their count, or -1.
+/// @param s the stream
+/// @param u the URL
+/// @param icy ask for song titles (Icy-MetaData)
+/// @param hdr the header
+/// @param body the body's first bytes
+/// @param body_max room in body
+/// @return the body bytes, or -1
 static int request(stream_t *s, const url_t *u, bool icy, char *hdr, char *body, int body_max) {
     char req[768];
     snprintf(req, sizeof req,
@@ -210,6 +245,9 @@ static int request(stream_t *s, const url_t *u, bool icy, char *hdr, char *body,
     }
 }
 
+/// The reply's status code.
+/// @param hdr the header
+/// @return the code, or 0
 static int status_code(const char *hdr) {
     // "HTTP/1.x 200 OK" or Shoutcast's "ICY 200 OK".
     const char *sp = strchr(hdr, ' ');
@@ -217,6 +255,10 @@ static int status_code(const char *hdr) {
 }
 
 /// The first stream URL in a .pls or .m3u playlist.
+/// @param text the playlist
+/// @param out the URL
+/// @param size room in out
+/// @return found
 static bool playlist_url(const char *text, char *out, size_t size) {
     for (const char *p = text; *p;) {
         size_t n = strcspn(p, "\r\n");
@@ -238,6 +280,10 @@ static bool playlist_url(const char *text, char *out, size_t size) {
     return false;
 }
 
+/// Whether a reply is a playlist, by its type or the path's extension.
+/// @param type the Content-Type
+/// @param path the path
+/// @return it is
 static bool is_playlist(const char *type, const char *path) {
     const char *q = path + strcspn(path, "?#");
     int n = q - path;
@@ -248,26 +294,44 @@ static bool is_playlist(const char *type, const char *path) {
 
 // ---- State ---------------------------------------------------------------------------------------
 
+/// RADIO_OFF and the like.
 static volatile int state;
 static radio_status_t info;      ///< the strings and numbers radio_get_status copies
+/// The connection.
 static stream_t conn;
 static uint8_t *ring;            ///< PSRAM
+/// Bytes ever put in and taken out.
+///@{
 static volatile uint32_t ring_in, ring_out;  ///< bytes ever put in and taken out
+///@}
 static volatile bool ended;      ///< the stream closed (what's in the ring still plays)
+/// The worker that reads the stream.
 static async_at_time_worker_t pump_worker;
+/// It is scheduled.
 static bool pump_on;
+/// When data last arrived.
 static uint32_t last_data_ms;
+/// The volume (0-100).
 static int volume = 80;
+/// Muted.
 static volatile bool muted;
 /// ICY metadata: every `metaint` bytes of audio, a length byte (x16) and that
 /// much text ("StreamTitle='...';").
+/// Where the metadata comes, the audio until then, the metadata left and its length.
+///@{
 static int metaint, audio_left, meta_left, meta_len;
+///@}
 static char *meta;  ///< 512 bytes after the ring and its read buffer
 
+/// Bytes in the ring.
+/// @return the count
 static uint32_t ring_count(void) {
     return ring_in - ring_out;
 }
 
+/// Puts bytes into the ring.
+/// @param p them
+/// @param n how many
 static void ring_put(const uint8_t *p, int n) {
     uint32_t at = ring_in % RING_SIZE;
     int first = n < (int)(RING_SIZE - at) ? n : (int)(RING_SIZE - at);
@@ -277,6 +341,8 @@ static void ring_put(const uint8_t *p, int n) {
     ring_in += n;
 }
 
+/// Takes the song title out of the metadata.
+/// @param m the metadata text
 static void set_title(const char *m) {
     const char *t = strstr(m, "StreamTitle='");
     if (!t)
@@ -295,6 +361,8 @@ static void set_title(const char *m) {
 }
 
 /// Data from the stream: audio into the ring, metadata taken out.
+/// @param p the bytes
+/// @param n their count
 static void feed(const uint8_t *p, int n) {
     while (n > 0) {
         if (!metaint) {
@@ -334,6 +402,8 @@ static void feed(const uint8_t *p, int n) {
 }
 
 /// lwIP's context, every PUMP_MS: what has arrived, into the ring.
+/// @param ctx lwIP's context
+/// @param w the worker
 static void pump(async_context_t *ctx, async_at_time_worker_t *w) {
     if (!pump_on)
         return;
@@ -372,20 +442,35 @@ static void pump(async_context_t *ctx, async_at_time_worker_t *w) {
 #define PCM_START  4096          ///< (re)starting playing once it has this many
 #define FRAME_MAX  1152          ///< the most a frame decodes to (MP3; AAC 1024)
 
+/// The codecs.
 enum { CODEC_MP3, CODEC_AAC };
+/// The stream's codec (CODEC_MP3 or CODEC_AAC).
 static int codec;
 static void *decoder;            ///< HMP3Decoder or HAACDecoder
 static uint8_t *inbuf;           ///< the stream's next bytes for the decoder
 static int in_len;               ///< valid bytes from in_at
+/// Where they start in inbuf.
 static int in_at;
 static int16_t *pcm;             ///< one decoded frame (FRAME_MAX x 2)
 static int16_t *pcm_ring;        ///< PCM_FRAMES x 2 (PSRAM)
+/// Frames ever written and played.
+///@{
 static volatile uint32_t pcm_in, pcm_out;  ///< frames ever written and played
+///@}
 static uint32_t pos;             ///< the next 48 kHz frame's place after pcm_out, 16.16
 static volatile int32_t step;    ///< the stream's rate / 48 kHz, 16.16
+/// The decoder's buffers are in SRAM; the decoding job is on core 1.
+///@{
 static bool decoder_sram, job_on;
+///@}
+/// Microseconds spent decoding; times the PCM ran dry.
+///@{
 static volatile uint32_t busy_us, underruns;
+///@}
+/// The left and right levels for the meters.
+///@{
 static volatile uint8_t level_l, level_r;
+///@}
 
 /// The decoder's own buffers (24 KB): in the apps' SRAM area (app_overlay.h)
 /// while the radio plays (the decoder is several times slower from PSRAM).
@@ -393,8 +478,14 @@ static volatile uint8_t level_l, level_r;
 /// to be in PSRAM, too slow: an HE-AAC stream plays its AAC core, at half
 /// the sample rate.)
 static uint8_t *helix_pool;
+/// Used of the pool, and its size.
+///@{
 static size_t helix_used, helix_size;
+///@}
 
+/// Helix's malloc: from the pool.
+/// @param n the size
+/// @return the memory, or NULL
 void *radio_helix_alloc(size_t n) {
     n = (n + 7) & ~7u;
     if (helix_used + n > helix_size)
@@ -404,6 +495,8 @@ void *radio_helix_alloc(size_t n) {
     return p;
 }
 
+/// Helix's free: nothing (the pool goes as a whole).
+/// @param p the memory
 void radio_helix_free(void *p) {
     (void)p;  // the pool goes as a whole
 }
@@ -411,6 +504,9 @@ void radio_helix_free(void *p) {
 
 /// MPEG audio or ADTS (AAC) frame headers at p: which, from the first one
 /// found in n bytes that the next agrees with; -1 if neither turns up.
+/// @param p the bytes
+/// @param n their count
+/// @return CODEC_MP3, CODEC_AAC or -1
 static int sniff_codec(const uint8_t *p, int n) {
     for (int i = 0; i + 7 < n; ++i) {
         if (p[i] != 0xff || (p[i + 1] & 0xe0) != 0xe0)
@@ -445,6 +541,7 @@ static void refill(void) {
 }
 
 /// The next frame into pcm; its frame count, or 0 if there isn't enough data.
+/// @return the frame count
 static int decode_frame(void) {
     for (int tries = 0; tries < 16; ++tries) {
         if (in_len < INBUF_SIZE / 2)
@@ -556,6 +653,9 @@ static void radio_decode_job(void) {
 }
 
 /// The audio source (core 1's refill interrupt): one 48 kHz stereo frame.
+/// @param l set to the left sample
+/// @param r set to the right
+/// @return true
 static bool radio_source(int32_t *l, int32_t *r) {
     uint32_t have = pcm_in - pcm_out;
     int s = state;
@@ -596,6 +696,7 @@ static bool radio_source(int32_t *l, int32_t *r) {
 
 // ---- Starting and stopping ---------------------------------------------------------------------------
 
+/// Frees the decoder and its buffers.
 static void free_decoder(void) {
     if (helix_pool && !decoder_sram)
         psram_free(helix_pool);
@@ -638,6 +739,9 @@ bool radio_active(void) {
     return s == RADIO_CONNECTING || s == RADIO_BUFFERING || s == RADIO_PLAYING;
 }
 
+/// Stops with an error.
+/// @param why the error
+/// @return false
 static bool give_up(const char *why) {
     s_close(&conn);
     free_decoder();
@@ -923,6 +1027,7 @@ int radio_http_get(const char *url_text, char *out, int max, const char **err) {
 #include "dvi.h"
 #include "font8x16.h"
 
+/// The "Radio muted" note should be shown.
 static volatile bool note_wanted;
 
 void radio_hotkey_mute(void) {
@@ -932,9 +1037,13 @@ void radio_hotkey_mute(void) {
     note_wanted = true;
 }
 
+/// The note's width.
 #define NOTE_W (14 * 8 + 8)
+/// Its height.
 #define NOTE_H 20
+/// Its left edge.
 #define NOTE_X (DVI_WIDTH - NOTE_W - 4)
+/// Its top.
 #define NOTE_Y 4
 
 void radio_note_poll(void) {

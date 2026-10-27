@@ -27,46 +27,52 @@
 #include "psram_heap.h"
 #include "radio.h"
 
+/// The screen's width.
 #define W DVI_WIDTH
+/// Its height.
 #define H DVI_HEIGHT
+/// The settings file.
 #define INI_PATH "/RADIO.INI"
+/// The most favourites.
 #define MAX_FAVS 60
+/// The most search results.
 #define MAX_FOUND 100
 
 /// The tracker's colours (RGB332).
 #define C_BG     0x00
-#define C_FACE   0x25
-#define C_LIGHT  0x6e
-#define C_DARK   0x01
-#define C_TEXT   0xff
-#define C_DIM    0x92
-#define C_LABEL  0xb6
-#define C_YELLOW 0xfc
-#define C_CYAN   0x5f
-#define C_GREEN  0x3c
-#define C_ORANGE 0xf4
-#define C_RED    0xe0
-#define C_FIELD  0x00
-#define C_SEL    0x2b
-#define C_ROWALT 0x05
-#define C_STRIP  0x0b
+#define C_FACE   0x25  ///< panels
+#define C_LIGHT  0x6e  ///< bevel highlight
+#define C_DARK   0x01  ///< bevel shadow
+#define C_TEXT   0xff  ///< text
+#define C_DIM    0x92  ///< quiet text
+#define C_LABEL  0xb6  ///< labels
+#define C_YELLOW 0xfc  ///< titles
+#define C_CYAN   0x5f  ///< headings
+#define C_GREEN  0x3c  ///< good
+#define C_ORANGE 0xf4  ///< warnings
+#define C_RED    0xe0  ///< errors
+#define C_FIELD  0x00  ///< sunken fields
+#define C_SEL    0x2b  ///< selected rows
+#define C_ROWALT 0x05  ///< every other row
+#define C_STRIP  0x0b  ///< the title strip
 
 /// Layout
 #define TOP_H    24
-#define TABS_Y   28
-#define LIST_X   4
-#define LIST_Y   56
-#define LIST_W   392
-#define LIST_H   384
-#define ROW_H    20
-#define ROWS     ((LIST_H - 8) / ROW_H)
-#define PANEL_X  400
-#define PANEL_W  236
-#define STATUS_Y 448
+#define TABS_Y   28  ///< the tabs' top
+#define LIST_X   4  ///< the list's left edge
+#define LIST_Y   56  ///< its top
+#define LIST_W   392  ///< its width
+#define LIST_H   384  ///< its height
+#define ROW_H    20  ///< a row's height
+#define ROWS     ((LIST_H - 8) / ROW_H)  ///< rows shown
+#define PANEL_X  400  ///< the panel's left edge
+#define PANEL_W  236  ///< its width
+#define STATUS_Y 448  ///< the status line's top
 #define BTN_W(chars) ((chars) * 8 + 16)  ///< a button that fits that many characters
 #define MUTE_W   BTN_W(5)                 ///< "Sound" / "Mute", the wider of them
 #define VOL_W    (PANEL_W - 64 - 8 - MUTE_W - 8)  ///< the volume slider, the mute button after it
 
+/// The built-in station list.
 static const radio_station_t starter[] = {
     {"SomaFM Groove Salad", "http://ice1.somafm.com/groovesalad-128-mp3", 128, "US", "MP3"},
     {"SomaFM Groove Salad (AAC)", "http://ice1.somafm.com/groovesalad-128-aac", 128, "US", "AAC"},
@@ -86,28 +92,32 @@ static const radio_station_t starter[] = {
     {"181.FM The Eagle (classic rock)", "http://listen.181fm.com/181-eagle_128k.mp3", 128, "US", "MP3"},
     {"181.FM Classical Guitar", "http://listen.181fm.com/181-classicalguitar_128k.mp3", 128, "US", "MP3"},
 };
+/// Its length.
 #define NSTARTER ((int)(sizeof starter / sizeof *starter))
 
+/// The lists.
 enum { TAB_FAVS, TAB_STATIONS, TAB_FOUND, NTABS };
 
 static struct {
     uint8_t *g;                 ///< the off-screen picture (PSRAM)
     radio_station_t *favs;      ///< PSRAM
-    int nfavs;
+    int nfavs;  ///< their count
     radio_station_t *found;     ///< search results (PSRAM)
-    int nfound;
-    char search[64];
+    int nfound;  ///< their count
+    char search[64];  ///< the search text
+    /// The list shown, and each list's selected row and top row.
     ///@{
     int tab, sel[NTABS], top[NTABS];
     ///@}
+    /// The last station played: its address and name.
     ///@{
     char last_url[200], last_name[64];
     ///@}
-    char msg[96];
-    uint32_t msg_until;
-    bool dragging_volume;
-    bool quit;
-} U;
+    char msg[96];  ///< a message for the status line
+    uint32_t msg_until;  ///< until when
+    bool dragging_volume;  ///< the volume slider is being dragged
+    bool quit;  ///< leaving
+} U;  ///< the browser's state
 
 // ---- Drawing into the off-screen picture -------------------------------------------------------------
 
@@ -115,6 +125,12 @@ static struct {
 /// pixel once each so nothing flickers) the screen itself.
 static uint8_t *dst;
 
+/// Fills a rectangle (clipped).
+/// @param x left
+/// @param y top
+/// @param w width
+/// @param h height
+/// @param c colour
 static void fill(int x, int y, int w, int h, uint8_t c) {
     if (x < 0) w += x, x = 0;
     if (y < 0) h += y, y = 0;
@@ -124,6 +140,12 @@ static void fill(int x, int y, int w, int h, uint8_t c) {
         memset(dst + (y + r) * W + x, c, w);
 }
 
+/// Draws a character.
+/// @param x left
+/// @param y top
+/// @param c the character
+/// @param fg its colour
+/// @param bg the background
 static void ch8(int x, int y, uint8_t c, uint8_t fg, uint8_t bg) {
     if (x < 0 || y < 0 || x > W - 8 || y > H - 16)
         return;
@@ -135,6 +157,14 @@ static void ch8(int x, int y, uint8_t c, uint8_t fg, uint8_t bg) {
 }
 
 /// Text cut to n characters (padded with the background if pad).
+/// @param x left
+/// @param y top
+/// @param s the text
+/// @param n the most characters
+/// @param fg its colour
+/// @param bg the background
+/// @param pad pad to n
+/// @return the x after it
 static int text(int x, int y, const char *s, int n, uint8_t fg, uint8_t bg, bool pad) {
     int i = 0;
     for (; s[i] && i < n; ++i)
@@ -145,6 +175,13 @@ static int text(int x, int y, const char *s, int n, uint8_t fg, uint8_t bg, bool
     return x + i * 8;
 }
 
+/// A bevelled rectangle.
+/// @param x left
+/// @param y top
+/// @param w width
+/// @param h height
+/// @param raised raised (else sunken)
+/// @param face its colour
 static void bevel(int x, int y, int w, int h, bool raised, uint8_t face) {
     fill(x, y, w, h, face);
     uint8_t a = raised ? C_LIGHT : C_DARK, b = raised ? C_DARK : C_LIGHT;
@@ -154,6 +191,13 @@ static void bevel(int x, int y, int w, int h, bool raised, uint8_t face) {
     fill(x + w - 1, y, 1, h, b);
 }
 
+/// A button.
+/// @param x left
+/// @param y top
+/// @param w width
+/// @param h height
+/// @param label its text
+/// @param lit pressed
 static void button(int x, int y, int w, int h, const char *label, bool lit) {
     uint8_t face = lit ? C_SEL : C_FACE;
     bevel(x, y, w, h, !lit, face);
@@ -162,6 +206,10 @@ static void button(int x, int y, int w, int h, const char *label, bool lit) {
 }
 
 /// Copies a region of the picture onto the screen.
+/// @param x left
+/// @param y top
+/// @param w width
+/// @param h height
 static void show(int x, int y, int w, int h) {
     for (int r = 0; r < h; ++r)
         memcpy(dvi_framebuf + (y + r) * W + x, U.g + (y + r) * W + x, w);
@@ -169,6 +217,7 @@ static void show(int x, int y, int w, int h) {
 
 // ---- Places to click ---------------------------------------------------------------------------------
 
+/// What a click hits.
 enum { HIT_TAB = 1, HIT_ROW, HIT_STAR, HIT_STOP, HIT_PLAY, HIT_FAV, HIT_VOLUME, HIT_MUTE, HIT_SEARCH, HIT_URL, HIT_QUIT };
 
 typedef struct {
@@ -177,13 +226,25 @@ typedef struct {
     ///@}
 } hit_t;
 static hit_t *hits;  ///< 64 of them, while the browser is open (PSRAM)
+/// Their count.
 static int nhits;
 
+/// Remembers a place to click.
+/// @param x left
+/// @param y top
+/// @param w width
+/// @param h height
+/// @param id HIT_*
+/// @param arg which
 static void hit(int x, int y, int w, int h, int id, int arg) {
     if (hits && nhits < 64)
         hits[nhits++] = (hit_t){x, y, w, h, id, arg};
 }
 
+/// The place under a point.
+/// @param x its x
+/// @param y its y
+/// @return the place, or NULL
 static const hit_t *hit_at(int x, int y) {
     for (int i = nhits - 1; i >= 0; --i)
         if (x >= hits[i].x && x < hits[i].x + hits[i].w && y >= hits[i].y && y < hits[i].y + hits[i].h)
@@ -193,16 +254,26 @@ static const hit_t *hit_at(int x, int y) {
 
 // ---- Stations and the INI file ---------------------------------------------------------------------------
 
+/// A list's length.
+/// @param tab the list
+/// @return its length
 static int list_len(int tab) {
     return tab == TAB_FAVS ? U.nfavs : tab == TAB_STATIONS ? NSTARTER : U.nfound;
 }
 
+/// A list's station.
+/// @param tab the list
+/// @param i the row
+/// @return it, or NULL
 static const radio_station_t *list_at(int tab, int i) {
     if (i < 0 || i >= list_len(tab))
         return NULL;
     return tab == TAB_FAVS ? &U.favs[i] : tab == TAB_STATIONS ? &starter[i] : &U.found[i];
 }
 
+/// A station's place in the favourites.
+/// @param url its address
+/// @return the index, or -1
 static int fav_index(const char *url) {
     for (int i = 0; i < U.nfavs; ++i)
         if (!strcmp(U.favs[i].url, url))
@@ -210,6 +281,9 @@ static int fav_index(const char *url) {
     return -1;
 }
 
+/// Sets the status line's message (5 seconds).
+/// @param fmt printf's format, one %s
+/// @param arg its argument
 static void message(const char *fmt, const char *arg) {
     snprintf(U.msg, sizeof U.msg, fmt, arg);
     U.msg_until = to_ms_since_boot(get_absolute_time()) + 5000;
@@ -238,6 +312,11 @@ static void save_ini(void) {
     f_close(&f);
 }
 
+/// Takes a field of a
+/// line.
+/// @param p the text (moved past it)
+/// @param out the field
+/// @param size room in out
 static void field(char **p, char *out, size_t size) {
     size_t n = strcspn(*p, "|\r\n");
     snprintf(out, size, "%.*s", (int)n, *p);
@@ -246,6 +325,7 @@ static void field(char **p, char *out, size_t size) {
         ++*p;
 }
 
+/// Loads /RADIO.INI: favourites, the last station and the volume.
 static void load_ini(void) {
     FIL f;
     if (f_open(&f, INI_PATH, FA_READ) != FR_OK)
@@ -279,6 +359,8 @@ static void load_ini(void) {
     f_close(&f);
 }
 
+/// Adds or removes a favourite.
+/// @param s the station
 static void toggle_fav(const radio_station_t *s) {
     if (!s)
         return;
@@ -296,8 +378,10 @@ static void toggle_fav(const radio_station_t *s) {
 
 // ---- Drawing the screen ----------------------------------------------------------------------------------
 
+/// The tabs' names.
 static const char *const tab_names[NTABS] = {"Favourites", "Stations", "Search"};
 
+/// Draws the title strip and the tabs.
 static void draw_top(void) {
     fill(0, 0, W, TOP_H, C_STRIP);
     text(8, 4, "Pico Radio", 10, C_YELLOW, C_STRIP, false);
@@ -324,6 +408,8 @@ static void draw_top(void) {
     hit(W - 4 - BTN_W(4), TABS_Y, BTN_W(4), 24, HIT_QUIT, 0);
 }
 
+/// Draws the station list.
+/// @param st the status (for the playing mark)
 static void draw_list(const radio_status_t *st) {
     bevel(LIST_X, LIST_Y, LIST_W, LIST_H, false, C_FIELD);
     int n = list_len(U.tab), *sel = &U.sel[U.tab], *top = &U.top[U.tab];
@@ -362,6 +448,13 @@ static void draw_list(const radio_status_t *st) {
 }
 
 /// Word-wrapped text in `lines` lines of `cols` characters.
+/// @param x left
+/// @param y top
+/// @param s the text
+/// @param cols columns
+/// @param lines lines
+/// @param fg its colour
+/// @param bg the background
 static void wrapped(int x, int y, const char *s, int cols, int lines, uint8_t fg, uint8_t bg) {
     for (int l = 0; l < lines; ++l) {
         int n = (int)strlen(s);
@@ -381,6 +474,8 @@ static void wrapped(int x, int y, const char *s, int cols, int lines, uint8_t fg
 }
 
 /// The parts that change all the time: the buffer, the meters, the volume.
+/// @param st the status
+/// @param quick just the values (else the labels and frames too)
 static void draw_live(const radio_status_t *st, bool quick) {
     int x = PANEL_X, y = LIST_Y, cols = (PANEL_W - 16) / 8;
     char line[48];
@@ -418,6 +513,8 @@ static void draw_live(const radio_status_t *st, bool quick) {
     }
 }
 
+/// Draws the playing panel.
+/// @param st the status
 static void draw_panel(const radio_status_t *st) {
     int x = PANEL_X, y = LIST_Y;
     bevel(x, y, PANEL_W, LIST_H, true, C_FACE);
@@ -464,6 +561,7 @@ static void draw_panel(const radio_status_t *st) {
     hit(fx, by, BTN_W(13), 26, HIT_FAV, 0);
 }
 
+/// Draws the status line.
 static void draw_status(void) {
     fill(0, STATUS_Y - 4, W, H - STATUS_Y + 4, C_FACE);
     fill(0, STATUS_Y - 4, W, 1, C_LIGHT);
@@ -473,7 +571,9 @@ static void draw_status(void) {
     text(8, STATUS_Y + 6, s, 78, U.msg[0] && s == U.msg ? C_YELLOW : C_LABEL, C_FACE, true);
 }
 
-/// Everything (list: the station list too; panel: the playing panel).
+/// The live parts: through the picture when the volume has moved, else
+/// the meters straight onto the screen.
+/// @param st the status
 static void redraw_live(const radio_status_t *st) {
     static int drawn_volume = -1;
     int vol_now = radio_volume() + (radio_muted() ? 1000 : 0);
@@ -488,6 +588,12 @@ static void redraw_live(const radio_status_t *st) {
     dst = U.g;
 }
 
+/// Draws parts of the screen and shows them (the station list brings the
+/// playing panel with it).
+/// @param list the station list too
+/// @param panel the playing panel
+/// @param status the status line
+/// @param st the status
 static void redraw(bool list, bool panel, bool status, const radio_status_t *st) {
     if (list) {
         nhits = 0;
@@ -516,6 +622,12 @@ static void redraw(bool list, bool panel, bool status, const radio_status_t *st)
 
 // ---- A line of input ------------------------------------------------------------------------------------
 
+/// A line of input in a box.
+/// @param title its title
+/// @param prompt the prompt
+/// @param buf the text
+/// @param size room in buf
+/// @return Enter (else Esc)
 static bool ask(const char *title, const char *prompt, char *buf, int size) {
     int w = 520, h = 112, x = (W - w) / 2, y = 150, pos = strlen(buf);
     // Kept to put back afterwards.
@@ -579,6 +691,8 @@ static bool ask(const char *title, const char *prompt, char *buf, int size) {
 
 // ---- Doing things --------------------------------------------------------------------------------------------
 
+/// A message on the status line, at once (before something slow).
+/// @param text_now the message
 static void busy_message(const char *text_now) {
     snprintf(U.msg, sizeof U.msg, "%s", text_now);
     U.msg_until = to_ms_since_boot(get_absolute_time()) + 60000;
@@ -586,6 +700,8 @@ static void busy_message(const char *text_now) {
     show(0, STATUS_Y - 4, W, H - STATUS_Y + 4);
 }
 
+/// Plays a station (the panel shows connecting).
+/// @param s the station
 static void play(const radio_station_t *s) {
     if (!s)
         return;
@@ -628,6 +744,7 @@ static void search(void) {
     }
 }
 
+/// URL...: plays an address typed in.
 static void play_url(void) {
     static char url[200] = "http://";
     if (!ask("Play an address", "An http:// or https:// stream, .pls or .m3u", url, sizeof url))
@@ -638,12 +755,17 @@ static void play_url(void) {
     play(&s);
 }
 
+/// Sets the volume.
+/// @param v 0-100
 static void volume_to(int v) {
     radio_set_volume(v);
 }
 
 // ---- The loop -------------------------------------------------------------------------------------------------
 
+/// Handles a key.
+/// @param k the key
+/// @param list_dirty set if the list must be drawn again
 static void key(int k, bool *list_dirty) {
     int n = list_len(U.tab), *sel = &U.sel[U.tab];
     const radio_station_t *s = list_at(U.tab, *sel);
@@ -675,6 +797,9 @@ static void key(int k, bool *list_dirty) {
     *list_dirty = true;
 }
 
+/// Handles a mouse event.
+/// @param e the event
+/// @param list_dirty set if the list must be drawn again
 static void click(const mouse_event_t *e, bool *list_dirty) {
     if (e->type == MOUSE_WHEEL) {
         int n = list_len(U.tab), *sel = &U.sel[U.tab];
@@ -724,6 +849,7 @@ static void click(const mouse_event_t *e, bool *list_dirty) {
     *list_dirty = true;
 }
 
+/// The station browser.
 static void browser(void) {
     memset(&U, 0, sizeof U);
     U.g = psram_malloc(W * H);
@@ -805,6 +931,7 @@ static void browser(void) {
 
 // ---- The command ------------------------------------------------------------------------------------------
 
+/// Prints what is playing.
 static void print_status(void) {
     radio_status_t st;
     radio_get_status(&st);
