@@ -55,6 +55,7 @@
 #include "tusb.h"
 #include "usb_keyboard.h"
 
+/// Where the ROMs and disks are looked for.
 #define DEFAULT_DIR "/APPLE2E"
 
 /// The framebuffer's second half: 150 KB.
@@ -62,17 +63,25 @@
 /// they go on the 240-line doubled screen; the rest of the framebuffer is
 /// free.
 #define SHOWN_ROWS 204
+/// The first framebuffer row of the picture.
 #define SHOWN_TOP  24
+/// The framebuffer below the picture: working memory while apple2e runs.
 #define SPARE      (dvi_framebuf + DVI_WIDTH * SHOWN_ROWS)
+/// Its size.
 #define SPARE_SIZE (DVI_WIDTH * (DVI_HEIGHT - SHOWN_ROWS))
+/// Main and aux RAM, and their language card banks.
 #define RAM_SIZE   (0x10000 * 2 + 0x1000 * 2)
+/// The Disk II card's state.
 #define DISK_AT    RAM_SIZE
+/// The machine's state.
 #define MACHINE_AT ((DISK_AT + sizeof(a2e_disk2) + 7) & ~(size_t)7)
 _Static_assert(MACHINE_AT + sizeof(a2e) <= SPARE_SIZE, "no room for the machine");
 
 #define FRAME_US_X1000 ((uint64_t)A2E_FRAME_CYCLES * 1000000000ull / A2E_CPU_HZ)  ///< 16688 us
 
 /// The SDK's malloc panics when SRAM runs out, so check first (as BASIC does).
+/// @param n bytes wanted
+/// @return true if malloc can give them
 static bool sram_free(size_t n) {
     extern char __StackLimit;  // top of the heap, from the SDK's linker script
     struct mallinfo mi = mallinfo();
@@ -81,10 +90,19 @@ static bool sram_free(size_t n) {
 
 // ---- Files ---------------------------------------------------------------------
 
+/// dir/name into out.
+/// @param out where it goes
+/// @param n its size
+/// @param dir the folder
+/// @param name the file
 static void join(char *out, size_t n, const char *dir, const char *name) {
     snprintf(out, n, "%s/%s", dir, name);
 }
 
+/// Whether two names are the same, any case.
+/// @param a one
+/// @param b the other
+/// @return true if they are
 static bool name_is(const char *a, const char *b) {
     for (; *a && *b; ++a, ++b)
         if ((*a | 0x20) != (*b | 0x20))
@@ -93,6 +111,11 @@ static bool name_is(const char *a, const char *b) {
 }
 
 /// Reads n bytes at pos of path into buf.
+/// @param path the file
+/// @param pos where
+/// @param buf where the bytes go
+/// @param n how many
+/// @return false if it couldn't
 static bool read_part(const char *path, uint32_t pos, void *buf, UINT n) {
     FIL f;
     if (f_open(&f, path, FA_READ) != FR_OK)
@@ -106,6 +129,11 @@ static bool read_part(const char *path, uint32_t pos, void *buf, UINT n) {
 /// Finds the IIe ROM (16 KB, or 32 KB with the image in the second half;
 /// APPLE2E.ROM first) and the Disk II boot ROM (any 256-byte file that is
 /// one) in dir.
+/// @param dir the folder
+/// @param rom where the IIe ROM goes
+/// @param p5 where the Disk II ROM goes
+/// @param have_p5 set if it was found
+/// @return false without the IIe ROM
 static bool find_roms(const char *dir, uint8_t *rom, uint8_t p5[256], bool *have_p5) {
     DIR d;
     FILINFO fi;
@@ -133,20 +161,28 @@ static bool find_roms(const char *dir, uint8_t *rom, uint8_t p5[256], bool *have
     return have_rom;
 }
 
+/// Whether s ends with ext, any case.
+/// @param s the string
+/// @param ext the ending
+/// @return true if it does
 static bool ends_with(const char *s, const char *ext) {
     size_t n = strlen(s), e = strlen(ext);
     return n >= e && name_is(s + n - e, ext);
 }
 
+/// The last part of a path.
+/// @param path the path
+/// @return the name
 static const char *base_name(const char *path) {
     const char *b = strrchr(path, '/');
     return b ? b + 1 : path;
 }
 
+/// A disk image and where it came from.
 typedef struct {
-    char path[300];
+    char path[300];  ///< its path
     uint8_t *image;  ///< PSRAM
-    bool read_only;
+    bool read_only;  ///< it can't be written back
 } disk_file;
 
 /// Why the last load_disk failed.
@@ -154,6 +190,10 @@ static char disk_error[120] APP_OV_DATA(apple2);
 
 /// Loads a 140 KB image, looking for name as given and then in dir. On
 /// failure, says why in disk_error (and on the serial console).
+/// @param df filled in
+/// @param name the image
+/// @param dir the folder
+/// @return false if it can't
 static bool load_disk(disk_file *df, const char *name, const char *dir) {
     FILINFO fi;
     const char *why = NULL;
@@ -181,6 +221,9 @@ static bool load_disk(disk_file *df, const char *name, const char *dir) {
     return true;
 }
 
+/// Writes a changed image back.
+/// @param df the disk
+/// @return false on failure
 static bool save_disk(const disk_file *df) {
     FIL f;
     UINT put = 0;
@@ -192,11 +235,19 @@ static bool save_disk(const disk_file *df) {
 
 // ---- The status line under the picture -------------------------------------------
 
+/// The status line's row.
 #define STATUS_Y 195
+/// Grey.
 #define C_GREY   RGB332(3, 3, 1)
+/// Red.
 #define C_RED    RGB332(7, 0, 0)
 
 /// Text in 6x8 cells (the 5x7 font with a column and a row of background).
+/// @param x the left
+/// @param y the top
+/// @param s the text
+/// @param fg the foreground
+/// @param bg the background
 static void draw_text_bg(int x, int y, const char *s, uint8_t fg, uint8_t bg) {
     for (; *s; ++s, x += 6) {
         uint8_t ch = (uint8_t)*s;
@@ -210,6 +261,11 @@ static void draw_text_bg(int x, int y, const char *s, uint8_t fg, uint8_t bg) {
     }
 }
 
+/// Text on black.
+/// @param x the left
+/// @param y the top
+/// @param s the text
+/// @param fg the colour
 static void draw_text(int x, int y, const char *s, uint8_t fg) {
     draw_text_bg(x, y, s, fg, 0);
 }
@@ -218,17 +274,27 @@ static void draw_text(int x, int y, const char *s, uint8_t fg) {
 static const char status_help[] = "F9 DISKS  F10 EXIT  F11 FAST DISK  F12 RESET  ALT/WIN: APPLE";
 static uint64_t message_until;  ///< the frame count when the message goes
 
+/// The status line.
+/// @param text the text
+/// @param colour its colour
 static void show_status(const char *text, uint8_t colour) {
     char line[66];
     snprintf(line, sizeof line, "%-64.64s", text);
     draw_text(40, STATUS_Y, line, colour);
 }
 
+/// A message on the status line for three seconds.
+/// @param text the text
+/// @param frames the frame now
 static void show_message(const char *text, uint64_t frames) {
     show_status(text, C_RED);
     message_until = frames + 180;  // three seconds
 }
 
+/// The drive lights on the status line, drawn when they change.
+/// @param disk the card
+/// @param have_card the card is in
+/// @param lights the lights as drawn, updated
 static void draw_lights(const a2e_disk2 *disk, bool have_card, bool lights[2]) {
     if (!have_card)
         return;
@@ -249,9 +315,14 @@ static void draw_lights(const a2e_disk2 *disk, bool have_card, bool lights[2]) {
 /// Keys waiting to be latched at $C000, one each time the program has read the
 /// last (so pasted text over the serial console isn't lost).
 static uint8_t keyq[64];
+/// The typed keys' queue's ends.
+///@{
 static unsigned keyq_head, keyq_tail;
+///@}
 static int ungetc_key = -1;  ///< a character read after a lone Esc
 
+/// Queues a key for the Apple.
+/// @param c the key
 static void key_put(uint8_t c) {
     unsigned next = (keyq_head + 1) % sizeof keyq;
     if (next != keyq_tail) {
@@ -267,6 +338,8 @@ enum {
     K_F7, K_F8, K_F9, K_F10, K_F11, K_F12,
 };
 
+/// A key as typed on the console: ASCII, or a K_ value for an escape sequence.
+/// @return the key, or -1
 static int get_key(void) {
     int c = getchar_timeout_us(0);
     if (c != 0x1b)
@@ -302,9 +375,11 @@ static int get_key(void) {
     return get_key();  // a sequence we don't use
 }
 
+/// What the keys asked for besides typing.
 enum { ACT_NONE, ACT_RESET, ACT_EXIT, ACT_FAST, ACT_DISKS, ACT_QUIETER, ACT_LOUDER };
 
 /// Turns the keys typed into Apple keys, or one of the actions above.
+/// @return an ACT_ action
 static int read_keys(void) {
     int c;
     for (;;) {
@@ -337,6 +412,7 @@ static int read_keys(void) {
 /// The Apple keys and a USB joystick or gamepad: its stick is paddles 0 and 1
 /// and its first three buttons the IIe's buttons 0-2, together with the Alt
 /// and Win keys for 0 and 1.
+/// @param m the machine
 static void read_buttons(a2e *m) {
     uint8_t mods = usb_keyboard_modifiers(), x, y;
     uint32_t pad = 0;
@@ -352,16 +428,28 @@ static void read_buttons(a2e *m) {
 
 // ---- Changing disks ------------------------------------------------------------------
 
+/// The longest disk name kept.
 #define NAME_MAX_LEN 64
+/// Names on the list.
 #define LIST_ROWS    18
+/// The list's box.
 #define C_BOX        RGB332(0, 0, 1)
+/// Its text.
 #define C_TEXT       RGB332(7, 7, 3)
 
+/// qsort's order for names.
+/// @param a one
+/// @param b the other
+/// @return <0, 0 or >0
 static int name_cmp(const void *a, const void *b) {
     return strcasecmp(a, b);
 }
 
 /// The disk images in dir (140 KB .dsk, .do or .po files), sorted by name.
+/// @param dir the folder
+/// @param names where the names go
+/// @param max room in names
+/// @return how many
 static int list_disks(const char *dir, char (*names)[NAME_MAX_LEN], int max) {
     DIR d;
     FILINFO fi;
@@ -380,11 +468,17 @@ static int list_disks(const char *dir, char (*names)[NAME_MAX_LEN], int max) {
     return n;
 }
 
+/// What pick_disk was asked to do.
 enum { PICK_CANCEL, PICK_INSERT, PICK_BOOT, PICK_EJECT };
 
 /// The disk list over the picture. Tab switches drive; Return puts the chosen
 /// image in it, B puts it in drive 1 and starts the Apple from it, E takes
 /// the drive's disk out, Esc goes back. The machine waits meanwhile.
+/// @param dir the folder
+/// @param df the disks in the drives
+/// @param drive the drive, changed with Tab
+/// @param out set to the image picked
+/// @return a PICK_ action
 static int pick_disk(const char *dir, const disk_file *df, int *drive, char *out) {
     char(*names)[NAME_MAX_LEN] = psram_malloc(128 * NAME_MAX_LEN);
     if (!names)
@@ -439,6 +533,12 @@ static int pick_disk(const char *dir, const disk_file *df, int *drive, char *out
 
 /// Takes drive d's disk out (saving it first if it changed) and puts name in,
 /// if given.
+/// @param disk the card
+/// @param df the disks
+/// @param d the drive
+/// @param name the new image, or NULL
+/// @param dir the folder
+/// @return false if it couldn't
 static bool change_disk(a2e_disk2 *disk, disk_file *df, int d, const char *name, const char *dir) {
     a2e_disk2_flush(disk, d);
     if (df[d].image) {
@@ -459,14 +559,23 @@ static bool change_disk(a2e_disk2 *disk, disk_file *df, int d, const char *name,
 // ---- Sound -----------------------------------------------------------------------
 
 /// Cycle counts to time_us_64() times, on the schedule the frames keep.
+/// The time a frame started, and its first cycle.
+///@{
 static uint64_t sched_us, sched_cycle;
+///@}
 
+/// A cycle as a time_us_64() time on the frames' schedule.
+/// @param cycle the cycle
+/// @return microseconds
 static uint64_t cycle_time(uint64_t cycle) {
     return sched_us + (cycle - sched_cycle) * 1000000ull / A2E_CPU_HZ;
 }
 
 static bool accelerating;  ///< fast disk running: no sound
 
+/// The speaker's clicks to the sound (not while the disk runs fast).
+/// @param user not used
+/// @param cycle when
 static void speaker(void *user, uint64_t cycle) {
     if (!accelerating)
         audio_speaker_click(cycle_time(cycle));
@@ -474,6 +583,11 @@ static void speaker(void *user, uint64_t cycle) {
 
 /// While the disk runs fast the frames' times run ahead of the clock, so the
 /// sound chips get their writes straight away instead.
+/// @param user not used
+/// @param chip 0 or 1
+/// @param reg the register
+/// @param value the value
+/// @param cycle when
 static void mockingboard_write(void *user, int chip, uint8_t reg, uint8_t value, uint64_t cycle) {
     audio_ay_write((unsigned)chip, reg, value, accelerating ? time_us_64() : cycle_time(cycle));
 }

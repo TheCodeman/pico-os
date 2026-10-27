@@ -20,36 +20,55 @@
 #include "a2e_mousetext.h"
 #include "as_font.h"
 
+/// The left margin: 560 dots centred in 640.
 #define X0  40
+/// The framebuffer's width.
 #define FBW A2E_FB_WIDTH
 
 /// Where drawing goes: the framebuffer, the first picture line's row, and
 /// framebuffer rows per Apple line (1 or 2).
 typedef struct {
-    uint8_t *fb;
+    uint8_t *fb;  ///< the framebuffer
+    /// the first row, and lines per Apple line (1 or 2)
     ///@{
     int y0, ys;
     ///@}
 } target;
 
+/// A colour as RGB332.
 #define RGB(r, g, b) ((uint8_t)(((r) << 5) | ((g) << 2) | (b)))
 
+/// The 16 lo-res colours.
 static const uint8_t lores_rgb[16] = {
     RGB(0, 0, 0), RGB(4, 0, 1), RGB(2, 1, 2), RGB(6, 2, 3), RGB(0, 3, 1), RGB(4, 4, 2),
     RGB(1, 4, 3), RGB(5, 5, 3), RGB(2, 2, 0), RGB(6, 3, 0), RGB(4, 4, 2), RGB(7, 4, 2),
     RGB(1, 5, 0), RGB(5, 6, 1), RGB(3, 7, 2), RGB(7, 7, 3),
 };
+/// Black.
 #define C_BLACK  RGB(0, 0, 0)
+/// White.
 #define C_WHITE  RGB(7, 7, 3)
+/// Hi-res violet.
 #define C_VIOLET RGB(6, 2, 3)
+/// Hi-res green.
 #define C_GREEN  RGB(1, 5, 0)
+/// Hi-res blue.
 #define C_BLUE   RGB(1, 4, 3)
+/// Hi-res orange.
 #define C_ORANGE RGB(6, 3, 0)
 
+/// A text (or lo-res) row's address.
+/// @param r the row
+/// @param page2 page 2
+/// @return the address
 static uint16_t text_row_addr(int r, bool page2) {
     return (uint16_t)((page2 ? 0x800 : 0x400) + (r & 7) * 128 + (r >> 3) * 40);
 }
 
+/// A hi-res line's address.
+/// @param y the line
+/// @param page2 page 2
+/// @return the address
 static uint16_t hgr_line_addr(int y, bool page2) {
     return (uint16_t)((page2 ? 0x4000 : 0x2000) + ((y & 7) << 10) + (((y >> 3) & 7) << 7) +
                       (y >> 6) * 40);
@@ -57,12 +76,20 @@ static uint16_t hgr_line_addr(int y, bool page2) {
 
 /// MouseText: with the alternate set, $40-$5F are its graphics, shown as
 /// they are (not inverse).
+/// @param code the screen code
+/// @param altchar the alternate set is on
+/// @return true for MouseText
 static bool is_mousetext(uint8_t code, bool altchar) {
     return altchar && code >= 0x40 && code < 0x60;
 }
 
 /// A screen code as the character generator shows it: the glyph ($20-$7F) and
 /// whether it is inverse. Flashing characters are inverse half the time.
+/// @param code the screen code
+/// @param altchar the alternate set
+/// @param flash_on flashing characters are inverse now
+/// @param inv set if it is inverse
+/// @return the glyph
 static uint8_t glyph(uint8_t code, bool altchar, bool flash_on, bool *inv) {
     *inv = false;
     if (code < 0x40) {
@@ -84,6 +111,13 @@ static uint8_t glyph(uint8_t code, bool altchar, bool flash_on, bool *inv) {
 
 /// One character cell: w dots wide (14 in 40 columns, 7 in 80), 8 lines high,
 /// at framebuffer row y.
+/// @param t where to draw
+/// @param x the left
+/// @param y the top row
+/// @param code the screen code
+/// @param altchar the alternate set
+/// @param flash_on the flash phase
+/// @param w the cell's width
 static void draw_char(const target *t, int x, int y, uint8_t code, bool altchar, bool flash_on,
                       int w) {
     bool inv;
@@ -107,6 +141,12 @@ static void draw_char(const target *t, int x, int y, uint8_t code, bool altchar,
     }
 }
 
+/// Draws a row of 40 or 80-column text.
+/// @param m the machine
+/// @param t where
+/// @param r the row
+/// @param page2 page 2
+/// @param flash_on the flash phase
 static void draw_text_row(const a2e *m, const target *t, int r, bool page2, bool flash_on) {
     uint16_t base = text_row_addr(r, page2);
     int y = t->y0 + r * 8 * t->ys;
@@ -123,11 +163,23 @@ static void draw_text_row(const a2e *m, const target *t, int r, bool page2, bool
 }
 
 /// A block w dots wide and h Apple lines high from framebuffer row y.
+/// @param t where
+/// @param x the left
+/// @param y the top row
+/// @param w the width
+/// @param h the height
+/// @param col the colour
 static void fill_block(const target *t, int x, int y, int w, int h, uint8_t col) {
     for (int k = 0; k < h * t->ys; ++k)
         memset(t->fb + (y + k) * FBW + x, col, (size_t)w);
 }
 
+/// Draws a row of lo-res (or double lo-res) blocks.
+/// @param m the machine
+/// @param t where
+/// @param r the row
+/// @param page2 page 2
+/// @param dbl double lo-res
 static void draw_lores_row(const a2e *m, const target *t, int r, bool page2, bool dbl) {
     uint16_t base = text_row_addr(r, page2);
     int y = t->y0 + r * 8 * t->ys, half_y = 4 * t->ys;
@@ -151,6 +203,11 @@ static void draw_lores_row(const a2e *m, const target *t, int r, bool page2, boo
     }
 }
 
+/// Draws a hi-res line with its NTSC colours.
+/// @param m the machine
+/// @param t where
+/// @param y the line
+/// @param page2 page 2
 static void draw_hgr_line(const a2e *m, const target *t, int y, bool page2) {
     uint16_t base = hgr_line_addr(y, page2);
     uint8_t bits[282], hb[282];
@@ -192,6 +249,11 @@ static void draw_hgr_line(const a2e *m, const target *t, int y, bool page2) {
         memcpy(p + FBW, p, 560);
 }
 
+/// Draws a double hi-res line (16 colours, 140 across).
+/// @param m the machine
+/// @param t where
+/// @param y the line
+/// @param page2 page 2
 static void draw_dhgr_line(const a2e *m, const target *t, int y, bool page2) {
     // 560 dots: aux byte then main byte for each column, 7 dots each, low bit
     // first. Every 4 dots make one of 16 colours (140 across).
@@ -216,16 +278,31 @@ static void draw_dhgr_line(const a2e *m, const target *t, int y, bool page2) {
 /// What one text row (8 Apple lines) shows.
 enum { ROW_TEXT, ROW_LORES, ROW_HIRES };
 
+/// What a row shows: text, lo-res or hi-res.
+/// @param m the machine
+/// @param r the row
+/// @return a ROW_ kind
 static int row_kind(const a2e *m, int r) {
     if (m->text || (m->mixed && r >= 20))
         return ROW_TEXT;
     return m->hires ? ROW_HIRES : ROW_LORES;
 }
 
+/// Whether flashing characters are inverse now.
+/// @param m the machine
+/// @return the flash phase
 static bool flash_phase(const a2e *m) {
     return (m->cycles / (A2E_FRAME_CYCLES * 16)) & 1;
 }
 
+/// Draws a row (its lines in line_mask, for hi-res).
+/// @param m the machine
+/// @param t where
+/// @param r the row
+/// @param kind a ROW_ kind
+/// @param page2 page 2
+/// @param flash_on the flash phase
+/// @param line_mask the lines to draw
 static void draw_row(const a2e *m, const target *t, int r, int kind, bool page2, bool flash_on,
                      uint8_t line_mask) {
     bool dbl = m->col80 && m->dhires;
@@ -254,6 +331,9 @@ void a2e_video_draw(const a2e *m, uint8_t *fb) {
 // ---- Drawing only what changed ---------------------------------------------------
 
 /// A hash of 40 bytes of screen memory (always 8-byte aligned).
+/// @param p the bytes
+/// @param h the hash so far
+/// @return the hash
 static uint32_t hash40(const uint8_t *p, uint32_t h) {
     const uint32_t *w = (const uint32_t *)p;
     for (int i = 0; i < 10; ++i)

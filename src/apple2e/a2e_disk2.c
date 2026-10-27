@@ -12,6 +12,7 @@
 
 #include <string.h>
 
+/// The volume number written in the address fields.
 #define VOLUME 254
 
 /// 6&2 encoding: the 64 disk bytes a 6-bit value is written as.
@@ -24,8 +25,14 @@ static const uint8_t to_disk[64] = {
 
 /// Where each physical sector of a track is in the image file.
 static const uint8_t dos_order[16] = {0, 7, 14, 6, 13, 5, 12, 4, 11, 3, 10, 2, 9, 1, 8, 15};
+/// ProDOS order: physical sectors to the image's.
 static const uint8_t prodos_order[16] = {0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15};
 
+/// A sector's 256 bytes in the image.
+/// @param d the drive
+/// @param track the track
+/// @param phys the physical sector
+/// @return its bytes
 static uint8_t *sector_data(a2e_drive *d, int track, int phys) {
     const uint8_t *order = d->prodos_order ? prodos_order : dos_order;
     return d->image + (track * 16 + order[phys]) * 256;
@@ -33,6 +40,8 @@ static uint8_t *sector_data(a2e_drive *d, int track, int phys) {
 
 // ---- Nibblizing ----------------------------------------------------------------
 
+/// Makes the current track's nibbles from the image (6&2 encoding, address and data fields with their gaps).
+/// @param d the drive
 static void nibblize(a2e_drive *d) {
     uint8_t *n = d->nib;
     int p = 0;
@@ -82,16 +91,25 @@ static void nibblize(a2e_drive *d) {
 
 static uint8_t from_disk[256] APP_OV_DATA(apple2);  ///< 0xff: not a valid disk byte
 
+/// A nibble of the track, wrapping round.
+/// @param d the drive
+/// @param i its place
+/// @return the nibble
 static uint8_t nib_at(const a2e_drive *d, int i) {
     return d->nib[i % A2E_NIB_TRACK];
 }
 
+/// A 4&4 encoded byte from two nibbles.
+/// @param d the drive
+/// @param i the first nibble's place
+/// @return the byte
 static int odd_even(const a2e_drive *d, int i) {
     return ((nib_at(d, i) << 1) | 1) & nib_at(d, i + 1);
 }
 
 /// Finds each sector's address and data fields on the track and stores the
 /// sectors that decode cleanly back into the image.
+/// @param d the drive
 static void denibblize(a2e_drive *d) {
     if (!from_disk[0x96]) {
         memset(from_disk, 0xff, sizeof from_disk);
@@ -136,12 +154,16 @@ static void denibblize(a2e_drive *d) {
 
 // ---- The drive -----------------------------------------------------------------
 
+/// Writes the current track back into the image if it changed.
+/// @param d the drive
 static void flush_track(a2e_drive *d) {
     if (d->track_dirty && d->image && d->track >= 0)
         denibblize(d);
     d->track_dirty = false;
 }
 
+/// Loads the track under the head (writing back the last one first).
+/// @param d the drive
 static void load_track(a2e_drive *d) {
     int t = d->halftrack >> 1;
     if (t == d->track)
@@ -154,6 +176,10 @@ static void load_track(a2e_drive *d) {
         memset(d->nib, 0, sizeof d->nib);
 }
 
+/// A stepper phase on or off: the head moves a half track towards the magnet next to it.
+/// @param c the card
+/// @param phase 0-3
+/// @param on on or off
 static void step(a2e_disk2 *c, int phase, bool on) {
     if (on)
         c->phases |= (uint8_t)(1u << phase);
@@ -174,6 +200,12 @@ static void step(a2e_disk2 *c, int phase, bool on) {
     d->halftrack = ht;
 }
 
+/// The card's I/O at $C0n8-$C0nF: motor, drive select, the latch, read and write.
+/// @param ctx the card
+/// @param r the switch
+/// @param write a write
+/// @param v the byte written
+/// @return the byte read
 static uint8_t disk_io(void *ctx, uint8_t r, bool write, uint8_t v) {
     a2e_disk2 *c = ctx;
     switch (r) {

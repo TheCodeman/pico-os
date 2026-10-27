@@ -20,11 +20,14 @@
 #include "pico.h"
 #define FAST(f) __attribute__((section("app_ov_apple2." #f))) f  ///< the apps' SRAM area (app_overlay.h)
 #else
+/// PC builds: the hot functions stay where they are.
 #define FAST(f) f
 #endif
 
 // ---- The page tables --------------------------------------------------------
 
+/// Points each page's read and write at the memory the MMU's switches select.
+/// @param m the machine
 static void remap(a2e *m) {
     uint8_t *zp = m->altzp ? m->aux : m->main;
     for (int p = 0; p < 2; ++p)
@@ -68,6 +71,13 @@ static void remap(a2e *m) {
 /// video circuits last fetched; nothing here depends on that yet.
 #define FLOATING 0xa0
 
+/// The $C100-$CFFF area: a slot card's ROM or handler, or the internal ROM, as INTCXROM, SLOTC3ROM and the expansion ROM select.
+/// @param m the machine
+/// @param a the address
+/// @param side_effects a real access (not a peek)
+/// @param write a write
+/// @param wv the byte written
+/// @return the byte read
 static uint8_t FAST(cx_access)(a2e *m, uint16_t a, bool side_effects, bool write, uint8_t wv) {
     unsigned page = a >> 8;
     uint8_t v;
@@ -99,6 +109,10 @@ static uint8_t FAST(cx_access)(a2e *m, uint16_t a, bool side_effects, bool write
 
 // ---- The I/O page ------------------------------------------------------------
 
+/// A language card soft switch ($C080-$C08F): bank, read RAM or ROM, write enable after two reads.
+/// @param m the machine
+/// @param r the switch's low nybble
+/// @param write a write access
 static void lc_switch(a2e *m, uint8_t r, bool write) {
     // $C080-$C08F: bit 3 picks bank 1, bits 0-1 what reads and writes reach.
     // Writing to RAM needs two reads in a row of an odd address.
@@ -119,6 +133,12 @@ static void lc_switch(a2e *m, uint8_t r, bool write) {
     remap(m);
 }
 
+/// The I/O page $C000-$C0FF: the keyboard, soft switches, speaker, paddles, buttons and slot I/O.
+/// @param m the machine
+/// @param a the address
+/// @param write a write
+/// @param v the byte written
+/// @return the byte read
 static uint8_t FAST(io)(a2e *m, uint16_t a, bool write, uint8_t v) {
     uint8_t r = a & 0xff;
     uint8_t kbd = m->key | (m->strobe ? 0x80 : 0);
@@ -256,6 +276,10 @@ static uint8_t FAST(io)(a2e *m, uint16_t a, bool write, uint8_t v) {
 
 // ---- The CPU's bus -------------------------------------------------------------
 
+/// The CPU's read: mapped memory, else I/O or the $Cxxx ROM area.
+/// @param ctx the machine
+/// @param a the address
+/// @return the byte
 static uint8_t FAST(cpu_read)(void *ctx, uint16_t a) {
     a2e *m = ctx;
     const uint8_t *p = m->rd[a >> 8];
@@ -264,6 +288,10 @@ static uint8_t FAST(cpu_read)(void *ctx, uint16_t a) {
     return a < 0xc100 ? io(m, a, false, 0) : cx_access(m, a, true, false, 0);
 }
 
+/// The CPU's write: mapped memory, else I/O or the $Cxxx area.
+/// @param ctx the machine
+/// @param a the address
+/// @param v the byte
 static void FAST(cpu_write)(void *ctx, uint16_t a, uint8_t v) {
     a2e *m = ctx;
     uint8_t *p = m->wr[a >> 8];
@@ -306,6 +334,8 @@ void a2e_reset(a2e *m) {
     as_cpu_reset(&m->cpu);
 }
 
+/// Runs the slot cards' events that are due.
+/// @param m the machine
 static void run_events(a2e *m) {
     for (int s = 0; s < 8; ++s)
         if (m->slot_event_at[s] <= m->cycles) {

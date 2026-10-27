@@ -17,20 +17,33 @@
 
 #include <string.h>
 
+/// The 6522's registers.
 enum {
     ORB, ORA, DDRB, DDRA, T1CL, T1CH, T1LL, T1LH, T2CL, T2CH, SR, ACR, PCR, IFR, IER, ORA_NH,
 };
+/// The interrupt flag of timer 1.
 #define IF_T1 0x40
+/// The interrupt flag of timer 2.
 #define IF_T2 0x20
 
+/// Timer 1's value at a cycle.
+/// @param v the VIA
+/// @param now the cycle
+/// @return the value
 static uint16_t t1_now(const a2e_via *v, uint64_t now) {
     return (uint16_t)(v->t1_value - (uint16_t)(now - v->t1_base));
 }
 
+/// Timer 2's value at a cycle.
+/// @param v the VIA
+/// @param now the cycle
+/// @return the value
 static uint16_t t2_now(const a2e_via *v, uint64_t now) {
     return (uint16_t)(v->t2_value - (uint16_t)(now - v->t2_base));
 }
 
+/// Sets the IRQ line and asks for the next timer event.
+/// @param mb the card
 static void update(a2e_mockingboard *mb) {
     bool irq = false;
     uint64_t next = UINT64_MAX;
@@ -46,12 +59,19 @@ static void update(a2e_mockingboard *mb) {
     a2e_set_event(mb->m, mb->slot, next);
 }
 
+/// Passes a write to an AY chip on to the host.
+/// @param mb the card
+/// @param chip 0 or 1
+/// @param reg the register
+/// @param value the value
 static void ay_out(a2e_mockingboard *mb, int chip, uint8_t reg, uint8_t value) {
     if (mb->ay_write)
         mb->ay_write(mb->user, chip, reg, value, mb->m->cycles);
 }
 
 /// Port B's lines to the sound chip after a write to it or port A.
+/// @param mb the card
+/// @param chip 0 or 1
 static void ay_control(a2e_mockingboard *mb, int chip) {
     a2e_via *v = &mb->via[chip];
     uint8_t ctl = v->orb & v->ddrb, data = v->ora & v->ddra;
@@ -77,6 +97,13 @@ static void ay_control(a2e_mockingboard *mb, int chip) {
     }
 }
 
+/// A VIA register read or written, with the timers worked out from the cycle count.
+/// @param mb the card
+/// @param chip 0 or 1
+/// @param reg the register
+/// @param write a write
+/// @param val the byte written
+/// @return the byte read
 static uint8_t via_access(a2e_mockingboard *mb, int chip, uint8_t reg, bool write, uint8_t val) {
     a2e_via *v = &mb->via[chip];
     uint64_t now = mb->m->cycles;
@@ -141,12 +168,20 @@ static uint8_t via_access(a2e_mockingboard *mb, int chip, uint8_t reg, bool writ
     return r;
 }
 
+/// The card's $Cn00-$CnFF: the two VIAs.
+/// @param ctx the card
+/// @param addr the address's low byte
+/// @param write a write
+/// @param val the byte written
+/// @return the byte read
 static uint8_t mb_mem(void *ctx, uint8_t addr, bool write, uint8_t val) {
     return via_access(ctx, addr >> 7, addr & 0x0f, write, val);
 }
 
 /// A timer passing zero: its flag goes up; Timer 1 in free-run mode (ACR bit
 /// 6) reloads from its latch, a cycle and a count later.
+/// @param ctx the card
+/// @param at the cycle it happened
 static void mb_event(void *ctx, uint64_t at) {
     a2e_mockingboard *mb = ctx;
     uint64_t now = mb->m->cycles;
@@ -178,6 +213,7 @@ static void mb_event(void *ctx, uint64_t at) {
 
 /// The reset line: the VIAs' registers clear (their timers stop
 /// interrupting) and the sound chips go quiet.
+/// @param ctx the card
 static void mb_reset(void *ctx) {
     a2e_mockingboard *mb = ctx;
     for (int i = 0; i < 2; ++i) {
