@@ -29,24 +29,24 @@
 #include "xm.h"
 
 // ---- Layout -----------------------------------------------------------------------------------------
-#define TOP_Y    16
+#define TOP_Y    16  ///< the panels under the menu bar
 #define LIST_W   192    ///< the instruments
 #define PARAM_X  192    ///< the instrument's and the sample's settings
-#define PARAM_W  256
+#define PARAM_W  256  ///< the settings' width
 #define SMP_X    448    ///< the instrument's samples
-#define SMP_W    192
-#define TOP_H    176
-#define WAVE_Y   192
-#define WAVE_H   96
-#define ENV_Y    290
-#define ENV_H    112
-#define ENV_W    320
-#define ENVBAR_Y (ENV_Y + ENV_H)
-#define KEYS_Y   424
-#define KEYS_X   32
-#define KEY_W    6
-#define STATUS_Y 464
-#define ROWS     10
+#define SMP_W    192  ///< the samples' width
+#define TOP_H    176  ///< the panels' height
+#define WAVE_Y   192  ///< the waveform's top
+#define WAVE_H   96  ///< its height
+#define ENV_Y    290  ///< the envelopes' top
+#define ENV_H    112  ///< their height
+#define ENV_W    320  ///< an envelope's width
+#define ENVBAR_Y (ENV_Y + ENV_H)  ///< the envelope buttons' row
+#define KEYS_Y   424  ///< the keymap's row
+#define KEYS_X   32  ///< its left
+#define KEY_W    6  ///< a key's width
+#define STATUS_Y 464  ///< the status line's top
+#define ROWS     10  ///< instrument rows shown
 
 /// The settings, in the order Up/Down go through them.
 enum {
@@ -55,19 +55,23 @@ enum {
     F_VENV, F_VSUS, F_VLOOPS, F_VLOOPE, F_PENV, F_PSUS, F_PLOOPS, F_PLOOPE,
     F_COUNT,
 };
+/// The settings' names.
 static const char *const field_names[F_COUNT] = {
     "Name", "Fadeout", "Vib type", "Vib sweep", "Vib depth", "Vib rate",
     "Sample", "Volume", "Pan", "Finetune", "Rel note", "Loop", "Loop at", "Loop len",
     "Vol env", "Sustain", "Loop from", "Loop to", "Pan env", "Sustain", "Loop from", "Loop to",
 };
 
+/// What a click hits.
 enum {
     IH_INSTR = 500, IH_SAMPLE, IH_FIELD, IH_DEC, IH_INC, IH_WAVE, IH_ENV, IH_KEY, IH_TOOL,
 };
+/// The tools menu's items.
 enum { IT_LOAD = 1, IT_ADD, IT_DEL, IT_NEWINS, IT_PATTERNS };
 
 static struct {
     int smp;          ///< the sample chosen in the instrument (0-based)
+    /// The setting with the keyboard, and the first instrument shown.
     ///@{
     int field, ins_top;
     ///@}
@@ -81,13 +85,17 @@ static struct {
     ///@{
     uint32_t sel0, sel1;
     ///@}
-} I;
+} I;  ///< the instrument editor's state
 
+/// The song.
+/// @return it
 static xm_song_t *S(void) {
     return T->xm;
 }
 
 /// The instrument chosen, made (and the list grown) if it doesn't exist yet.
+/// @param make make it if it doesn't exist
+/// @return it, or NULL
 static xm_instrument_t *instrument(bool make) {
     xm_song_t *s = S();
     int n = T->sample;
@@ -113,6 +121,8 @@ static xm_instrument_t *instrument(bool make) {
     return &list[n - 1];
 }
 
+/// The sample chosen.
+/// @return it, or NULL
 static xm_sample_t *sample(void) {
     xm_instrument_t *in = instrument(false);
     if (!in || I.smp >= in->nsamples)
@@ -122,6 +132,8 @@ static xm_sample_t *sample(void) {
 
 // ---- Changing things -------------------------------------------------------------------------
 
+/// Keeps a sample's loop inside it.
+/// @param sm the sample
 static void fix_loop(xm_sample_t *sm) {
     if (sm->loop_start > sm->length)
         sm->loop_start = sm->length;
@@ -131,10 +143,18 @@ static void fix_loop(xm_sample_t *sm) {
         sm->loop = 0;
 }
 
+/// A value kept within limits.
+/// @param v the value
+/// @param lo the lowest
+/// @param hi the highest
+/// @return v, clamped
 static int clampi(int v, int lo, int hi) {
     return v < lo ? lo : v > hi ? hi : v;
 }
 
+/// The envelope a setting belongs to.
+/// @param f the setting
+/// @return it, or NULL
 static xm_env_t *env_of(int f) {
     xm_instrument_t *in = instrument(false);
     if (!in)
@@ -142,6 +162,9 @@ static xm_env_t *env_of(int f) {
     return f >= F_PENV ? &in->penv : &in->venv;
 }
 
+/// Changes a setting by a step.
+/// @param f the setting
+/// @param d the step (16 or more: a big one)
 static void field_step(int f, int d) {
     xm_instrument_t *in = instrument(f <= F_VRATE);
     xm_sample_t *sm = sample();
@@ -219,6 +242,8 @@ static void field_step(int f, int d) {
     T->dirty = true;
 }
 
+/// Edits a setting by typing.
+/// @param f the setting
 static void field_enter(int f) {
     xm_instrument_t *in = instrument(f == F_NAME);
     xm_sample_t *sm = sample();
@@ -279,6 +304,8 @@ static void field_enter(int f) {
 
 /// Relative note and finetune so that C-4 plays the sample at `rate` (FT2
 /// plays C-4 at 8363 Hz with neither).
+/// @param sm the sample
+/// @param rate its rate (Hz)
 static void tune_to_rate(xm_sample_t *sm, double rate) {
     if (rate < 100)
         return;
@@ -289,11 +316,18 @@ static void tune_to_rate(xm_sample_t *sm, double rate) {
     sm->finetune = clampi(ft, -128, 127);
 }
 
+/// The rate C-4 plays a sample at.
+/// @param sm the sample
+/// @return Hz
 static double rate_of(const xm_sample_t *sm) {
     return 8363.0 * pow(2.0, (sm->relnote + sm->finetune / 128.0) / 12.0);
 }
 
 /// A WAV file as 16-bit mono (stereo mixed), its loop from the smpl chunk.
+/// @param f the file
+/// @param size its size
+/// @param sm the sample
+/// @return NULL, or an error
 static const char *load_wav16(const uint8_t *f, uint32_t size, xm_sample_t *sm) {
     if (size < 12 || memcmp(f, "RIFF", 4) || memcmp(f + 8, "WAVE", 4))
         return "only WAV files";
@@ -373,6 +407,7 @@ static const char *load_wav16(const uint8_t *f, uint32_t size, xm_sample_t *sm) 
     return NULL;
 }
 
+/// Loads a WAV into the instrument as a new sample.
 static void load_sample(void) {
     xm_instrument_t *in = instrument(true);
     if (!in)
@@ -426,6 +461,7 @@ static void load_sample(void) {
     trk_message("Loaded %lu samples (16-bit) into sample %d.", (unsigned long)sm->length, I.smp);
 }
 
+/// Deletes the sample chosen.
 static void delete_sample(void) {
     xm_instrument_t *in = instrument(false);
     if (!in || I.smp >= in->nsamples)
@@ -448,6 +484,9 @@ static void delete_sample(void) {
 // ---- The tools (the Instrument menu) -------------------------------------------------------------
 
 /// The selection, or all of the sample.
+/// @param sm the sample
+/// @param a set to the first
+/// @param b to the one after the last
 static void range(const xm_sample_t *sm, uint32_t *a, uint32_t *b) {
     if (I.sel1 > I.sel0 && I.sel1 <= sm->length) {
         *a = I.sel0;
@@ -458,6 +497,8 @@ static void range(const xm_sample_t *sm, uint32_t *a, uint32_t *b) {
     }
 }
 
+/// The sample chosen, if it has sound (else a message).
+/// @return it, or NULL
 static xm_sample_t *have_sample(void) {
     xm_sample_t *sm = sample();
     if (sm && sm->length && sm->data)
@@ -466,6 +507,9 @@ static xm_sample_t *have_sample(void) {
     return NULL;
 }
 
+/// Whether part of a sample is selected (else a message).
+/// @param sm the sample
+/// @return it is
 static bool have_selection(const xm_sample_t *sm) {
     if (I.sel1 > I.sel0 && I.sel1 <= sm->length)
         return true;
@@ -473,11 +517,16 @@ static bool have_selection(const xm_sample_t *sm) {
     return false;
 }
 
+/// A value clamped to 16 bits.
+/// @param v the value
+/// @return it
 static int clamp16(int v) {
     return v < -32768 ? -32768 : v > 32767 ? 32767 : v;
 }
 
 /// Sound for a sample: one more than the length (the mixer reads past the end).
+/// @param len the length
+/// @return the sound, or NULL
 static int16_t *new16(uint32_t len) {
     int16_t *d = xm_alloc((len + 1) * sizeof *d);
     if (d)
@@ -488,6 +537,9 @@ static int16_t *new16(uint32_t len) {
 }
 
 /// New sound in a sample (the old freed; the player stopped first).
+/// @param sm the sample
+/// @param d the sound
+/// @param len its length
 static void set_data(xm_sample_t *sm, int16_t *d, uint32_t len) {
     xm_stop();
     xm_free(sm->data);
@@ -503,6 +555,8 @@ static void set_data(xm_sample_t *sm, int16_t *d, uint32_t len) {
 }
 
 /// A new sample slot at the end of an instrument's; NULL if full.
+/// @param in the instrument
+/// @return it, or NULL
 static xm_sample_t *add_sample(xm_instrument_t *in) {
     if (in->nsamples >= 16) {
         trk_message("An instrument holds 16 samples at most.");
@@ -524,6 +578,9 @@ static xm_sample_t *add_sample(xm_instrument_t *in) {
     return &list[in->nsamples++];
 }
 
+/// Amplifies the selection (or all).
+/// @param sm the sample
+/// @param by the factor
 static void amplify(xm_sample_t *sm, double by) {
     uint32_t a, b;
     range(sm, &a, &b);
@@ -532,6 +589,7 @@ static void amplify(xm_sample_t *sm, double by) {
     sm->data[sm->length] = sm->data[sm->length - 1];
 }
 
+/// Generate: a sine, square, saw, triangle or noise sample.
 static void generate(void) {
     static char *const kinds[] = {"Sine", "Square", "Saw", "Triangle", "Noise"};
     int k = gui_list("Generate a sample", kinds, 5, 0);
@@ -591,6 +649,9 @@ static void generate(void) {
     fix_loop(sm);
 }
 
+/// Cuts the selection, or crops to it.
+/// @param sm the sample
+/// @param crop keep only the selection
 static void cut_or_crop(xm_sample_t *sm, bool crop) {
     uint32_t a = I.sel0, b = I.sel1;
     uint32_t len = crop ? b - a : sm->length - (b - a);
@@ -619,6 +680,9 @@ static void cut_or_crop(xm_sample_t *sm, bool crop) {
     I.sel0 = I.sel1 = 0;
 }
 
+/// Halves or doubles the sample's rate.
+/// @param sm the sample
+/// @param halve halve (else double)
 static void resample(xm_sample_t *sm, bool halve) {
     uint32_t len = halve ? sm->length / 2 : sm->length * 2;
     if (len < 2 || len > (4u << 20)) {
@@ -647,6 +711,9 @@ static void resample(xm_sample_t *sm, bool halve) {
 }
 
 /// Asks for an instrument number (1-128); 0 if cancelled.
+/// @param title the dialog's title
+/// @param prompt its prompt
+/// @return the instrument, or 0
 static int ask_instrument(const char *title, const char *prompt) {
     char buf[8];
     snprintf(buf, sizeof buf, "%d", T->sample < 128 ? T->sample + 1 : 1);
@@ -660,6 +727,10 @@ static int ask_instrument(const char *title, const char *prompt) {
     return n;
 }
 
+/// Copies a sample with its sound.
+/// @param to the copy
+/// @param from the sample
+/// @return false when out of memory
 static bool copy_sound(xm_sample_t *to, const xm_sample_t *from) {
     *to = *from;
     to->data = NULL;
@@ -672,6 +743,7 @@ static bool copy_sound(xm_sample_t *to, const xm_sample_t *from) {
     return true;
 }
 
+/// Copies the sample into another instrument.
 static void copy_sample_to(void) {
     xm_sample_t *sm = have_sample();
     if (!sm)
@@ -704,6 +776,8 @@ static void copy_sample_to(void) {
     trk_message("Copied into instrument %02X as its sample %X.", n, (int)(slot - to->samples));
 }
 
+/// Frees an instrument's samples.
+/// @param in the instrument
 static void free_samples(xm_instrument_t *in) {
     for (int i = 0; i < in->nsamples; ++i)
         xm_free(in->samples[i].data);
@@ -750,6 +824,7 @@ static void copy_instrument(void) {
     trk_message("Instrument %02X copied to %02X.", T->sample, n);
 }
 
+/// Swaps the instrument with another.
 static void swap_instrument(void) {
     int n = ask_instrument("Swap instruments", "Swap with instrument number (1-128):");
     if (!n)
@@ -770,6 +845,7 @@ static void swap_instrument(void) {
     trk_message("Instruments %02X and %02X swapped (the patterns still name them by number).", here, n);
 }
 
+/// Clears the instrument (after asking).
 static void clear_instrument(void) {
     xm_instrument_t *in = instrument(false);
     if (!in)
@@ -789,6 +865,7 @@ static void clear_instrument(void) {
     T->dirty = true;
 }
 
+/// Envelope presets: piano, organ, pad, pluck and the like.
 static void envelope_preset(void) {
     static char *const names[] = {
         "Volume: piano (struck, then dies away)", "Volume: organ (held while the key is)",
@@ -838,6 +915,7 @@ static void envelope_preset(void) {
     T->dirty = true;
 }
 
+/// Loads an .XI instrument.
 static void load_xi(void) {
     char path[256];
     trk_dialog_begin();
@@ -871,6 +949,7 @@ static void load_xi(void) {
     trk_message("Loaded %s: %d samples.", path, got.nsamples);
 }
 
+/// Saves the instrument as .XI.
 static void save_xi(void) {
     xm_instrument_t *in = instrument(false);
     if (!in || !in->nsamples) {
@@ -895,6 +974,9 @@ static void save_xi(void) {
     psram_free(f);
 }
 
+/// Stores 32 bits little-endian.
+/// @param p where
+/// @param v the value
 static void put32le(uint8_t *p, uint32_t v) {
     p[0] = v;
     p[1] = v >> 8;
@@ -1079,6 +1161,7 @@ void xmi_tool(int tool) {
 
 // ---- Drawing --------------------------------------------------------------------------------------
 
+/// Draws the instrument list.
 static void draw_list(void) {
     xm_song_t *s = S();
     if (T->full)
@@ -1101,6 +1184,10 @@ static void draw_list(void) {
     }
 }
 
+/// A setting's line.
+/// @param f the setting
+/// @param y its row
+/// @param value its value
 static void param_line(int f, int y, const char *value) {
     bool focus = I.field == f;
     gfx_text(PARAM_X + 6, y, field_names[f], 10, focus ? C_YELLOW : C_LABEL, C_FACE);
@@ -1115,6 +1202,7 @@ static void param_line(int f, int y, const char *value) {
     }
 }
 
+/// Draws the settings.
 static void draw_params(void) {
     static const char *const vib[4] = {"sine", "square", "ramp dn", "ramp up"};
     static const char *const loops[3] = {"off", "forward", "ping-pong"};
@@ -1151,6 +1239,7 @@ static void draw_params(void) {
     gfx_printf(PARAM_X + 6, TOP_Y + 6 + 9 * 16, 30, C_DIM, C_FACE, "%s", sm ? (sm->bits16 ? "16-bit" : "8-bit") : "");
 }
 
+/// Draws the instrument's samples.
 static void draw_samples(void) {
     if (T->full)
         gfx_bevel(SMP_X, TOP_Y, SMP_W, TOP_H, true, C_FACE);
@@ -1174,6 +1263,7 @@ static void draw_samples(void) {
     gfx_button(SMP_X + 128, y, 60, 18, "Patt F2", IH_TOOL, IT_PATTERNS, false);
 }
 
+/// Draws the waveform, its loop and the selection.
 static void draw_wave(void) {
     xm_sample_t *sm = sample();
     int top = WAVE_Y + 1, h = WAVE_H - 2, mid = top + h / 2;
@@ -1231,6 +1321,8 @@ static void draw_wave(void) {
     hit_add(1, top, w, h, IH_WAVE, 0);
 }
 
+/// Draws an envelope.
+/// @param which 0 volume, 1 panning
 static void draw_env(int which) {
     xm_instrument_t *in = instrument(false);
     xm_env_t *e = in ? (which ? &in->penv : &in->venv) : NULL;
@@ -1301,6 +1393,7 @@ static void draw_env(int which) {
     hit_add(x0, ENVBAR_Y, ENV_W, 18, IH_FIELD, base);
 }
 
+/// Draws the keymap: which sample each key plays.
 static void draw_keys(void) {
     xm_instrument_t *in = instrument(false);
     gfx_fill(0, KEYS_Y - 2, DVI_WIDTH, 22, C_FACE);
@@ -1319,6 +1412,7 @@ static void draw_keys(void) {
     gfx_printf(KEYS_X + 96 * KEY_W + 4, KEYS_Y, 4, C_DIM, C_FACE, "C-0");
 }
 
+/// Draws the status line.
 static void draw_status(void) {
     char line[81];
     if (T->msg[0] && to_ms_since_boot(get_absolute_time()) < T->msg_until)
@@ -1381,6 +1475,12 @@ bool xmi_key(int k) {
     return false;
 }
 
+/// Drags an envelope point (right button: adds or removes one).
+/// @param which 0 volume, 1 panning
+/// @param x the x
+/// @param y the y
+/// @param start the drag starts
+/// @param right the right button
 static void env_drag(int which, int x, int y, bool start, bool right) {
     xm_instrument_t *in = instrument(true);
     if (!in)

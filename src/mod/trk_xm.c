@@ -28,33 +28,35 @@
 #include "xm.h"
 
 // ---- Layout (as the MOD screen's) -------------------------------------------------------------
-#define TOP_Y     16
-#define TOP_H     144
-#define SONG_X    0
-#define SONG_W    236
-#define ORD_X     236
-#define ORD_W     112
-#define INS_X     348
-#define INS_W     292
-#define METER_Y   160
-#define METER_H   48
-#define TRANS_Y   208
-#define HEAD_Y    232
-#define PAT_Y     248
-#define PAT_ROWS  15
-#define ROW_H     14
-#define PAT_X     28
-#define CH_W      96
+#define TOP_Y     16  ///< the panels under the menu bar
+#define TOP_H     144  ///< their height
+#define SONG_X    0  ///< the song panel: left
+#define SONG_W    236  ///< width
+#define ORD_X     236  ///< the order list: left
+#define ORD_W     112  ///< width
+#define INS_X     348  ///< the instrument list: left
+#define INS_W     292  ///< width
+#define METER_Y   160  ///< the meters' top
+#define METER_H   48  ///< their height
+#define TRANS_Y   208  ///< the transport buttons' row
+#define HEAD_Y    232  ///< the channel heads' row
+#define PAT_Y     248  ///< the pattern's top
+#define PAT_ROWS  15  ///< pattern rows shown
+#define ROW_H     14  ///< a row's height
+#define PAT_X     28  ///< the first channel's left
+#define CH_W      96  ///< a channel's width
 #define VIS_CH    6      ///< channels on the screen at once
-#define STATUS_Y  464
-#define ORD_ROWS  6
-#define INS_ROWS  7
+#define STATUS_Y  464  ///< the status line's top
+#define ORD_ROWS  6  ///< order rows shown
+#define INS_ROWS  7  ///< instrument rows shown
 
 /// Fields in a channel's column: note, instrument (2), volume (2), effect, parameter (2).
 static const uint8_t col_x[8] = {2, 30, 38, 50, 58, 70, 78, 86};
 
+/// The song panel's fields.
 enum { XF_TITLE, XF_SPEED, XF_BPM, XF_CHANNELS, XF_ROWS, XF_RESTART, XF_OCTAVE, XF_STEP, XF_COUNT };
 
+/// What a click hits.
 enum {
     XH_FIELD = 300, XH_DEC, XH_INC, XH_ORDER, XH_ORD_INS, XH_ORD_DEL, XH_ORD_DEC, XH_ORD_INC,
     XH_INSTR, XH_INS_UP, XH_INS_DOWN, XH_METER, XH_PATTERN, XH_LEFT, XH_RIGHT,
@@ -70,35 +72,51 @@ static struct {
     ///@{
     int octave, field, focus;
     ///@}
+    /// The first order, instrument and pattern row shown.
     ///@{
     int order_top, ins_top, pat_top;
     ///@}
+    /// A block is being marked; one is marked.
     ///@{
     bool marking, block;
     ///@}
+    /// The block's corners (channel, row).
     ///@{
     int bc0, br0, bc1, br1;
     ///@}
-    xm_cell_t *clip;
+    xm_cell_t *clip;  ///< the cells copied
+    /// Their width and height.
     ///@{
     int clip_w, clip_h;
     ///@}
-} E = {.octave = 4};
+} E = {.octave = 4};  ///< the XM editor's state
 
+/// The song.
+/// @return it
 static xm_song_t *S(void) {
     return T->xm;
 }
 
+/// The pattern on screen.
+/// @return it
 static xm_pattern_t *pat(void) {
     return &T->xm->patterns[E.pattern];
 }
 
+/// A cell of the pattern.
+/// @param r the row
+/// @param c the channel
+/// @return it
 static xm_cell_t *cell(int r, int c) {
     return &pat()->cells[r * S()->channels + c];
 }
 
 // ---- Song changes ----------------------------------------------------------------------------------------
 
+/// Makes a pattern if it isn't there.
+/// @param p the pattern
+/// @param rows its rows
+/// @return it is there
 static bool make_pattern(int p, int rows) {
     xm_song_t *s = S();
     if (s->patterns[p].cells)
@@ -113,6 +131,8 @@ static bool make_pattern(int p, int rows) {
     return true;
 }
 
+/// Goes to a song position.
+/// @param pos the position
 static void go_pos(int pos) {
     xm_song_t *s = S();
     pos = pos < 0 ? 0 : pos >= s->length ? s->length - 1 : pos;
@@ -123,6 +143,9 @@ static void go_pos(int pos) {
         E.row = pat()->rows - 1;
 }
 
+/// Changes the pattern's rows (cells kept).
+/// @param rows 1-256
+/// @return done
 static bool set_rows(int rows) {
     xm_song_t *s = S();
     rows = rows < 1 ? 1 : rows > 256 ? 256 : rows;
@@ -145,6 +168,9 @@ static bool set_rows(int rows) {
     return true;
 }
 
+/// Changes the channel count.
+/// @param n 2-XM_MAX_CH
+/// @return done
 static bool set_channels(int n) {
     xm_song_t *s = S();
     n = n < 2 ? 2 : n > XM_MAX_CH ? XM_MAX_CH : n;
@@ -176,6 +202,9 @@ static bool set_channels(int n) {
     return true;
 }
 
+/// Changes a song field by a step.
+/// @param f the field (XF_*)
+/// @param d the step
 static void field_change(int f, int d) {
     xm_song_t *s = S();
     int step = d > 0 ? 1 : -1;
@@ -192,6 +221,8 @@ static void field_change(int f, int d) {
     T->dirty = true;
 }
 
+/// Edits a song field by typing.
+/// @param f the field
 static void field_enter(int f) {
     xm_song_t *s = S();
     char buf[24];
@@ -221,10 +252,16 @@ static void field_enter(int f) {
 
 // ---- Editing ------------------------------------------------------------------------------------------------
 
+/// Moves down by the step after entering a note.
 static void advance(void) {
     E.row = (E.row + T->step) % pat()->rows;
 }
 
+/// The block (or the cursor's cell) in order.
+/// @param c0 set to its first channel
+/// @param r0 its first row
+/// @param c1 its last channel
+/// @param r1 its last row
 static void block_range(int *c0, int *r0, int *c1, int *r1) {
     if (E.block) {
         *c0 = E.bc0 < E.bc1 ? E.bc0 : E.bc1;
@@ -239,6 +276,10 @@ static void block_range(int *c0, int *r0, int *c1, int *r1) {
     }
 }
 
+/// Whether a cell is in the block.
+/// @param r the row
+/// @param c the channel
+/// @return it is
 static bool in_block(int r, int c) {
     if (!E.block)
         return false;
@@ -247,6 +288,8 @@ static bool in_block(int r, int c) {
     return r >= r0 && r <= r1 && c >= c0 && c <= c1;
 }
 
+/// Copies (or cuts) the block.
+/// @param cut cut it
 static void copy_block(bool cut) {
     int c0, r0, c1, r1;
     block_range(&c0, &r0, &c1, &r1);
@@ -271,6 +314,8 @@ static void copy_block(bool cut) {
     trk_message("%s %d rows x %d channels.", cut ? "Cut" : "Copied", h, w);
 }
 
+/// Pastes at the cursor.
+/// @param mix only into empty cells
 static void paste_block(bool mix) {
     if (!E.clip_w) {
         trk_message("Nothing copied yet (Alt-C copies the block).");
@@ -292,6 +337,8 @@ static void paste_block(bool mix) {
     T->dirty = true;
 }
 
+/// Transposes the block's notes.
+/// @param by semitones
 static void transpose(int by) {
     int c0, r0, c1, r1;
     block_range(&c0, &r0, &c1, &r1);
@@ -304,6 +351,10 @@ static void transpose(int by) {
     T->dirty = true;
 }
 
+/// Inserts or deletes a row at the cursor.
+/// @param c0 the first channel
+/// @param c1 the last
+/// @param insert insert (else delete)
 static void shift_rows(int c0, int c1, bool insert) {
     int rows = pat()->rows;
     for (int c = c0; c <= c1; ++c) {
@@ -320,6 +371,8 @@ static void shift_rows(int c0, int c1, bool insert) {
     T->dirty = true;
 }
 
+/// A new pattern at the next position.
+/// @param clone a copy of this one
 static void new_pattern(bool clone) {
     xm_song_t *s = S();
     int p = 0;
@@ -343,6 +396,8 @@ static void new_pattern(bool clone) {
     trk_message("Pattern %02X %s at position %02d.", p, clone ? "cloned" : "made", E.pos);
 }
 
+/// Changes the position's pattern.
+/// @param d the step
 static void order_change(int d) {
     xm_song_t *s = S();
     int p = s->orders[E.pos] + d;
@@ -353,6 +408,7 @@ static void order_change(int d) {
     T->dirty = true;
 }
 
+/// Inserts a position in the order list.
 static void order_insert(void) {
     xm_song_t *s = S();
     if (s->length >= 256)
@@ -362,6 +418,7 @@ static void order_insert(void) {
     T->dirty = true;
 }
 
+/// Deletes a position.
 static void order_delete(void) {
     xm_song_t *s = S();
     if (s->length <= 1)
@@ -375,6 +432,8 @@ static void order_delete(void) {
 }
 
 /// A piano key's note, 1..96, or -1; 97 for key off (the key left of 1, or 1).
+/// @param k the key
+/// @return the note
 static int note_key(int k) {
     static const char lower[] = "zsxdcvgbhnjm,l.;/";
     static const char upper[] = "q2w3er5t6y7ui9o0p";
@@ -395,6 +454,9 @@ static int note_key(int k) {
     return n <= 96 ? n : -1;
 }
 
+/// A hex digit's value.
+/// @param k the key
+/// @return 0-15, or -1
 static int hex_digit(int k) {
     if (k >= '0' && k <= '9')
         return k - '0';
@@ -406,6 +468,8 @@ static int hex_digit(int k) {
 }
 
 /// An effect's letter as FT2 shows it: 0-9, then A-Z.
+/// @param k the key
+/// @return the effect, or -1
 static int effect_of_key(int k) {
     if (k >= '0' && k <= '9')
         return k - '0';
@@ -416,6 +480,9 @@ static int effect_of_key(int k) {
     return -1;
 }
 
+/// Moves the cursor.
+/// @param dr rows
+/// @param dc columns
 static void move(int dr, int dc) {
     int rows = pat()->rows;
     if (dr) {
@@ -435,6 +502,8 @@ static void move(int dr, int dc) {
     }
 }
 
+/// A key in the pattern.
+/// @param k the key
 static void pattern_key(int k) {
     switch (k) {
     case KEY_UP: move(-1, 0); return;
@@ -537,6 +606,8 @@ static void pattern_key(int k) {
     advance();
 }
 
+/// A key in the order list.
+/// @param k the key
 static void orders_key(int k) {
     switch (k) {
     case KEY_UP: go_pos(E.pos - 1); break;
@@ -553,6 +624,8 @@ static void orders_key(int k) {
     }
 }
 
+/// A key in the song panel.
+/// @param k the key
 static void song_key(int k) {
     switch (k) {
     case KEY_UP: E.field = (E.field + XF_COUNT - 1) % XF_COUNT; break;
@@ -565,6 +638,8 @@ static void song_key(int k) {
     }
 }
 
+/// Plays the song, the pattern, or from the row.
+/// @param how 0, 1 or 2
 static void play(int how) {
     xm_set_loop(true);
     xm_pause(false);
@@ -704,6 +779,13 @@ bool xed_key(int k) {
 
 // ---- Drawing ---------------------------------------------------------------------------------------------
 
+/// A field: text in a sunken box.
+/// @param x left
+/// @param y top
+/// @param chars its width
+/// @param focus it has the keyboard
+/// @param fg the text's colour
+/// @param text the text
 static void field_box(int x, int y, int chars, bool focus, uint8_t fg, const char *text) {
     uint8_t bg = focus ? C_FOCUS : C_FIELD;
     gfx_fill(x, y, 2, 16, bg);
@@ -711,6 +793,8 @@ static void field_box(int x, int y, int chars, bool focus, uint8_t fg, const cha
     gfx_fill(end, y, 2, 16, bg);
 }
 
+/// Draws the song panel.
+/// @param st the player's status
 static void draw_song(xm_status_t *st) {
     static const char *const labels[XF_COUNT] = {"Title", "Speed", "Tempo", "Chans",
                                                  "Rows", "Restart", "Octave", "Step"};
@@ -753,6 +837,7 @@ static void draw_song(xm_status_t *st) {
     }
 }
 
+/// Draws the order list.
 static void draw_orders(void) {
     xm_song_t *s = S();
     if (T->full)
@@ -779,6 +864,7 @@ static void draw_orders(void) {
     gfx_button(ORD_X + 82, y, 26, 18, "+", XH_ORD_INC, 0, false);
 }
 
+/// Draws the instrument list.
 static void draw_instruments(void) {
     xm_song_t *s = S();
     if (T->full)
@@ -807,6 +893,8 @@ static void draw_instruments(void) {
     gfx_printf(INS_X + 80, y + 1, 26, C_DIM, C_FACE, "%d instruments", s->ninstruments);
 }
 
+/// Draws the channels' meters.
+/// @param st the player's status
 static void draw_meters(xm_status_t *st) {
     int n = S()->channels, w = DVI_WIDTH / n;
     for (int c = 0; c < n; ++c) {
@@ -826,6 +914,8 @@ static void draw_meters(xm_status_t *st) {
     }
 }
 
+/// Draws the transport buttons.
+/// @param st the player's status
 static void draw_transport(xm_status_t *st) {
     static const struct {
         const char *label;
@@ -845,6 +935,9 @@ static void draw_transport(xm_status_t *st) {
                T->load / 10, T->load % 10, T->underruns ? "!" : "");
 }
 
+/// The volume column as FT2 shows it.
+/// @param v the column
+/// @param out the 2 characters
 static void vol_text(uint8_t v, char out[3]) {
     static const char sym[10] = {'-', '+', 'D', 'U', 'S', 'V', 'P', 'L', 'R', 'M'};
     if (!v)
@@ -857,6 +950,8 @@ static void vol_text(uint8_t v, char out[3]) {
         strcpy(out, "??");
 }
 
+/// Draws the pattern.
+/// @param st the player's status
 static void draw_pattern(xm_status_t *st) {
     xm_song_t *s = S();
     int nch = s->channels, rows = pat()->rows;
@@ -952,6 +1047,8 @@ static void draw_pattern(xm_status_t *st) {
     gfx_fill(0, PAT_Y + PAT_ROWS * ROW_H, DVI_WIDTH, STATUS_Y - PAT_Y - PAT_ROWS * ROW_H, C_FACE);
 }
 
+/// Draws the status line.
+/// @param st the player's status
 static void draw_status(xm_status_t *st) {
     char line[81];
     if (T->msg[0] && to_ms_since_boot(get_absolute_time()) < T->msg_until) {
@@ -988,6 +1085,10 @@ void xed_draw(void) {
 
 // ---- The mouse -----------------------------------------------------------------------------------------
 
+/// A click (or drag) in the pattern: moves the cursor, marks a block.
+/// @param x the x
+/// @param y the y
+/// @param drag a drag
 static void pattern_click(int x, int y, bool drag) {
     int i = (y - PAT_Y) / ROW_H, r = E.pat_top + i;
     if (r < 0 || r >= pat()->rows || x < PAT_X)
