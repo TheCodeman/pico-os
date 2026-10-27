@@ -30,14 +30,19 @@
 #include "serial_console.h"
 #include "xfer.h"
 
+/// The settings file.
 #define CFG_FILE   "/TERM.CFG"
+/// The log file's name.
 #define LOG_FILE   "TERM.LOG"
 #define TEXT_ROWS  (CONSOLE_ROWS - 1)  ///< the last row is the status line
 #define STATUS_ATTR 0x1f                ///< bright white on blue, as the title bar
+/// The control-key code of a letter.
 #define CTRL(c)    ((c) & 0x1f)
 
+/// The terminal's settings.
 typedef struct {
-    unsigned baud;
+    unsigned baud;  ///< the speed
+    /// Data bits and stop bits.
     ///@{
     int data, stop;
     ///@}
@@ -50,25 +55,36 @@ typedef struct {
     bool bs_del;  ///< Backspace sends DEL (127), else BS (8)
 } term_cfg_t;
 
+/// The settings at first: 115200 8N1 on GP4/GP5.
 static const term_cfg_t defaults = {115200, 8, 1, 'N', 4, false, false, 0, false, true};
+/// The settings.
 static term_cfg_t cfg;
 
+/// The speeds offered.
 static const unsigned bauds[] = {300,   1200,  2400,   4800,   9600,   19200,
                                  38400, 57600, 115200, 230400, 460800, 921600};
+/// Their count.
 #define NBAUDS (int)(sizeof bauds / sizeof *bauds)
+/// The TX pins offered.
 static const int tx_pins[] = {4, 8, 20, 24};
+/// What Enter sends, as names.
 static const char *const enter_names[] = {"CR", "LF", "CR LF"};
 
 static FIL *log_file;  ///< while logging (SRAM is short)
+/// Logging what arrives.
 static bool logging;
+/// To this file.
 static char log_name[64];
+/// When the log was last flushed.
 static absolute_time_t log_synced;
 static char message[192];  ///< shown in the status line (cut to fit) until a key
+/// The status line must be drawn again.
 static bool status_dirty = true;
 static bool port_ok;  ///< COM1 is open with cfg
 
 // ---- Settings file --------------------------------------------------------------
 
+/// Loads /TERM.CFG.
 static void cfg_load(void) {
     cfg = defaults;
     FIL f;
@@ -106,6 +122,8 @@ static void cfg_load(void) {
     f_close(&f);
 }
 
+/// Saves /TERM.CFG.
+/// @return saved
 static bool cfg_save(void) {
     FIL f;
     if (f_open(&f, CFG_FILE, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
@@ -121,6 +139,7 @@ static bool cfg_save(void) {
 // ---- The port ---------------------------------------------------------------------
 
 /// Opens COM1 with cfg; prints why not and returns false on failure.
+/// @return opened
 static bool port_open(void) {
     port_serial_close();
     port_ok = false;
@@ -137,6 +156,9 @@ static bool port_open(void) {
     return true;
 }
 
+/// Sends to COM1.
+/// @param s the bytes
+/// @param n their count
 static void send(const char *s, int n) {
     if (port_ok)  // closed after a failed settings change: nothing to send to
         port_serial_write(s, n);
@@ -146,12 +168,16 @@ static void send(const char *s, int n) {
 
 /// Received or echoed text: to the screen, and to the debug UART when it has
 /// room (it is slower than COM1 can be).
+/// @param s the text
+/// @param n its length
 static void show(const char *s, int n) {
     fflush(stdout);
     console_write(s, n);
     serial_console_write_some(s, n);
 }
 
+/// Shows a string.
+/// @param s it
 static void show_str(const char *s) {
     show(s, strlen(s));
 }
@@ -185,6 +211,8 @@ static void draw_status(void) {
     status_dirty = false;
 }
 
+/// Sets the status line's message.
+/// @param text it
 static void set_message(const char *text) {
     snprintf(message, sizeof message, "%s", text);
     draw_status();
@@ -207,6 +235,7 @@ static void keep_layout(void) {
 
 /// A saved copy of the screen, for pages drawn over the terminal.
 typedef struct {
+    /// Its characters and attributes.
     ///@{
     uint8_t ch[CONSOLE_ROWS][CONSOLE_COLS], attr[CONSOLE_ROWS][CONSOLE_COLS];
     ///@}
@@ -214,6 +243,7 @@ typedef struct {
 
 /// Saves the screen, cursor and colours (NULL if out of memory: the screen
 /// is then just cleared afterwards).
+/// @return the copy (free with page_end), or NULL
 static saved_screen_t *screen_save(void) {
     saved_screen_t *s = malloc(sizeof *s);
     if (s)
@@ -226,12 +256,16 @@ static saved_screen_t *screen_save(void) {
     return s;
 }
 
+/// Saves the screen and clears it, for a page.
+/// @return the copy, or NULL
 static saved_screen_t *page_begin(void) {
     saved_screen_t *s = screen_save();
     printf("\x1b[2J\x1b[H");
     return s;
 }
 
+/// Puts the terminal's screen back.
+/// @param s the copy, or NULL
 static void page_end(saved_screen_t *s) {
     printf("\x1b[0m\x1b[2J\x1b[1;%dr\x1b[?25h", TEXT_ROWS);
     fflush(stdout);
@@ -247,9 +281,13 @@ static void page_end(saved_screen_t *s) {
 
 // ---- Keys ---------------------------------------------------------------------------
 
+/// Keys decoded from escape sequences.
 enum { KEY_UP = 0x100, KEY_DOWN, KEY_RIGHT, KEY_LEFT, KEY_ESC, KEY_F1, KEY_F10, KEY_OTHER };
 
 /// Reads an escape sequence after ESC into seq (with the ESC); returns its key.
+/// @param seq the sequence
+/// @param len set to its length
+/// @return the key
 static int read_escape(char *seq, int *len) {
     int n = 0;
     seq[n++] = 0x1b;
@@ -286,6 +324,8 @@ static int read_escape(char *seq, int *len) {
     return KEY_OTHER;
 }
 
+/// Waits for a key.
+/// @return it
 static int wait_key(void) {
     int c;
     while ((c = getchar_timeout_us(100000)) < 0)
@@ -298,6 +338,10 @@ static int wait_key(void) {
 }
 
 /// Reads a line of text in the status line. False if cancelled (Esc, Ctrl-C).
+/// @param label the prompt
+/// @param text the text, edited in place
+/// @param size room in text
+/// @return Enter (else cancelled)
 static bool prompt(const char *label, char *text, int size) {
     int n = strlen(text);
     for (;;) {
@@ -325,8 +369,13 @@ static bool prompt(const char *label, char *text, int size) {
 
 // ---- Settings page ------------------------------------------------------------------
 
+/// The settings page's rows.
 enum { S_BAUD, S_DATA, S_PARITY, S_STOP, S_PINS, S_FLOW, S_ECHO, S_ENTER, S_CR, S_BS, S_COUNT };
 
+/// A setting's value as text.
+/// @param i the setting
+/// @param out the text
+/// @param size room in out
 static void setting_text(int i, char *out, int size) {
     switch (i) {
     case S_BAUD: snprintf(out, size, "%u", cfg.baud); break;
@@ -349,6 +398,9 @@ static void setting_text(int i, char *out, int size) {
     }
 }
 
+/// Changes a setting to its next or previous value.
+/// @param i the setting
+/// @param dir +1 or -1
 static void change_setting(int i, int dir) {
     switch (i) {
     case S_BAUD: {
@@ -387,6 +439,9 @@ static void change_setting(int i, int dir) {
     }
 }
 
+/// Draws the settings page.
+/// @param sel the setting selected
+/// @param note a note under them, or NULL
 static void draw_settings(int sel, const char *note) {
     static const char *const labels[] = {"Baud rate", "Data bits", "Parity", "Stop bits",
                                          "Pins", "Flow control", "Local echo", "Enter sends",
@@ -407,6 +462,7 @@ static void draw_settings(int sel, const char *note) {
 }
 
 /// Returns true if the port settings changed (it needs opening again).
+/// @return the port settings changed
 static bool settings_page(void) {
     term_cfg_t before = cfg;
     saved_screen_t *saved = page_begin();
@@ -463,6 +519,7 @@ static bool settings_page(void) {
            cfg.stop != before.stop || cfg.tx != before.tx || cfg.flow != before.flow;
 }
 
+/// Ctrl-A H: the keys.
 static void help_page(void) {
     saved_screen_t *saved = page_begin();
     printf("\x1b[97;44m  Serial terminal keys%*s\x1b[0m\n\n", CONSOLE_COLS - 22, "");
@@ -491,6 +548,7 @@ static void help_page(void) {
 
 // ---- Log and send file -----------------------------------------------------------
 
+/// Ctrl-A L: logging on or off.
 static void toggle_log(void) {
     if (logging) {
         f_close(log_file);
@@ -519,6 +577,9 @@ static void toggle_log(void) {
     status_dirty = true;
 }
 
+/// Writes received bytes to the log.
+/// @param s the bytes
+/// @param n their count
 static void log_bytes(const char *s, int n) {
     if (!logging)
         return;
@@ -533,6 +594,7 @@ static void log_bytes(const char *s, int n) {
 static int pump_received(void);
 static bool zmodem_seen;  ///< the far end started a ZMODEM send
 
+/// Ctrl-A S: sends a text file as typed.
 static void send_file(void) {
     char name[64] = "";
     if (!prompt("Send file: ", name, sizeof name) || !name[0]) {
@@ -578,31 +640,40 @@ static void send_file(void) {
 
 /// A file open for a transfer.
 typedef struct {
-    FIL f;
-    char name[80];
-    bool writing;
+    FIL f;  ///< the file
+    char name[80];  ///< its name
+    bool writing;  ///< open for writing
 } xfile_t;
 
 static struct {
-    xfer_proto_t proto;
-    bool sending;
-    saved_screen_t *saved;
+    xfer_proto_t proto;  ///< the protocol
+    bool sending;  ///< sending (else receiving)
+    saved_screen_t *saved;  ///< the screen under the box
+    /// When it started, and when the box is next drawn.
     ///@{
     absolute_time_t started, next_draw;
     ///@}
     uint32_t start_done;  ///< bytes already there when the file started (resume)
-    const char *last_name;
-} xf;
+    const char *last_name;  ///< the file name last shown
+} xf;  ///< the transfer under way
 
+/// The transfer box's top row.
 #define BOX_TOP  10
+/// Its left column.
 #define BOX_LEFT 10
+/// Its width.
 #define BOX_W    60
+/// Its rows.
 #define BOX_ROWS 8
 
+/// A line of the box.
+/// @param row its row in the box
+/// @param text its text
 static void box_line(int row, const char *text) {
     printf("\x1b[%d;%dH\x1b[97;44m %-*.*s\x1b[0m", BOX_TOP + row, BOX_LEFT, BOX_W - 1, BOX_W - 1, text);
 }
 
+/// Opens the transfer box.
 static void box_open(void) {
     char title[64];
     snprintf(title, sizeof title, "%s %s", xfer_proto_name(xf.proto), xf.sending ? "upload" : "download");
@@ -620,6 +691,7 @@ static void box_open(void) {
     xf.next_draw = nil_time;
 }
 
+/// Closes it, putting the screen back.
 static void box_close(void) {
     printf("\x1b[0m\x1b[1;%dr\x1b[?25h", TEXT_ROWS);
     fflush(stdout);
@@ -634,6 +706,9 @@ static void box_close(void) {
     status_dirty = true;
 }
 
+/// The transfer's progress, into the box.
+/// @param ctx unused
+/// @param p the progress
 static void x_progress(void *ctx, const xfer_progress_t *p) {
     if (!time_reached(xf.next_draw))
         return;
@@ -666,6 +741,10 @@ static void x_progress(void *ctx, const xfer_progress_t *p) {
     fflush(stdout);
 }
 
+/// A byte from COM1 for the transfer (Esc or Ctrl-C cancels).
+/// @param ctx unused
+/// @param timeout_ms how long to wait
+/// @return the byte, XFER_TIMEOUT or XFER_ABORT
 static int x_getc(void *ctx, unsigned timeout_ms) {
     absolute_time_t until = make_timeout_time_ms(timeout_ms);
     absolute_time_t key_check = nil_time;
@@ -685,10 +764,21 @@ static int x_getc(void *ctx, unsigned timeout_ms) {
     }
 }
 
+/// Sends bytes for the transfer.
+/// @param ctx unused
+/// @param data the bytes
+/// @param len their count
 static void x_write(void *ctx, const uint8_t *data, int len) {
     send((const char *)data, len);
 }
 
+/// Opens a file to send.
+/// @param ctx unused
+/// @param path its path
+/// @param size set to its size
+/// @param name set to its name for the far end
+/// @param name_size room in name
+/// @return the file, or NULL
 static void *x_open_read(void *ctx, const char *path, uint32_t *size, char *name, int name_size) {
     xfile_t *x = malloc(sizeof *x);
     if (!x)
@@ -708,6 +798,9 @@ static void *x_open_read(void *ctx, const char *path, uint32_t *size, char *name
 }
 
 /// NAME.EXT, or NAME-1.EXT, NAME-2.EXT ... if that is taken.
+/// @param name the name wanted
+/// @param out the name free
+/// @param size room in out
 static void free_name(const char *name, char *out, int size) {
     FILINFO info;
     snprintf(out, size, "%s", name);
@@ -717,6 +810,15 @@ static void free_name(const char *name, char *out, int size) {
         snprintf(out, size, "%.*s-%d%s", stem, name, i, dot ? dot : "");
 }
 
+/// Opens a file to receive (or resume).
+/// @param ctx unused
+/// @param name its name
+/// @param size its size, if known
+/// @param resume carry on a partial file
+/// @param offset set to where to carry on
+/// @param saved_as set to the name used
+/// @param saved_as_size room in saved_as
+/// @return the file, or NULL
 static void *x_open_write(void *ctx, const char *name, uint32_t size, bool resume, uint32_t *offset,
                           char *saved_as, int saved_as_size) {
     xfile_t *x = malloc(sizeof *x);
@@ -743,20 +845,41 @@ static void *x_open_write(void *ctx, const char *name, uint32_t size, bool resum
     return x;
 }
 
+/// Reads from a file.
+/// @param ctx unused
+/// @param file the file
+/// @param buf where
+/// @param len how many
+/// @return bytes read, or -1
 static int x_read(void *ctx, void *file, uint8_t *buf, int len) {
     UINT got;
     return f_read(&((xfile_t *)file)->f, buf, len, &got) == FR_OK ? (int)got : -1;
 }
 
+/// Seeks in a file.
+/// @param ctx unused
+/// @param file the file
+/// @param offset where
+/// @return done
 static bool x_seek(void *ctx, void *file, uint32_t offset) {
     return f_lseek(&((xfile_t *)file)->f, offset) == FR_OK;
 }
 
+/// Writes to a file.
+/// @param ctx unused
+/// @param file the file
+/// @param buf the bytes
+/// @param len their count
+/// @return written
 static bool x_write_file(void *ctx, void *file, const uint8_t *buf, int len) {
     UINT done;
     return f_write(&((xfile_t *)file)->f, buf, len, &done) == FR_OK && done == (UINT)len;
 }
 
+/// Closes a file (a broken XMODEM/YMODEM download is deleted).
+/// @param ctx unused
+/// @param file the file
+/// @param ok it completed
 static void x_close(void *ctx, void *file, bool ok) {
     xfile_t *x = file;
     f_close(&x->f);
@@ -767,6 +890,7 @@ static void x_close(void *ctx, void *file, bool ok) {
     free(x);
 }
 
+/// The transfers' callbacks.
 static const xfer_io_t xfer_io = {NULL,   x_getc, x_write,      x_open_read, x_open_write,
                                   x_read, x_seek, x_write_file, x_close,     x_progress};
 
@@ -790,10 +914,15 @@ static bool glob_match(const char *pat, const char *s) {
     return !*s;
 }
 
+/// The most files sent at once.
 #define MAX_SEND 32
 
 /// Adds `word` to paths, or the files it matches if it has * or ? in its
 /// last part. Returns the new count.
+/// @param word the name or pattern
+/// @param paths the list
+/// @param n its count
+/// @return the new count
 static int add_paths(const char *word, char **paths, int n) {
     const char *slash = strrchr(word, '/');
     const char *pat = slash ? slash + 1 : word;
@@ -820,6 +949,9 @@ static int add_paths(const char *word, char **paths, int n) {
     return n;
 }
 
+/// Asks for the protocol.
+/// @param sending for an upload
+/// @return the protocol, or -1
 static int choose_protocol(bool sending) {
     set_message(sending ? "Upload with  X XMODEM  K XMODEM-1K  Y YMODEM  Z ZMODEM  (Esc: back)"
                         : "Download with  X XMODEM  Y YMODEM  Z ZMODEM  (Esc: back)");
@@ -836,6 +968,7 @@ static int choose_protocol(bool sending) {
 }
 
 /// Ctrl-A U (sending) or D, or a ZMODEM download the far end started (auto).
+/// @param sending an upload
 static void transfer(bool sending) {
     bool autostart = !sending && zmodem_seen;
     zmodem_seen = false;
@@ -891,6 +1024,7 @@ static void transfer(bool sending) {
 // ---- Main loop ----------------------------------------------------------------------
 
 /// Moves what has arrived to the screen (and the log). Returns the count.
+/// @return the count
 static int pump_received(void) {
     // A ZMODEM sender starts with ZRQINIT, "**" ZDLE "B00..."; those bytes
     // are held back while they match, and a whole match starts a download.
@@ -933,6 +1067,8 @@ static int pump_received(void) {
     return total;
 }
 
+/// Sends a typed key (Enter as set, Backspace as set, local echo).
+/// @param c the key
 static void send_key(int c) {
     char out[2];
     int n = 0;
@@ -952,6 +1088,7 @@ static void send_key(int c) {
 }
 
 /// Ctrl-A and the key after it. False to leave the terminal.
+/// @return stay
 static bool command_key(void) {
     set_message("Ctrl-A: S setup X exit B break C clear E echo L log F file U upload D download H help");
     int k = wait_key();
@@ -986,6 +1123,7 @@ static bool command_key(void) {
     return true;
 }
 
+/// Prints how to use term.
 static void usage(void) {
     printf("usage: term [baud] [format, e.g. 8N1]   (alias serial)\n"
            "A serial terminal on COM1 (UART1, GP4 TX / GP5 RX unless changed in the\n"

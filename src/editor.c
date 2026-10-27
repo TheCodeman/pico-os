@@ -25,11 +25,16 @@
 /// more untouched, so while editing every 4 KB block is checked against its
 /// checksum and rewritten every few seconds (see "Keeping the text safe").
 #define EDIT_MAX    (1024 * 1024)
+/// The cut buffer's size.
 #define CUT_MAX     (8 * 1024)
+/// The longest path.
 #define PATH_MAX_   128
+/// Screen rows.
 #define ROWS        30
+/// Screen columns.
 #define COLS        80
 #define TEXT_ROWS   (ROWS - 2)  ///< row 0 title, rows 1..28 text, row 29 status
+/// Tab stops every this many columns.
 #define TAB_WIDTH   8
 
 /// Keys above the byte range, decoded from escape sequences.
@@ -37,12 +42,17 @@ enum {
     KEY_ESC = 0x100, KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT, KEY_HOME, KEY_END,
     KEY_PGUP, KEY_PGDN, KEY_DEL, KEY_F3,
 };
+/// The control-key code of a letter.
 #define CTRL(c) ((c) & 0x1f)
 
 // ---- Gap buffer -----------------------------------------------------------
 
+/// The text, with its gap (PSRAM).
 static char *buf;
-static int gap_start, gap_end;  ///< the gap is buf[gap_start, gap_end)
+/// The gap is buf[gap_start, gap_end).
+///@{
+static int gap_start, gap_end;
+///@}
 
 // ---- Keeping the text safe in PSRAM -----------------------------------------
 /// Each 4 KB block has a checksum, worked out again when the editor changes
@@ -51,16 +61,24 @@ static int gap_start, gap_end;  ///< the gap is buf[gap_start, gap_end)
 /// (which renews the cells) every REFRESH_MS. A block that changed by itself
 /// marks the text damaged: saving then won't overwrite the file.
 #define BLOCK      4096
+/// Blocks in the text and cut buffer.
 #define BLOCKS     ((EDIT_MAX + CUT_MAX) / BLOCK)
+/// Every block is checked this often (ms).
 #define REFRESH_MS 10000
+/// From the PSRAM's cached address to its uncached one.
 #define PSRAM_UNCACHED_OFFSET (0x15000000u - 0x11000000u)
 
 static uint32_t *sums;   ///< a sum for each block (SRAM)
 static uint8_t *dirty;   ///< changed since its sum was taken
+/// The next block to check.
 static int refresh_next;
+/// When the next check is due.
 static absolute_time_t refresh_at;
 static int damaged = -1;  ///< the first block found damaged, or -1
 
+/// Marks the blocks under some bytes changed.
+/// @param p the bytes
+/// @param n their count
 static void touch(const char *p, int n) {
     if (n <= 0)
         return;
@@ -69,12 +87,17 @@ static void touch(const char *p, int n) {
         dirty[k] = 1;
 }
 
+/// Whether a block is wholly in the gap (nothing to check).
+/// @param k the block
+/// @return it is
 static bool in_gap(int k) {
     return k * BLOCK >= gap_start && (k + 1) * BLOCK <= gap_end;
 }
 
 /// One block: from the chip, summed and written back. False if a block the
 /// editor hasn't changed no longer matches its sum.
+/// @param k the block
+/// @return it was all right
 static bool refresh_block(int k) {
     volatile uint32_t *w = (volatile uint32_t *)(buf + k * BLOCK + PSRAM_UNCACHED_OFFSET);
     uint32_t sum = 0;
@@ -92,6 +115,8 @@ static bool refresh_block(int k) {
 }
 
 /// Checks (and renews) n blocks, or all of them if n < 0. False if any is damaged.
+/// @param n blocks, or -1 for all
+/// @return none damaged
 static bool refresh(int n) {
     xip_cache_clean_all();  // the editor's writes out to the chip first
     bool ok = true;
@@ -128,14 +153,21 @@ static void refresh_step(void) {
     }
 }
 
+/// The text's length.
+/// @return it
 static int text_len(void) {
     return EDIT_MAX - (gap_end - gap_start);
 }
 
+/// The character at a position.
+/// @param i the position
+/// @return it
 static char at(int i) {
     return i < gap_start ? buf[i] : buf[i + gap_end - gap_start];
 }
 
+/// Moves the gap to a position.
+/// @param pos the position
 static void move_gap(int pos) {
     if (pos < gap_start) {
         int n = gap_start - pos;
@@ -152,6 +184,11 @@ static void move_gap(int pos) {
     }
 }
 
+/// Inserts text.
+/// @param pos where
+/// @param s the text
+/// @param n its length
+/// @return false if it doesn't fit
 static bool insert_text(int pos, const char *s, int n) {
     if (gap_end - gap_start < n)
         return false;
@@ -162,6 +199,9 @@ static bool insert_text(int pos, const char *s, int n) {
     return true;
 }
 
+/// Deletes text.
+/// @param pos where
+/// @param n how much
 static void erase_text(int pos, int n) {
     move_gap(pos);
     gap_end += n;
@@ -169,12 +209,18 @@ static void erase_text(int pos, int n) {
 
 // ---- Lines and columns ----------------------------------------------------
 
+/// The start of a position's line.
+/// @param p the position
+/// @return the line's start
 static int line_start(int p) {
     while (p > 0 && at(p - 1) != '\n')
         --p;
     return p;
 }
 
+/// The end of a position's line (its newline, or the end).
+/// @param p the position
+/// @return the line's end
 static int line_end(int p) {
     int n = text_len();
     while (p < n && at(p) != '\n')
@@ -183,21 +229,31 @@ static int line_end(int p) {
 }
 
 /// Start of the next line, or -1 on the last line.
+/// @param ls a line's start
+/// @return the next line's start, or -1
 static int next_line(int ls) {
     int e = line_end(ls);
     return e < text_len() ? e + 1 : -1;
 }
 
 /// Start of the previous line, or -1 on the first.
+/// @param ls a line's start
+/// @return the previous line's start, or -1
 static int prev_line(int ls) {
     return ls > 0 ? line_start(ls - 1) : -1;
 }
 
+/// The column after a character (tabs to the next stop).
+/// @param col the column
+/// @param c the character
+/// @return the next column
 static int advance_col(int col, char c) {
     return c == '\t' ? (col / TAB_WIDTH + 1) * TAB_WIDTH : col + 1;
 }
 
 /// Screen column of position p within its line.
+/// @param p the position
+/// @return its column
 static int col_of(int p) {
     int col = 0;
     for (int i = line_start(p); i < p; ++i)
@@ -206,6 +262,9 @@ static int col_of(int p) {
 }
 
 /// The position on the line starting at ls closest to screen column col.
+/// @param ls the line's start
+/// @param col the column
+/// @return the position
 static int pos_at_col(int ls, int col) {
     int e = line_end(ls), c = 0, p = ls;
     while (p < e) {
@@ -218,6 +277,9 @@ static int pos_at_col(int ls, int col) {
     return p;
 }
 
+/// A position's line number (from 1).
+/// @param p the position
+/// @return the line number
 static int line_number(int p) {
     int n = 1;
     for (int i = 0; i < p; ++i)
@@ -227,22 +289,33 @@ static int line_number(int p) {
 
 // ---- Editor state ---------------------------------------------------------
 
+/// The file's path ("" for a new file).
 static char path[PATH_MAX_];
 static bool crlf;      ///< the file used CR LF line ends
+/// Changed since saved.
 static bool modified;
 static int cur;        ///< cursor offset
 static int goal_col;   ///< column Up/Down try to keep
 static int top;        ///< offset of the first line on screen
 static int left;       ///< first screen column shown (horizontal scroll)
+/// The status line's message.
 static char message[COLS + 1];
+/// The last text searched for.
 static char find_text[64];
+/// The cut buffer (PSRAM).
 static char *cut;
+/// Its length.
 static int cut_len;
+/// The last key cut a line (so cuts add up).
 static bool last_was_cut;
 
 static char (*shadow)[COLS];  ///< what each screen row shows now (with sums, while editing)
+/// Each row of shadow is what the screen shows.
 static bool shadow_ok[ROWS];
 
+/// Sets the status line's message.
+/// @param fmt printf's format, one %s
+/// @param arg its argument
 static void set_message(const char *fmt, const char *arg) {
     snprintf(message, sizeof message, fmt, arg);
 }
@@ -250,6 +323,9 @@ static void set_message(const char *fmt, const char *arg) {
 // ---- Drawing --------------------------------------------------------------
 
 /// Rows are always written whole (80 columns), and only when they change.
+/// @param row the screen row
+/// @param text its 80 columns
+/// @param reverse in reverse video
 static void put_row(int row, const char *text, bool reverse) {
     if (shadow_ok[row] && memcmp(shadow[row], text, COLS) == 0)
         return;
@@ -263,6 +339,9 @@ static void put_row(int row, const char *text, bool reverse) {
     shadow_ok[row] = true;
 }
 
+/// A line as the screen shows it (tabs expanded, scrolled by left).
+/// @param ls the line's start, or -1 for a blank row
+/// @param out 80 columns
 static void render_line(int ls, char *out) {
     memset(out, ' ', COLS);
     if (ls < 0)
@@ -280,6 +359,10 @@ static void render_line(int ls, char *out) {
 
 /// Rows between the line starting at `from` and the one starting at `to`
 /// (to >= from), stopping counting at `limit`.
+/// @param from a line's start
+/// @param to a later line's start
+/// @param limit where to stop
+/// @return the rows
 static int rows_between(int from, int to, int limit) {
     int n = 0;
     while (from < to && n < limit) {
@@ -338,6 +421,8 @@ static void scroll_to_cursor(void) {
             shadow_ok[r] = false;
 }
 
+/// Draws the title and status bars.
+/// @param status the status line's text
 static void draw_bars(const char *status) {
     char row[COLS + 1];
     char right[24];
@@ -364,6 +449,7 @@ static void draw_bars(const char *status) {
     put_row(ROWS - 1, row, true);
 }
 
+/// Draws what changed on the screen.
 static void draw(void) {
     printf("\x1b[?25l");
     scroll_to_cursor();
@@ -383,8 +469,12 @@ static void draw(void) {
 
 // ---- Input ----------------------------------------------------------------
 
+/// A byte read ahead, or -1.
 static int pushed_back = -1;
 
+/// A byte from the keyboard or serial port.
+/// @param timeout_us how long to wait
+/// @return the byte, or PICO_ERROR_TIMEOUT
 static int get_byte(uint32_t timeout_us) {
     if (pushed_back >= 0) {
         int c = pushed_back;
@@ -397,6 +487,7 @@ static int get_byte(uint32_t timeout_us) {
 /// True if more input arrives within a few character times at 115200 baud,
 /// as in a paste: drawing and auto-indent then wait until it's all in, which
 /// also keeps the serial output from swamping the line.
+/// @return more is coming
 static bool input_waiting(void) {
     if (pushed_back < 0) {
         int c = getchar_timeout_us(2000);
@@ -406,6 +497,8 @@ static bool input_waiting(void) {
     return pushed_back >= 0;
 }
 
+/// A key, escape sequences decoded (checking blocks while waiting).
+/// @return the key
 static int read_key(void) {
     int c;
     refresh_step();
@@ -447,6 +540,10 @@ static int read_key(void) {
 }
 
 /// Reads a line of text on the status bar. Returns false if cancelled.
+/// @param label the prompt
+/// @param text the text, edited in place
+/// @param max room in text
+/// @return Enter (else cancelled)
 static bool prompt(const char *label, char *text, int max) {
     int n = strlen(text);
     for (;;) {
@@ -472,6 +569,8 @@ static bool prompt(const char *label, char *text, int max) {
 
 // ---- File I/O -------------------------------------------------------------
 
+/// Loads path (a new file if it has no name or isn't there).
+/// @return loaded
 static bool load(void) {
     gap_start = 0;
     gap_end = EDIT_MAX;
@@ -520,6 +619,7 @@ static bool load(void) {
 
 /// Writes to a temporary file in the same folder first, so an error or a
 /// pulled drive can't destroy the original.
+/// @return saved
 static bool save(void) {
     // Everything checked first: damaged text doesn't replace the file.
     refresh(-1);
@@ -596,6 +696,9 @@ static bool save(void) {
 
 // ---- Editing commands -----------------------------------------------------
 
+/// Inserts text at the cursor.
+/// @param s the text
+/// @param n its length
 static void insert_chars(const char *s, int n) {
     if (!insert_text(cur, s, n)) {
         set_message("The file is full (%s limit)", "64 KB");
@@ -605,6 +708,7 @@ static void insert_chars(const char *s, int n) {
     modified = true;
 }
 
+/// Enter: a new line, indented as the one before.
 static void new_line(void) {
     // Keep the current line's indentation (not for pasted text, which brings
     // its own).
@@ -617,6 +721,7 @@ static void new_line(void) {
     insert_chars(indent, n);
 }
 
+/// Ctrl-K: cuts the line (cuts in a row add up).
 static void cut_line(void) {
     int ls = line_start(cur), next = next_line(ls);
     int end = next >= 0 ? next : text_len();
@@ -638,6 +743,7 @@ static void cut_line(void) {
     modified = true;
 }
 
+/// Finds the next find_text after the cursor (wrapping round).
 static void find_next(void) {
     int n = strlen(find_text), total = text_len();
     if (!n)
@@ -659,6 +765,8 @@ static void find_next(void) {
     set_message("Not found: %s", find_text);
 }
 
+/// Moves the cursor to a line.
+/// @param n the line (from 1)
 static void go_to_line(int n) {
     int p = 0;
     while (--n > 0) {
@@ -670,6 +778,8 @@ static void go_to_line(int n) {
     cur = p;
 }
 
+/// Moves the cursor up or down lines, keeping its column.
+/// @param lines how many (- up)
 static void move_vertical(int lines) {
     int ls = line_start(cur);
     for (; lines < 0; ++lines) {
@@ -688,6 +798,8 @@ static void move_vertical(int lines) {
 }
 
 /// Returns false when the editor should close.
+/// @param k the key
+/// @return keep editing
 static bool handle_key(int k) {
     static int prev_key;
     int prev = prev_key;
