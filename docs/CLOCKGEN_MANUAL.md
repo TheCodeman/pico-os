@@ -70,7 +70,8 @@ panel opens (on), or only shown (off: Apply sends it).
 Esc asks whether to leave the outputs running. **Yes** (Enter, the default)
 leaves the chip as it is: it keeps making the frequencies after the panel
 closes, and on into other programs, until it loses power. **No, stop**
-switches every output off first. Either way the setup is saved in
+switches every output off first, and saves them as off, so nothing
+starts them again by itself. Either way the setup is saved in
 /SI5351.INI.
 
 ## Memories
@@ -162,6 +163,10 @@ in /SI5351.INI): SDA on an even pin and SCL on the next one, I2C0 or I2C1
 following from the pin. The pins are taken while the panel or a command
 runs, as BASIC's `I2C OPEN` takes them, and let go afterwards; the chip
 keeps running.
+
+On the board with a module attached, CLK0 at 10 MHz from PLL A (locked):
+
+![on the board](si5351_board.png)
 
 ![no chip](si5351_none.png)
 

@@ -876,8 +876,12 @@ static void memory_key(int k) {
 /// Leaves the panel: outputs left running, or switched off.
 /// @param keep_running leave them as they are
 static void leave(bool keep_running) {
-    if (!keep_running && U->found)
-        si5351_all_off(&U->dev);
+    if (!keep_running) {  // and saved off, so nothing starts them again by itself
+        if (U->found)
+            si5351_all_off(&U->dev);
+        for (int i = 0; i < SI5351_OUTPUTS; ++i)
+            U->cfg.out[i].enabled = false;
+    }
     U->quit = true;
 }
 
@@ -1162,15 +1166,25 @@ static void print_status(void) {
            U->cfg.cal_ppb / 1000.0, U->cfg.iq ? ", I/Q on CLK0/CLK1" : "");
     for (int p = 0; p < 2; ++p)
         if (U->plan.pll_used[p])
-            printf("PLL %c: %lu + %lu/%lu = %.6f MHz\n", 'A' + p, (unsigned long)U->plan.pll[p].a,
-                   (unsigned long)U->plan.pll[p].b, (unsigned long)U->plan.pll[p].c, U->plan.vco_hz[p] / 1e6);
+        {
+            const si5351_ratio_t *r = &U->plan.pll[p];
+            if (r->b)
+                printf("PLL %c: %lu + %lu/%lu = %.6f MHz\n", 'A' + p, (unsigned long)r->a, (unsigned long)r->b,
+                       (unsigned long)r->c, U->plan.vco_hz[p] / 1e6);
+            else
+                printf("PLL %c: %lu (integer) = %.6f MHz\n", 'A' + p, (unsigned long)r->a, U->plan.vco_hz[p] / 1e6);
+        }
     for (int i = 0; i < SI5351_OUTPUTS; ++i) {
         const si5351_out_t *o = &U->cfg.out[i];
         const si5351_out_plan_t *p = &U->plan.out[i];
         char f[24];
         si5351_freq_text(U->cfg.iq && i == 1 ? U->cfg.out[0].freq_hz : o->freq_hz, f, sizeof f);
-        printf("CLK%d: %-4s %-14s %s mA, PLL %c%s", i, o->enabled ? "on" : "off", f, drive_ma[o->drive],
+        // With a chip: whether it really drives the output (registers 3 and 16-18).
+        bool on = U->found ? !(U->dev.shadow[3] & (1 << i)) && !(U->dev.shadow[16 + i] & 0x80) : o->enabled;
+        printf("CLK%d: %-4s %-14s %s mA, PLL %c%s", i, on ? "on" : "off", f, drive_ma[o->drive],
                'A' + p->pll, o->invert ? ", inverted" : "");
+        if (U->found && on != o->enabled)
+            printf(" (set %s: si5351 apply)", o->enabled ? "on" : "off");
         if (o->enabled && p->error)
             printf(" - %s", p->error);
         else if (o->enabled && p->phase_deg)
