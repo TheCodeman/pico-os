@@ -29,44 +29,44 @@
 #include "pico/time.h"
 
 #define TMDS_CTRL_00 0x354u  ///< TMDS control symbol for C1 C0 = 00
-#define TMDS_CTRL_01 0x0abu  ///< 01
-#define TMDS_CTRL_10 0x154u  ///< 10
-#define TMDS_CTRL_11 0x2abu  ///< 11
+#define TMDS_CTRL_01 0x0abu  ///< TMDS control symbol for C1 C0 = 01
+#define TMDS_CTRL_10 0x154u  ///< TMDS control symbol for C1 C0 = 10
+#define TMDS_CTRL_11 0x2abu  ///< TMDS control symbol for C1 C0 = 11
 
 #define SYNC_V0_H0 (TMDS_CTRL_00 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))  ///< sync: vsync 0, hsync 0
-#define SYNC_V0_H1 (TMDS_CTRL_01 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))  ///< vsync 0, hsync 1
-#define SYNC_V1_H0 (TMDS_CTRL_10 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))  ///< vsync 1, hsync 0
-#define SYNC_V1_H1 (TMDS_CTRL_11 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))  ///< vsync 1, hsync 1
+#define SYNC_V0_H1 (TMDS_CTRL_01 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))  ///< sync: vsync 0, hsync 1
+#define SYNC_V1_H0 (TMDS_CTRL_10 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))  ///< sync: vsync 1, hsync 0
+#define SYNC_V1_H1 (TMDS_CTRL_11 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))  ///< sync: vsync 1, hsync 1
 
-#define MODE_H_FRONT_PORCH   16  ///< 640x480 at 60 Hz: pixels of the front porch
-#define MODE_H_SYNC_WIDTH    96  ///< of the sync
-#define MODE_H_BACK_PORCH    48  ///< of the back porch
-#define MODE_H_ACTIVE_PIXELS DVI_WIDTH  ///< shown
+#define MODE_H_FRONT_PORCH   16  ///< 640x480 at 60 Hz: the horizontal front porch, in pixels
+#define MODE_H_SYNC_WIDTH    96  ///< the horizontal sync, in pixels
+#define MODE_H_BACK_PORCH    48  ///< the horizontal back porch, in pixels
+#define MODE_H_ACTIVE_PIXELS DVI_WIDTH  ///< pixels shown in a line
 
-#define MODE_V_FRONT_PORCH   10  ///< lines of the front porch
-#define MODE_V_SYNC_WIDTH    2  ///< of the sync
-#define MODE_V_BACK_PORCH    33  ///< of the back porch
-#define MODE_V_ACTIVE_LINES  DVI_HEIGHT  ///< shown
+#define MODE_V_FRONT_PORCH   10  ///< the vertical front porch, in lines
+#define MODE_V_SYNC_WIDTH    2  ///< the vertical sync, in lines
+#define MODE_V_BACK_PORCH    33  ///< the vertical back porch, in lines
+#define MODE_V_ACTIVE_LINES  DVI_HEIGHT  ///< lines shown
 
 /// Lines in a frame.
 #define MODE_V_TOTAL_LINES \
     (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH + MODE_V_BACK_PORCH + MODE_V_ACTIVE_LINES)
 
 #define HSTX_CMD_RAW         (0x0u << 12)  ///< HSTX command: raw words
-#define HSTX_CMD_RAW_REPEAT  (0x1u << 12)  ///< a raw word repeated
-#define HSTX_CMD_TMDS        (0x2u << 12)  ///< pixels through the TMDS encoders
-#define HSTX_CMD_NOP         (0xfu << 12)  ///< nothing
+#define HSTX_CMD_RAW_REPEAT  (0x1u << 12)  ///< HSTX command: a raw word repeated
+#define HSTX_CMD_TMDS        (0x2u << 12)  ///< HSTX command: pixels through the TMDS encoders
+#define HSTX_CMD_NOP         (0xfu << 12)  ///< HSTX command: nothing
 
 /// HDMI preambles: CTL0..CTL3 ride on channels 1 and 2 (HDMI 1.4 table 5-2).
 #define LANE12(c1, c2)       (((c1) << 10) | ((c2) << 20))
-#define PREAMBLE_VIDEO       LANE12(TMDS_CTRL_01, TMDS_CTRL_00)  ///< before video
-#define PREAMBLE_DATA_ISLAND LANE12(TMDS_CTRL_01, TMDS_CTRL_01)  ///< before a data island
+#define PREAMBLE_VIDEO       LANE12(TMDS_CTRL_01, TMDS_CTRL_00)  ///< the preamble before video
+#define PREAMBLE_DATA_ISLAND LANE12(TMDS_CTRL_01, TMDS_CTRL_01)  ///< the preamble before a data island
 #define VIDEO_GUARD_BAND     (0x2ccu | (0x133u << 10) | (0x2ccu << 20))  ///< the guard band before video
-#define VIDEO_PREAMBLE_PIXELS 8  ///< the preamble's length in pixels
-#define VIDEO_GUARD_PIXELS    2  ///< the guard band's
+#define VIDEO_PREAMBLE_PIXELS 8  ///< the video preamble's length in pixels
+#define VIDEO_GUARD_PIXELS    2  ///< the video guard band's length in pixels
 
 #define DMACH_PING 0  ///< DMA channel for the first line buffer
-#define DMACH_PONG 1  ///< and the second
+#define DMACH_PONG 1  ///< DMA channel for the second line buffer
 
 /// The first line shown.
 #define FIRST_ACTIVE_LINE (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES)
