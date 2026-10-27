@@ -115,8 +115,8 @@ cyan, command names in white):
       genesis     Sega Genesis emulator     System
       mc          file manager                date        show or set the clock
       tracker     MOD music tracker           mem         memory use
-      view        show a picture              mouse       mouse status and speed
-                                              memtest     test the PSRAM
+      si5351      Si5351A clock generator     mouse       mouse status and speed
+      view        show a picture              memtest     test the PSRAM
                                               reset       restart the board
                                               run         run a script
                                               help        this list
@@ -180,6 +180,7 @@ Esc or Ctrl-C stops between files. Copying a file onto itself is refused.
 | `view file` | | Shows a BMP, PNG or JPEG on the screen, with its size and the load and draw times. Press a key to return. |
 | `mc [left] [right]` | | File manager in the style of Midnight Commander (see the *File Manager* manual). |
 | `tracker [file.mod]` | `mod` | MOD music tracker in graphics (see the *MOD Tracker* manual). |
+| `si5351 [set N FREQ \| on N \| off N \| status ...]` | `clockgen` | A Si5351A clock generator on I2C: a graphical panel, or settings from the shell (see the *Clock Generator* manual). |
 | `term [baud] [format]` | `serial` | Serial terminal on COM1 with a settings page (see the *Serial Terminal* manual). |
 | `applesoft [file]` | | An Apple IIe at the Applesoft BASIC prompt (see the *Emulators* manual). |
 | `apple2e [disk1 [disk2]]` | | An enhanced Apple IIe running its own ROMs, with disk drives (see the *Emulators* manual). |
@@ -541,6 +542,7 @@ Each manual is a PDF in the `manuals` folder (made from `docs/*.md` with
 | The file manager mc, in the style of Midnight Commander | `manuals/Pico 2 mini OS File Manager.pdf` |
 | The MOD/XM music tracker (`tracker`) and `modplay` | `manuals/Pico 2 mini OS MOD Tracker.pdf` |
 | Internet radio, MP3 and AAC (`radio`) | `manuals/Pico 2 mini OS Internet Radio.pdf` |
+| The Si5351A clock generator (`si5351`, `clockgen`) | `manuals/Pico 2 mini OS Clock Generator.pdf` |
 | `wget`, `telnet` and its BBS directory, `ssh`, `scp` | `manuals/Pico 2 mini OS Network Tools.pdf` |
 | The serial terminal (`term`) and XMODEM/YMODEM/ZMODEM | `manuals/Pico 2 mini OS Serial Terminal.pdf` |
 | Applesoft, the Apple IIe, the Commodore 64 and the Sega Genesis | `manuals/Pico 2 mini OS Emulators.pdf` |
