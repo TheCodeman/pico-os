@@ -24,22 +24,31 @@
 #include "psram_heap.h"
 #include "trk.h"
 
+/// The shadows' offset.
 #define SHADOW 6
+/// Their colour.
 #define C_SHADOW 0x00
 #define C_STRIP  0x0b  ///< the title strip
 #define C_SEL    0x2b  ///< the item or button with the keyboard
 
 // ---- Keeping what is under a box ------------------------------------------------------------------
 
+/// What was under a box.
 typedef struct {
+    /// The box.
     ///@{
     int x, y, w, h;
     ///@}
-    uint8_t *pixels;
+    uint8_t *pixels;  ///< the pixels (PSRAM)
 } under_t;
 
 /// (From and back into wherever drawing goes now: the screen, or the
 /// off-screen copy below.)
+/// @param x left
+/// @param y top
+/// @param w width
+/// @param h height
+/// @return the copy
 static under_t keep(int x, int y, int w, int h) {
     under_t u = {x, y, w, h, NULL};
     if (x < 0) u.w += x, u.x = 0;
@@ -53,6 +62,8 @@ static under_t keep(int x, int y, int w, int h) {
     return u;
 }
 
+/// Puts what was under a box back.
+/// @param u the copy
 static void put_back(under_t *u) {
     mouse_pointer_hide();
     for (int r = 0; u->pixels && r < u->h; ++r)
@@ -68,8 +79,14 @@ static void put_back(under_t *u) {
 // cleared and drawn again (which flickered on every mouse move).
 
 static uint8_t *offscr;  ///< a whole-screen copy (PSRAM) while a menu or dialog is up
+/// Boxes using the off-screen copy.
 static int off_users;
 
+/// Clips an area to the screen.
+/// @param x left
+/// @param y top
+/// @param w width
+/// @param h height
 static void clamp_area(int *x, int *y, int *w, int *h) {
     if (*x < 0) *w += *x, *x = 0;
     if (*y < 0) *h += *y, *y = 0;
@@ -78,6 +95,10 @@ static void clamp_area(int *x, int *y, int *w, int *h) {
 }
 
 /// The off-screen copy of an area of the screen; drawing goes there.
+/// @param x left
+/// @param y top
+/// @param w width
+/// @param h height
 static void off_begin(int x, int y, int w, int h) {
     if (!off_users++)
         offscr = psram_malloc(DVI_WIDTH * DVI_HEIGHT);
@@ -90,6 +111,10 @@ static void off_begin(int x, int y, int w, int h) {
 }
 
 /// What was drawn in the area, onto the screen.
+/// @param x left
+/// @param y top
+/// @param w width
+/// @param h height
 static void off_show(int x, int y, int w, int h) {
     if (!offscr)
         return;
@@ -98,6 +123,7 @@ static void off_show(int x, int y, int w, int h) {
         memcpy(dvi_framebuf + (y + r) * DVI_WIDTH + x, offscr + (y + r) * DVI_WIDTH + x, w);
 }
 
+/// Ends drawing off the screen.
 static void off_end(void) {
     gfx_target = dvi_framebuf;
     if (--off_users)
@@ -107,6 +133,12 @@ static void off_end(void) {
 }
 
 /// A panel with a shadow and a title strip; the inside starts 22 down.
+/// @param x left
+/// @param y top
+/// @param w width
+/// @param h height
+/// @param title its title
+/// @param error red
 static void panel(int x, int y, int w, int h, const char *title, bool error) {
     gfx_fill(x + SHADOW, y + SHADOW, w, h, C_SHADOW);
     gfx_bevel(x, y, w, h, true, C_FACE);
@@ -119,11 +151,18 @@ static void panel(int x, int y, int w, int h, const char *title, bool error) {
 
 /// Places to click inside a dialog.
 typedef struct {
+    /// Its rectangle and what it is.
     ///@{
     int x, y, w, h, id;
     ///@}
 } spot_t;
 
+/// The place at a point.
+/// @param s the places
+/// @param n their count
+/// @param x the x
+/// @param y the y
+/// @return its id, or -1
 static int spot_at(const spot_t *s, int n, int x, int y) {
     for (int i = 0; i < n; ++i)
         if (x >= s[i].x && x < s[i].x + s[i].w && y >= s[i].y && y < s[i].y + s[i].h)
@@ -133,6 +172,9 @@ static int spot_at(const spot_t *s, int n, int x, int y) {
 
 /// Waits for a key or a mouse event (moves only with a button held, or if
 /// `moves`), moving the pointer meanwhile.
+/// @param e set to a mouse event
+/// @param moves report moves
+/// @return the key, or KEY_MOUSE
 static int next_input(mouse_event_t *e, bool moves) {
     for (;;) {
         int k = key_poll();
@@ -148,6 +190,10 @@ static int next_input(mouse_event_t *e, bool moves) {
 
 // ---- Buttons --------------------------------------------------------------------------------------
 
+/// Splits "Yes|No" into names.
+/// @param buttons the text
+/// @param names set to them
+/// @return their count
 static int split_buttons(const char *buttons, char names[8][16]) {
     int n = 0;
     for (const char *p = buttons; *p && n < 8;) {
@@ -163,6 +209,14 @@ static int split_buttons(const char *buttons, char names[8][16]) {
 }
 
 /// The row of buttons centred in a box; their places into spots (ids 0..n-1).
+/// @param x left
+/// @param y top
+/// @param w the box's width
+/// @param names the names
+/// @param n their count
+/// @param focus the button with the keyboard
+/// @param spots set to their places
+/// @return n
 static int draw_buttons(int x, int y, int w, char names[8][16], int n, int focus, spot_t *spots) {
     int bw[8], total = 0;
     for (int i = 0; i < n; ++i) {
@@ -418,6 +472,10 @@ int gui_list(const char *title, char *const *items, int n, int start) {
 // ---- The menus --------------------------------------------------------------------------------------
 // Items whose text starts with '~' are shown greyed and can't be chosen.
 
+/// A menu title's x.
+/// @param menus the menus
+/// @param i the menu
+/// @return its x
 static int bar_x(menu_t *menus, int i) {
     int x = 16;
     for (int k = 0; k < i; ++k)
@@ -425,21 +483,29 @@ static int bar_x(menu_t *menus, int i) {
     return x;
 }
 
+/// Whether an item can be chosen (not a line, not greyed).
+/// @param it the item
+/// @return it can
 static bool usable(const menu_item_t *it) {
     return it->text[0] != '-' && it->text[0] != '~';
 }
 
 /// A drop-down's items, size and where each is.
 typedef struct {
-    menu_item_t *items;
+    menu_item_t *items;  ///< the items
     /// rh: an item's height (less if it wouldn't fit)
     ///@{
     int n, x, y, w, h, rh;
     ///@}
-    int item_y[40];
+    int item_y[40];  ///< each item's y
     int8_t acc[40];  ///< each item's key letter (its place in the text), -1 none
 } drop_t;
 
+/// Measures a drop-down.
+/// @param d set
+/// @param items the items
+/// @param x left
+/// @param y top
 static void drop_measure(drop_t *d, menu_item_t *items, int x, int y) {
     int tw = 0, kw = 0;
     d->items = items;
@@ -489,6 +555,9 @@ static void drop_measure(drop_t *d, menu_item_t *items, int x, int y) {
     d->y = y;
 }
 
+/// Draws a drop-down.
+/// @param d it
+/// @param sel the item chosen
 static void drop_draw(const drop_t *d, int sel) {
     int x = d->x, w = d->w;
     gfx_fill(x + SHADOW, d->y + SHADOW, w, d->h, C_SHADOW);
@@ -517,6 +586,10 @@ static void drop_draw(const drop_t *d, int sel) {
 }
 
 /// The item under the mouse (-1: none; -2: outside the drop-down).
+/// @param d the drop-down
+/// @param x the x
+/// @param y the y
+/// @return the item
 static int drop_at(const drop_t *d, int x, int y) {
     if (x < d->x || x >= d->x + d->w || y < d->y || y >= d->y + d->h)
         return -2;
@@ -526,6 +599,10 @@ static int drop_at(const drop_t *d, int x, int y) {
     return -1;
 }
 
+/// The item chosen, or the first that can be.
+/// @param d the drop-down
+/// @param sel the item
+/// @return it, or -1
 static int first_usable(const drop_t *d, int sel) {
     if (sel >= 0 && sel < d->n && usable(&d->items[sel]))
         return sel;
@@ -535,6 +612,11 @@ static int first_usable(const drop_t *d, int sel) {
     return -1;
 }
 
+/// The next item that can be chosen.
+/// @param d the drop-down
+/// @param sel the item
+/// @param dir +1 or -1
+/// @return it
 static int step_sel(const drop_t *d, int sel, int dir) {
     for (int tries = 0; tries < d->n; ++tries) {
         sel = (sel + dir + d->n) % d->n;
@@ -545,6 +627,9 @@ static int step_sel(const drop_t *d, int sel, int dir) {
 }
 
 /// The item whose key letter is k.
+/// @param d the drop-down
+/// @param k the key
+/// @return the item, or -1
 static int letter_item(const drop_t *d, int k) {
     for (int i = 0; i < d->n; ++i)
         if (d->acc[i] >= 0 && (d->items[i].text[d->acc[i]] | 0x20) == (k | 0x20))
@@ -552,6 +637,10 @@ static int letter_item(const drop_t *d, int k) {
     return -1;
 }
 
+/// Draws the menu bar.
+/// @param menus the menus
+/// @param count their count
+/// @param open the menu open (-1 none)
 static void draw_bar(menu_t *menus, int count, int open) {
     for (int i = 0; i < count; ++i) {
         int bx = bar_x(menus, i), bw = ((int)strlen(menus[i].title) + 4) * 8;

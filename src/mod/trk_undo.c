@@ -23,6 +23,7 @@
 #include "psram_heap.h"
 #include "trk.h"
 
+/// What a copy is of.
 enum {
     K_MOD_PAT,    ///< a MOD pattern: channels, then its cells as the file has them
     K_XM_PAT,     ///< an XM pattern: rows (2 bytes), channels, then its cells
@@ -33,42 +34,65 @@ enum {
     K_XM_IDEEP,   ///< an XM instrument with its samples' sound
 };
 
+/// A copy kept for undo or redo.
 typedef struct {
-    uint8_t kind;
-    int16_t index;
+    uint8_t kind;  ///< K_*
+    int16_t index;  ///< which pattern, sample or instrument
+    /// Its size and checksum.
     ///@{
     uint32_t size, sum;
     ///@}
-    uint8_t *data;
+    uint8_t *data;  ///< the copy (PSRAM)
 } rec_t;
 
+/// Copies kept each way.
 #define MAX_RECS 64
 #define BUDGET   (3u << 20)   ///< bytes of copies kept at most
+/// The largest pattern copy.
 #define PAT_MAX  (4 + 256 * XM_MAX_CH * sizeof(xm_cell_t))
 
-static rec_t *undos, *redos;  ///< MAX_RECS each (PSRAM: SRAM is short)
+/// The undo and redo copies.
+///@{
+static rec_t *undos, *redos;
+///@}
+/// How many of each.
+///@{
 static int nundo, nredo;
+///@}
+/// Bytes of copies.
 static uint32_t used;
 
+/// A copy of what is being changed, taken before a change.
 typedef struct {
+    /// What it is of.
     ///@{
     int kind, index;
     ///@}
-    uint32_t size;
-    uint8_t *buf;
-    bool valid;
+    uint32_t size;  ///< its size
+    uint8_t *buf;  ///< the copy
+    bool valid;  ///< it was taken
 } watch_t;
+/// The pattern, the song and the sample/instrument being watched.
+///@{
 static watch_t w_pat, w_song, w_hdr;
+///@}
+/// Room to build what is there now, to compare.
 static uint8_t *scratch;
 
+/// The song's settings, as copied.
 typedef struct {
-    char title[21];
-    uint8_t orders[256];
+    char title[21];  ///< its title
+    uint8_t orders[256];  ///< the order list
+    /// Its length, restart position, speed and tempo.
     ///@{
     int length, restart, speed, bpm;
     ///@}
 } song_state_t;
 
+/// FNV-1a.
+/// @param p the bytes
+/// @param n their count
+/// @return the hash
 static uint32_t checksum(const uint8_t *p, uint32_t n) {
     uint32_t h = 2166136261u;
     for (uint32_t i = 0; i < n; ++i)
@@ -78,12 +102,18 @@ static uint32_t checksum(const uint8_t *p, uint32_t n) {
 
 // ---- Copies of things ----------------------------------------------------------------------------
 
+/// A MOD pattern's size.
+/// @return bytes
 static uint32_t mod_pattern_bytes(void) {
     return MOD_ROWS * T->song.channels * 4;
 }
 
 /// What `kind` `index` is now, into out (if not NULL); its size, 0 if it
 /// doesn't exist.
+/// @param kind K_*
+/// @param index which
+/// @param out where, or NULL
+/// @return the size
 static uint32_t build(int kind, int index, uint8_t *out) {
     xm_song_t *x = T->xm;
     switch (kind) {
@@ -168,6 +198,10 @@ static uint32_t build(int kind, int index, uint8_t *out) {
 
 /// Whether a settings copy still fits what is there now (the same channels,
 /// the same sound data): only then can it go back, or be worth keeping.
+/// @param kind K_*
+/// @param index which
+/// @param blob the copy
+/// @return it fits
 static bool fits(int kind, int index, const uint8_t *blob) {
     xm_song_t *x = T->xm;
     switch (kind) {
@@ -200,6 +234,11 @@ static bool fits(int kind, int index, const uint8_t *blob) {
 }
 
 /// Puts a copy back. False (with a message) if it can't.
+/// @param kind K_*
+/// @param index which
+/// @param blob the copy
+/// @param size its size
+/// @return done
 static bool apply(int kind, int index, const uint8_t *blob, uint32_t size) {
     xm_song_t *x = T->xm;
     if (!fits(kind, index, blob)) {
@@ -318,12 +357,17 @@ static bool apply(int kind, int index, const uint8_t *blob, uint32_t size) {
 
 // ---- The lists -------------------------------------------------------------------------------------
 
+/// Drops a copy.
+/// @param r it
 static void drop(rec_t *r) {
     used -= r->size;
     psram_free(r->data);
     r->data = NULL;
 }
 
+/// Drops all of a list.
+/// @param list it
+/// @param n its count
 static void drop_all(rec_t *list, int *n) {
     while (*n)
         drop(&list[--*n]);
@@ -331,6 +375,12 @@ static void drop_all(rec_t *list, int *n) {
 
 /// Keeps a copy (taking `data`, from psram_malloc), the oldest going if
 /// there are too many.
+/// @param list the list
+/// @param n its count
+/// @param kind K_*
+/// @param index which
+/// @param data the copy
+/// @param size its size
 static void push(rec_t *list, int *n, int kind, int index, uint8_t *data, uint32_t size) {
     rec_t *other = list == undos ? redos : undos;
     int *no = list == undos ? &nredo : &nundo;
@@ -353,6 +403,11 @@ static void push(rec_t *list, int *n, int kind, int index, uint8_t *data, uint32
     used += size;
 }
 
+/// A copy of what is there now (PSRAM).
+/// @param kind K_*
+/// @param index which
+/// @param size set to its size
+/// @return it, or NULL
 static uint8_t *copy_of(int kind, int index, uint32_t *size) {
     *size = build(kind, index, NULL);
     if (!*size)
@@ -365,6 +420,11 @@ static uint8_t *copy_of(int kind, int index, uint32_t *size) {
 
 // ---- Watching -----------------------------------------------------------------------------------
 
+/// What is being edited: the pattern, and the sample or instrument.
+/// @param pk set to the pattern's kind
+/// @param pi its index
+/// @param hk the sample's or instrument's kind
+/// @param hi its index
 static void targets(int *pk, int *pi, int *hk, int *hi) {
     if (T->xm) {
         *pk = K_XM_PAT, *pi = xed_pattern();
@@ -375,6 +435,10 @@ static void targets(int *pk, int *pi, int *hk, int *hi) {
     }
 }
 
+/// Takes a copy before a change.
+/// @param w the watch
+/// @param kind K_*
+/// @param index which
 static void take(watch_t *w, int kind, int index) {
     w->kind = kind;
     w->index = index;
@@ -382,6 +446,10 @@ static void take(watch_t *w, int kind, int index) {
     w->valid = w->size > 0;
 }
 
+/// Keeps the copy if what it watched changed; then watches kind index.
+/// @param w the watch
+/// @param kind K_*
+/// @param index which
 static void check(watch_t *w, int kind, int index) {
     if (w->valid) {
         uint32_t n = build(w->kind, w->index, scratch);
@@ -429,6 +497,9 @@ static void rewatch(void) {
 
 // ---- The tracker's side --------------------------------------------------------------------------
 
+/// Keeps a deep copy (with the sound) before a change.
+/// @param kind K_*
+/// @param index which
 static void keep_deep(int kind, int index) {
     undo_watch();  // settings changed just before go in first
     uint32_t size;

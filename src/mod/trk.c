@@ -31,25 +31,25 @@ trk_t *T;
 
 // ---- Layout of the pattern screen (pixels) -------------------------------------------------------
 #define TOP_Y      16   ///< the panels under the menu bar
-#define TOP_H      144
-#define SONG_X     0
-#define SONG_W     236
-#define ORD_X      236
-#define ORD_W      112
-#define SMP_X      348
-#define SMP_W      292
-#define SCOPE_Y    160
-#define SCOPE_H    48
-#define TRANS_Y    208
-#define HEAD_Y     232
-#define PAT_Y      248
-#define PAT_ROWS   15
-#define ROW_H      14
+#define TOP_H      144  ///< their height
+#define SONG_X     0  ///< the song panel: left
+#define SONG_W     236  ///< width
+#define ORD_X      236  ///< the order list: left
+#define ORD_W      112  ///< width
+#define SMP_X      348  ///< the sample list: left
+#define SMP_W      292  ///< width
+#define SCOPE_Y    160  ///< the scopes' top
+#define SCOPE_H    48  ///< their height
+#define TRANS_Y    208  ///< the transport buttons' row
+#define HEAD_Y     232  ///< the channel heads' row
+#define PAT_Y      248  ///< the pattern's top
+#define PAT_ROWS   15  ///< pattern rows shown
+#define ROW_H      14  ///< a row's height
 #define PAT_X      28   ///< the first channel
-#define CH_W       76
-#define STATUS_Y   464
-#define ORD_ROWS   6
-#define SMP_ROWS   7
+#define CH_W       76  ///< a channel's width
+#define STATUS_Y   464  ///< the status line's top
+#define ORD_ROWS   6  ///< order rows shown
+#define SMP_ROWS   7  ///< sample rows shown
 
 /// Field x offsets in a channel's column: note, sample (2 digits), effect, parameter (2).
 static const uint8_t col_x[6] = {2, 30, 38, 50, 58, 66};
@@ -112,11 +112,15 @@ void trk_jam(int sample, int note) {
 
 // ---- The song ----------------------------------------------------------------------------------------------
 
+/// Counts a pattern as used.
+/// @param p the pattern
 static void touch_pattern(int p) {
     if (p >= T->song.npatterns)
         T->song.npatterns = p + 1;
 }
 
+/// Goes to a song position.
+/// @param pos the position
 static void go_pos(int pos) {
     mod_song_t *s = &T->song;
     if (pos < 0)
@@ -128,6 +132,9 @@ static void go_pos(int pos) {
     touch_pattern(T->pattern);
 }
 
+/// Changes the channel count (patterns kept).
+/// @param n the channels
+/// @return done
 static bool set_channels(int n) {
     mod_song_t *s = &T->song;
     if (n == s->channels)
@@ -158,6 +165,9 @@ static bool set_channels(int n) {
     return true;
 }
 
+/// Changes a song panel field by a step.
+/// @param f the field (SF_*)
+/// @param d the step
 static void song_field_change(int f, int d) {
     mod_song_t *s = &T->song;
     switch (f) {
@@ -212,6 +222,8 @@ static void song_field_change(int f, int d) {
     }
 }
 
+/// Edits a song panel field by typing.
+/// @param f the field
 static void song_field_enter(int f) {
     mod_song_t *s = &T->song;
     char buf[24];
@@ -239,19 +251,33 @@ static void song_field_enter(int f) {
 
 // ---- Pattern editing ----------------------------------------------------------------------------------
 
+/// A cell of the pattern on screen.
+/// @param r the row
+/// @param c the channel
+/// @return the cell
 static mod_cell_t get(int r, int c) {
     return mod_get(&T->song, T->pattern, r, c);
 }
 
+/// Sets a cell.
+/// @param r the row
+/// @param c the channel
+/// @param v the cell
 static void put(int r, int c, mod_cell_t v) {
     mod_put(&T->song, T->pattern, r, c, v);
     T->dirty = true;
 }
 
+/// Moves down by the step after entering a note.
 static void advance(void) {
     T->row = (T->row + T->step) % MOD_ROWS;
 }
 
+/// The block's corners, in order.
+/// @param c0 set to its first channel
+/// @param r0 its first row
+/// @param c1 its last channel
+/// @param r1 its last row
 static void block_range(int *c0, int *r0, int *c1, int *r1) {
     *c0 = T->bl_ch0 < T->bl_ch1 ? T->bl_ch0 : T->bl_ch1;
     *c1 = T->bl_ch0 < T->bl_ch1 ? T->bl_ch1 : T->bl_ch0;
@@ -259,6 +285,10 @@ static void block_range(int *c0, int *r0, int *c1, int *r1) {
     *r1 = T->bl_row0 < T->bl_row1 ? T->bl_row1 : T->bl_row0;
 }
 
+/// Whether a cell is in the block.
+/// @param r the row
+/// @param c the channel
+/// @return it is
 static bool in_block(int r, int c) {
     if (!T->block)
         return false;
@@ -268,6 +298,10 @@ static bool in_block(int r, int c) {
 }
 
 /// The block, or the cursor's cell if none is marked.
+/// @param c0 set to the first channel
+/// @param r0 the first row
+/// @param c1 the last channel
+/// @param r1 the last row
 static void work_range(int *c0, int *r0, int *c1, int *r1) {
     if (T->block) {
         block_range(c0, r0, c1, r1);
@@ -277,6 +311,8 @@ static void work_range(int *c0, int *r0, int *c1, int *r1) {
     }
 }
 
+/// Copies (or cuts) the block.
+/// @param cut cut it
 static void copy_block(bool cut) {
     int c0, r0, c1, r1;
     work_range(&c0, &r0, &c1, &r1);
@@ -292,6 +328,8 @@ static void copy_block(bool cut) {
                 T->clip_h == 1 ? "" : "s", T->clip_w, T->clip_w == 1 ? "" : "s");
 }
 
+/// Pastes at the cursor.
+/// @param mix only into empty cells
 static void paste_block(bool mix) {
     if (!T->clip_w) {
         trk_message("Nothing copied yet (Alt-C copies the block).");
@@ -315,6 +353,8 @@ static void paste_block(bool mix) {
         }
 }
 
+/// Transposes the block's notes.
+/// @param d semitones
 static void transpose(int d) {
     int c0, r0, c1, r1, lost = 0;
     work_range(&c0, &r0, &c1, &r1);
@@ -335,6 +375,10 @@ static void transpose(int d) {
         trk_message("%d note%s would leave C-1..B-3: not moved.", lost, lost == 1 ? "" : "s");
 }
 
+/// Inserts or deletes a row at the cursor.
+/// @param c0 the first channel
+/// @param c1 the last
+/// @param insert insert (else delete)
 static void shift_rows(int c0, int c1, bool insert) {
     for (int c = c0; c <= c1; ++c) {
         if (insert) {
@@ -349,6 +393,8 @@ static void shift_rows(int c0, int c1, bool insert) {
     }
 }
 
+/// A new pattern at the next position.
+/// @param clone a copy of this one
 static void new_pattern(bool clone) {
     mod_song_t *s = &T->song;
     if (s->npatterns >= MOD_MAX_PATTERNS || s->length >= 128) {
@@ -370,6 +416,7 @@ static void new_pattern(bool clone) {
     trk_message("Pattern %02d %s at position %02d.", p, clone ? "cloned" : "made", T->pos);
 }
 
+/// Clears the pattern (after asking).
 static void clear_pattern(void) {
     trk_dialog_begin();
     char text[48];
@@ -382,6 +429,8 @@ static void clear_pattern(void) {
     }
 }
 
+/// Writes Fxx: the speed or tempo, at the cursor.
+/// @param bpm the tempo (else the speed)
 static void write_tempo(bool bpm) {
     mod_cell_t v = get(T->row, T->ch);
     v.effect = 15;
@@ -390,6 +439,7 @@ static void write_tempo(bool bpm) {
     trk_message("F%02X: %s %d from this row.", v.param, bpm ? "tempo" : "speed", v.param);
 }
 
+/// Inserts a position in the order list.
 static void order_insert(void) {
     mod_song_t *s = &T->song;
     if (s->length >= 128)
@@ -399,6 +449,7 @@ static void order_insert(void) {
     T->dirty = true;
 }
 
+/// Deletes a position.
 static void order_delete(void) {
     mod_song_t *s = &T->song;
     if (s->length <= 1)
@@ -412,6 +463,8 @@ static void order_delete(void) {
     T->dirty = true;
 }
 
+/// Changes the position's pattern.
+/// @param d the step
 static void order_change(int d) {
     mod_song_t *s = &T->song;
     int p = s->orders[T->pos] + d;
@@ -422,6 +475,9 @@ static void order_change(int d) {
     T->dirty = true;
 }
 
+/// Mutes or solos a channel.
+/// @param ch the channel
+/// @param how 0 toggles, 1 solo, 2 all on
 static void mute(int ch, int how) {  // how: 0 toggle, 1 solo, 2 all on
     mod_status_t st;
     mod_get_status(&st);
@@ -438,6 +494,8 @@ static void mute(int ch, int how) {  // how: 0 toggle, 1 solo, 2 all on
 
 // ---- Commands (menus, keys and buttons) ------------------------------------------------------------
 
+/// Plays the song, the pattern or from the row.
+/// @param how HIT_PLAY_SONG and the like
 static void play(int how) {
     mod_set_tempo(T->speed, T->bpm);
     if (how == HIT_PLAY_SONG)
@@ -448,9 +506,13 @@ static void play(int how) {
         mod_play(&T->song, T->pos, T->row, false);
 }
 
+/// Leaving.
 static bool quit_wanted;
 static void undo_key(bool redo);
 
+/// Does a menu command or button.
+/// @param id the command
+/// @param arg its argument
 static void command(int id, int arg) {
     if (T->xm) {
         static const int map[][2] = {
@@ -619,6 +681,7 @@ static void command(int id, int arg) {
 
 // ---- Menus ---------------------------------------------------------------------------------------------
 
+/// The File menu.
 static menu_item_t file_items[] = {
     {"New song", HIT_NEW, "Ctrl-N", false},
     {"Load song...", HIT_LOAD, "Ctrl-O", false},
@@ -629,6 +692,7 @@ static menu_item_t file_items[] = {
     {"Quit", HIT_QUIT, "Ctrl-Q", false},
     {NULL, 0, NULL, false},
 };
+/// The Edit menu.
 static menu_item_t edit_items[] = {
     {"Undo", CMD_UNDO, "Ctrl-Z", false},
     {"Redo", CMD_REDO, "Ctrl-Y", false},
@@ -652,6 +716,7 @@ static menu_item_t edit_items[] = {
     {"Delete row (all)", CMD_DEL_ROW, "Alt-D", false},
     {NULL, 0, NULL, false},
 };
+/// The Pattern menu.
 static menu_item_t pattern_items[] = {
     {"New pattern", HIT_PAT_NEW, "Alt-N", false},
     {"Clone pattern", HIT_PAT_CLONE, "Alt-K", false},
@@ -666,6 +731,7 @@ static menu_item_t pattern_items[] = {
     {"Write tempo here", CMD_WRITE_BPM, "Alt-G", false},
     {NULL, 0, NULL, false},
 };
+/// The Sample menu.
 static menu_item_t sample_items[] = {
     {"Sample editor", HIT_SCREEN_SAMPLE, "F3", false},
     {"Load sample...", TOOL_LOAD, "Ctrl-L", false},
@@ -722,6 +788,7 @@ static menu_item_t instrument_items[] = {
     {"Envelope preset...", TOOL_ENV_PRESET, "", false},
     {NULL, 0, NULL, false},
 };
+/// The Play menu.
 static menu_item_t play_items[] = {
     {"Play song", HIT_PLAY_SONG, "F5", false},
     {"Play pattern", HIT_PLAY_PATTERN, "F6", false},
@@ -736,15 +803,18 @@ static menu_item_t play_items[] = {
     {"Unmute all", CMD_UNMUTE, "Ctrl-U", false},
     {NULL, 0, NULL, false},
 };
+/// The Help menu.
 static menu_item_t help_items[] = {
     {"Keys", HIT_HELP, "F1", false},
     {"About", CMD_ABOUT, "", false},
     {NULL, 0, NULL, false},
 };
+/// The menus.
 static menu_t menus[] = {
     {"File", file_items},       {"Edit", edit_items}, {"Pattern", pattern_items},
     {"Sample", sample_items},   {"Play", play_items}, {"Help", help_items},
 };
+/// Their count.
 #define NMENUS 6
 
 /// What can't be done now is greyed.
@@ -769,6 +839,8 @@ void trk_menu_open(int open) {
 
 /// The right button: the Edit menu over the pattern, the Sample menu over
 /// the sample screen, where the pointer is.
+/// @param x the pointer's x
+/// @param y its y
 static void context_menu(int x, int y) {
     menu_states();
     int id = gui_popup(T->screen != SCREEN_SAMPLE ? edit_items : T->xm ? instrument_items : sample_items, x, y);
@@ -779,6 +851,7 @@ static void context_menu(int x, int y) {
 
 // ---- Drawing the pattern screen -------------------------------------------------------------------
 
+/// Draws the menu bar (when it changed).
 static void draw_menu_bar(void) {
     // As the menus draw it when open: two spaces, the title, two spaces.
     // Drawn only when something on it changed: drawing it again each frame
@@ -821,6 +894,13 @@ static void draw_menu_bar(void) {
         gfx_hline(mx + 16, 14, 8, C_LABEL);
 }
 
+/// A field: text in a sunken box.
+/// @param x left
+/// @param y top
+/// @param chars its width
+/// @param focus it has the keyboard
+/// @param fg the text's colour
+/// @param text the text
 static void field_box(int x, int y, int chars, bool focus, uint8_t fg, const char *text) {
     uint8_t bg = focus ? C_FOCUS : C_FIELD;
     gfx_fill(x, y, 2, 16, bg);
@@ -828,6 +908,8 @@ static void field_box(int x, int y, int chars, bool focus, uint8_t fg, const cha
     gfx_fill(end, y, 2, 16, bg);
 }
 
+/// Draws the song panel.
+/// @param st the player's status
 static void draw_song_panel(mod_status_t *st) {
     static const char *const labels[SF_COUNT] = {"Title", "Tempo", "Speed", "Octave",
                                                  "Step", "Chans", "Stereo", "Restart"};
@@ -873,6 +955,7 @@ static void draw_song_panel(mod_status_t *st) {
     }
 }
 
+/// Draws the order list.
 static void draw_orders(void) {
     mod_song_t *s = &T->song;
     if (T->full)
@@ -902,6 +985,7 @@ static void draw_orders(void) {
     gfx_button(ORD_X + 82, y, 26, 18, "+", HIT_ORDER_INC, 0, false);
 }
 
+/// Draws the sample list.
 static void draw_sample_list(void) {
     mod_song_t *s = &T->song;
     if (T->full)
@@ -935,6 +1019,8 @@ static void draw_sample_list(void) {
     gfx_button(SMP_X + 212, y, 76, 18, "Edit F3", HIT_SCREEN_SAMPLE, 0, false);
 }
 
+/// Draws the scopes.
+/// @param st the player's status
 static void draw_scopes(mod_status_t *st) {
     int n = T->song.channels, w = DVI_WIDTH / n;
     int8_t data[160];
@@ -971,6 +1057,8 @@ static void draw_scopes(mod_status_t *st) {
     }
 }
 
+/// Draws the transport buttons.
+/// @param st the player's status
 static void draw_transport(mod_status_t *st) {
     static const struct {
         const char *label;
@@ -992,6 +1080,8 @@ static void draw_transport(mod_status_t *st) {
                T->load / 10, T->load % 10, T->underruns ? "!" : "");
 }
 
+/// Draws the pattern.
+/// @param st the player's status
 static void draw_pattern(mod_status_t *st) {
     mod_song_t *s = &T->song;
     int nch = s->channels;
@@ -1080,6 +1170,8 @@ static void draw_pattern(mod_status_t *st) {
     gfx_fill(0, PAT_Y + PAT_ROWS * ROW_H, DVI_WIDTH, STATUS_Y - PAT_Y - PAT_ROWS * ROW_H, C_FACE);
 }
 
+/// Draws the status line.
+/// @param st the player's status
 static void draw_status(mod_status_t *st) {
     char line[81];
     if (T->msg[0] && to_ms_since_boot(get_absolute_time()) < T->msg_until) {
@@ -1096,6 +1188,7 @@ static void draw_status(mod_status_t *st) {
     gfx_text(0, STATUS_Y, line, 80, T->msg[0] ? C_YELLOW : C_LABEL, C_FACE);
 }
 
+/// Draws what changed.
 static void draw(void) {
     mod_status_t st;
     mod_get_status(&st);
@@ -1140,6 +1233,9 @@ static void draw(void) {
 
 // ---- Keys --------------------------------------------------------------------------------------------------
 
+/// A hex digit's value.
+/// @param k the key
+/// @return 0-15, or -1
 static int hex_digit(int k) {
     if (k >= '0' && k <= '9')
         return k - '0';
@@ -1150,6 +1246,9 @@ static int hex_digit(int k) {
     return -1;
 }
 
+/// Moves the cursor.
+/// @param dr rows
+/// @param dc columns (note, sample, effect)
 static void move_cursor(int dr, int dc) {
     if (dr) {
         T->row = (T->row + dr) % MOD_ROWS;
@@ -1168,6 +1267,8 @@ static void move_cursor(int dr, int dc) {
     }
 }
 
+/// A key in the pattern.
+/// @param k the key
 static void pattern_key(int k) {
     switch (k) {
     case KEY_UP: move_cursor(-1, 0); return;
@@ -1247,6 +1348,8 @@ static void pattern_key(int k) {
     advance();
 }
 
+/// A key in the order list.
+/// @param k the key
 static void orders_key(int k) {
     switch (k) {
     case KEY_UP: go_pos(T->pos - 1); break;
@@ -1263,6 +1366,8 @@ static void orders_key(int k) {
     }
 }
 
+/// A key in the song panel.
+/// @param k the key
 static void song_key(int k) {
     switch (k) {
     case KEY_UP: T->song_field = (T->song_field + SF_COUNT - 1) % SF_COUNT; break;
@@ -1276,6 +1381,8 @@ static void song_key(int k) {
 }
 
 /// Keys that work everywhere. True if taken.
+/// @param k the key
+/// @return taken
 static bool global_key(int k) {
     int id = -1;
     switch (k) {
@@ -1354,6 +1461,8 @@ static bool global_key(int k) {
     return true;
 }
 
+/// Undo or redo.
+/// @param redo redo
 static void undo_key(bool redo) {
     if (!undo_step(redo))
         return;
@@ -1363,6 +1472,8 @@ static void undo_key(bool redo) {
         go_pos(T->pos);
 }
 
+/// Handles a key.
+/// @param k the key
 static void key(int k) {
     if (k == CTRL('z') || k == CTRL('y')) {
         undo_key(k == CTRL('y'));
@@ -1407,6 +1518,10 @@ static void key(int k) {
 
 // ---- The mouse ------------------------------------------------------------------------------------------
 
+/// A click (or drag) in the pattern: moves the cursor, marks a block.
+/// @param x the x
+/// @param y the y
+/// @param drag a drag
 static void pattern_click(int x, int y, bool drag) {
     int i = (y - PAT_Y) / ROW_H;
     int r = T->pat_top + i;
@@ -1446,6 +1561,7 @@ static void pattern_click(int x, int y, bool drag) {
     T->full = true;  // the focus changed
 }
 
+/// Handles the mouse.
 static void mouse_events(void) {
     mouse_event_t e;
     static bool dragging;
@@ -1534,6 +1650,7 @@ static void mouse_events(void) {
 
 // ---- Running ---------------------------------------------------------------------------------------------
 
+/// The tracker's loop.
 static void run(void) {
     uint32_t next_frame = 0;
     quit_wanted = false;
@@ -1554,6 +1671,8 @@ static void run(void) {
     }
 }
 
+/// Makes the tracker's state (PSRAM).
+/// @return made
 static bool start(void) {
     T = psram_malloc(sizeof *T);
     if (!T)
@@ -1573,6 +1692,7 @@ static bool start(void) {
     return true;
 }
 
+/// Frees everything the tracker used.
 static void finish(void) {
     undo_free();
     xed_close();
@@ -1586,6 +1706,9 @@ static void finish(void) {
 }
 
 /// The audio source while the tracker runs: whichever player has a song.
+/// @param left the left sample
+/// @param right the right
+/// @return true
 static bool trk_render(int32_t *left, int32_t *right) {
     int32_t ml = 0, mr = 0, xl = 0, xr = 0;
     bool a = mod_render(&ml, &mr);
@@ -1595,6 +1718,8 @@ static bool trk_render(int32_t *left, int32_t *right) {
     return a || b;
 }
 
+/// The tracker.
+/// @param path a song to load, or NULL
 static void tracker(const char *path) {
     if (!start()) {
         printf("tracker: not enough memory\n");
@@ -1619,6 +1744,9 @@ static void tracker(const char *path) {
 }
 
 /// modplay of an XM (FastTracker 2) song: played once through.
+/// @param path the file
+/// @param data its bytes
+/// @param len their count
 static void xmplay(const char *path, const uint8_t *data, uint32_t len) {
     xm_song_t *s = psram_malloc(sizeof *s);
     const char *err = s ? xm_load(s, data, len) : "not enough memory";
@@ -1664,6 +1792,8 @@ static void xmplay(const char *path, const uint8_t *data, uint32_t len) {
     psram_free(s);
 }
 
+/// modplay: plays a MOD (or XM) once through.
+/// @param path the file
 static void modplay(const char *path) {
     if (!start()) {
         printf("modplay: not enough memory\n");
