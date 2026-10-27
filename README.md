@@ -24,7 +24,7 @@ keyboard, mouse and flash drive, WiFi, and a set of programs to go with it.
 
 PDFs in [manuals/](manuals/), one for the OS and one for each application
 (BASIC, the editor, mc, the tracker, the radio, the clock generator, the
-network tools, the serial terminal, the emulators). They are made from
+FM radio, the network tools, the serial terminal, the emulators). They are made from
 [docs/](docs/) with `tools/make_manual.py`. The code's API documentation is
 made with `doxygen` (the `Doxyfile` here; it goes to `docs/api/html`, and
 the docs workflow publishes it at https://thecodeman.github.io/pico-os/).
