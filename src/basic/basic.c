@@ -34,26 +34,33 @@
 /// All of BASIC's memory comes from the port (on the Pico: PSRAM for big
 /// blocks, SRAM for small ones).
 #define malloc(n)     port_alloc(n)
-#define calloc(n, sz) port_calloc(n, sz)
-#define realloc(p, n) port_realloc(p, n)
-#define free(p)       port_release(p)
+#define calloc(n, sz) port_calloc(n, sz)  ///< calloc from the port
+#define realloc(p, n) port_realloc(p, n)  ///< realloc from the port
+#define free(p)       port_release(p)  ///< free to the port
 
+/// The longest program line.
 #define LINE_MAX_LEN   255
+/// The longest string.
 #define STR_MAX        255
+/// The longest name.
 #define NAME_MAX       40
 /// Program text, variables, strings and arrays all come from the heap. A
 /// program line is refused if it would leave less than DATA_RESERVE for the
 /// program's data, and any allocation if it would leave less than
 /// HEAP_MARGIN (the SDK's malloc panics rather than failing).
 #define DATA_RESERVE   (16 * 1024)
-#define HEAP_MARGIN    (4 * 1024)
+#define HEAP_MARGIN    (4 * 1024)  ///< the heap kept free beyond any allocation
 #define STACK_MAX      32           ///< FOR, GOSUB and WHILE frames each
+/// Screen columns.
 #define SCREEN_COLS    80
+/// Screen rows.
 #define SCREEN_ROWS    30
+/// Lines LIST and FILES show before pausing.
 #define PAGE_LINES     28
 
 // ---- Errors ---------------------------------------------------------------
 
+/// BASIC's error numbers (GW-BASIC's).
 enum {
     E_NEXT_WITHOUT_FOR = 1, E_SYNTAX = 2, E_RETURN_WITHOUT_GOSUB = 3, E_OUT_OF_DATA = 4,
     E_ILLEGAL_CALL = 5, E_OVERFLOW = 6, E_OUT_OF_MEMORY = 7, E_UNDEFINED_LINE = 8,
@@ -68,8 +75,8 @@ enum {
 };
 
 static const struct {
-    int code;
-    const char *text;
+    int code;  ///< the number
+    const char *text;  ///< its message
 } error_texts[] = {
     {E_NEXT_WITHOUT_FOR, "NEXT without FOR"}, {E_SYNTAX, "Syntax error"},
     {E_RETURN_WITHOUT_GOSUB, "RETURN without GOSUB"}, {E_OUT_OF_DATA, "Out of DATA"},
@@ -96,36 +103,42 @@ static const struct {
     {69, "Communication buffer overflow"}, {72, "Disk Media Error"},
     {73, "Advanced Feature"}, {74, "Rename across disks"}, {E_PATH_ACCESS, "Path/File Access Error"},
     {E_PATH_NOT_FOUND, "Path not found"},
-};
+};  ///< the error messages
 
 static jmp_buf *error_jump_p;  ///< (basic_ram, while BASIC runs)
+/// Where an error goes (longjmp).
 #define error_jump (*error_jump_p)
 
 /// Data files opened with OPEN (the code is further down).
 #define MAX_FILES     4
+/// The most FIELD variables a file can have.
 #define MAX_FIELDS    16
+/// The longest random-access record.
 #define MAX_RECLEN    1024
 
+/// OPEN's modes.
 enum { FM_INPUT = 1, FM_OUTPUT, FM_APPEND, FM_RANDOM, FM_COM };
 
+/// An open data file.
 typedef struct {
-    FIL f;
-    int mode;
+    FIL f;  ///< the file
+    int mode;  ///< FM_INPUT and the like
     int col;              ///< output column, for PRINT # commas and TAB
     int peek;             ///< a character read ahead; -1 at the end, -2 none
     bool past_end;        ///< the last GET was past the end of the file
-    uint16_t reclen;
+    uint16_t reclen;  ///< the record length (random access)
     uint32_t record;      ///< last record read or written (LOC)
     char *buf;            ///< random-access record buffer
-    int nfields;
+    int nfields;  ///< FIELD variables
     struct {
         char **slot;      ///< the FIELD variable
+        /// Its place and length in the record.
         ///@{
         uint16_t off, len;
         ///@}
-    } fields[MAX_FIELDS];
+    } fields[MAX_FIELDS];  ///< the FIELD variables
     bool com_lf;          ///< COM1: send LF after each CR (the LF option)
-    char name[64];
+    char name[64];  ///< its name
 } bfile_t;
 
 static bfile_t *files[MAX_FILES + 1];  ///< #1 .. #MAX_FILES
@@ -140,8 +153,13 @@ static void check_break(void);
 /// PRINT # and WRITE # send output through out_char to this file (or COM1),
 /// with out_col counting its column; the screen's column waits here.
 static bfile_t *out_dev;
+/// The output column and row, and the screen's column while output goes to a file.
+///@{
 static int out_col, out_row, screen_col;
+///@}
 
+/// Stops with an error (to ON ERROR or the Ok prompt).
+/// @param code the error number
 static void error(int code) {
     if (out_dev) {
         out_dev = NULL;
@@ -150,6 +168,9 @@ static void error(int code) {
     longjmp(error_jump, code);
 }
 
+/// BASIC's error for a FatFs result.
+/// @param r the result
+/// @return the error number
 static int fresult_error(FRESULT r) {
     switch (r) {
     case FR_NO_FILE:
@@ -168,6 +189,9 @@ static int fresult_error(FRESULT r) {
 
 // ---- Output, with the cursor position tracked for POS, CSRLIN and TAB ----
 
+/// Writes to the output file or COM1 (an error if it fails).
+/// @param data the bytes
+/// @param n their count
 static void file_write(const char *data, UINT n) {
     if (out_dev->mode == FM_COM) {
         port_serial_write(data, n);
@@ -181,6 +205,8 @@ static void file_write(const char *data, UINT n) {
         error(E_DISK_FULL);
 }
 
+/// Prints a character, keeping track of the column (to the screen, or the output file).
+/// @param c the character
 static void out_char(int c) {
     if (out_dev) {
         char ch = c;
@@ -243,34 +269,47 @@ static void out_char(int c) {
     }
 }
 
+/// Prints a string.
+/// @param s it
 static void out_str(const char *s) {
     while (*s)
         out_char((unsigned char)*s++);
 }
 
+/// Prints bytes (CHR$(0) too).
+/// @param s them
+/// @param n their count
 static void out_bytes(const char *s, int n) {
     for (int i = 0; i < n; ++i)
         out_char((unsigned char)s[i]);
 }
 
+/// Ends the line.
 static void out_newline(void) {
     out_char('\n');
 }
 
+/// Sends what is buffered to the screen.
 static void out_flush(void) {
     fflush(stdout);
 }
 
 // ---- Keyboard: Ctrl-C checks must not eat other keys ----------------------
 
+/// Keys typed and not yet read.
 static char key_queue[64];
+/// The queue's ends.
+///@{
 static int key_head, key_tail;
+///@}
+/// Ctrl-C was typed.
 static bool break_pending;
 
 /// Moves typed keys into key_queue, watching for Ctrl-C. Normally it reads
 /// only while there is room, so the rest of a paste waits in the input driver
 /// instead of being lost. Break checks in a running program pass drop_extra,
 /// so a Ctrl-C still gets through after the queue fills.
+/// @param drop_extra keep reading (dropping keys) once the queue is full
 static void read_keys(bool drop_extra) {
     int c;
     for (;;) {
@@ -286,10 +325,13 @@ static void read_keys(bool drop_extra) {
     }
 }
 
+/// Reads the keys typed into the queue.
 static void poll_keys(void) {
     read_keys(false);
 }
 
+/// A key, if one was typed.
+/// @return it, or -1
 static int key_now(void) {
     poll_keys();
     if (key_head == key_tail)
@@ -299,6 +341,8 @@ static int key_now(void) {
     return c;
 }
 
+/// Waits for a key (Ctrl-C too).
+/// @return it
 static int key_wait(void) {
     for (;;) {
         if (break_pending) {
@@ -322,12 +366,18 @@ static int key_wait(void) {
 // several screen rows; positions are offsets from the start of the row the
 // line begins on (SCREEN_COLS to a row).
 
+/// Lines of history kept.
 #define HISTORY 8
 static char (*history)[LINE_MAX_LEN + 1];  ///< HISTORY of them (allocated: SRAM is short)
 static int history_count;  ///< lines in history (the newest is history[0])
 
-static int le_start, le_cur;  ///< where the text starts, where the cursor is
+/// Where the text starts and where the cursor is (offsets from the line's first row).
+///@{
+static int le_start, le_cur;
+///@}
 
+/// Moves the cursor to an offset.
+/// @param off the offset
 static void le_move(int off) {
     if (off == le_cur)
         return;
@@ -342,6 +392,11 @@ static void le_move(int off) {
 
 /// Draws buf[from, n) and `erase` blanks after it, then puts the cursor at
 /// pos.
+/// @param buf the line
+/// @param n its length
+/// @param from where to draw from
+/// @param pos where the cursor goes
+/// @param erase blanks after it
 static void le_draw(const char *buf, int n, int from, int pos, int erase) {
     le_move(le_start + from);
     fwrite(buf + from, 1, n - from, stdout);
@@ -356,6 +411,8 @@ static void le_draw(const char *buf, int n, int from, int pos, int erase) {
     le_move(le_start + pos);
 }
 
+/// Adds a line to the history (not a repeat).
+/// @param line the line
 static void history_add(const char *line) {
     if (!*line || (history_count && !strcmp(history[0], line)))
         return;
@@ -365,10 +422,9 @@ static void history_add(const char *line) {
         ++history_count;
 }
 
-/// Reads the rest of an escape sequence: returns 'A'-'D', 'H', 'F' (Home,
-/// End), 'I' (Ins), 'X' (Delete), or 0 for one we don't use; -1 for a lone
-/// Esc.
 /// The next key, from the queue or arriving within `us`; -1 if none.
+/// @param us how long to wait
+/// @return the key, or -1
 static int next_key(uint32_t us) {
     int c = key_now();
     return c >= 0 ? c : port_key(us);
@@ -376,6 +432,10 @@ static int next_key(uint32_t us) {
 
 #define KEY_F(n) (0x100 + (n))  ///< function keys F1-F12
 
+/// Reads the rest of an escape sequence: returns 'A'-'D', 'H', 'F' (Home,
+/// End), 'I' (Ins), 'X' (Delete), or 0 for one we don't use; -1 for a lone
+/// Esc.
+/// @return the key, or 0 or -1
 static int read_escape(void) {
     int c1 = next_key(20000);
     if (c1 == 'O') {
@@ -407,6 +467,11 @@ static char soft_keys[10][16] = {"LIST ", "RUN\r", "LOAD\"", "SAVE\"", "CONT\r",
 
 /// Reads a line with editing (and, with `use_history`, Up/Down for earlier
 /// lines). Returns false on Ctrl-C.
+/// @param buf the line
+/// @param max room in buf
+/// @param initial the text to start with, or NULL
+/// @param use_history Up/Down recall earlier lines
+/// @return false on Ctrl-C
 static bool read_line_ex(char *buf, int max, const char *initial, bool use_history) {
     out_flush();
     le_start = le_cur = out_col;
@@ -519,20 +584,35 @@ static bool read_line_ex(char *buf, int max, const char *initial, bool use_histo
     }
 }
 
+/// Reads a line with editing.
+/// @param buf the line
+/// @param max room in buf
+/// @param initial the text to start with, or NULL
+/// @return false on Ctrl-C
 static bool read_line(char *buf, int max, const char *initial) {
     return read_line_ex(buf, max, initial, false);
 }
 
 // ---- Temporary strings ----------------------------------------------------
 
+/// Temporary strings, freed after each statement.
 static char **temps;
+/// Their count and room.
+///@{
 static int temp_count, temp_cap;
+///@}
 
+/// Stops with Out of memory unless n bytes and keep more are free.
+/// @param n the bytes
+/// @param keep what must stay free
 static void need_mem(size_t n, size_t keep) {
     if (port_free_mem() < n + keep)
         error(E_OUT_OF_MEMORY);
 }
 
+/// malloc, or Out of memory.
+/// @param n the size
+/// @return the memory
 static void *checked_malloc(size_t n) {
     need_mem(n + 16, HEAP_MARGIN);
     void *p = malloc(n ? n : 1);
@@ -541,6 +621,10 @@ static void *checked_malloc(size_t n) {
     return p;
 }
 
+/// realloc, or Out of memory.
+/// @param old the memory
+/// @param n the new size
+/// @return the memory
 static void *checked_realloc(void *old, size_t n) {
     need_mem(n + 16, HEAP_MARGIN);
     void *p = realloc(old, n);
@@ -554,6 +638,9 @@ static void *checked_realloc(void *old, size_t n) {
 /// records); they also end in a 0, so C code can read text ones as they are.
 #define SHDR 2
 
+/// A new string of len characters (its length before it, a 0 after).
+/// @param len its length
+/// @return it
 static char *salloc(int len) {
     char *b = checked_malloc(len + 1 + SHDR);
     uint16_t l = len;
@@ -562,11 +649,16 @@ static char *salloc(int len) {
     return b + SHDR;
 }
 
+/// Frees a string.
+/// @param s it, or NULL
 static void sfree(char *s) {
     if (s)
         free(s - SHDR);
 }
 
+/// A string's length.
+/// @param s it
+/// @return its length
 static int slen(const char *s) {
     uint16_t l;
     memcpy(&l, s - SHDR, SHDR);
@@ -574,9 +666,12 @@ static int slen(const char *s) {
 }
 
 static const char empty_str[SHDR + 1];  ///< length 0
+/// The empty string.
 #define EMPTY (empty_str + SHDR)
 
 /// A writable temporary of len characters (plus the terminator).
+/// @param len its length
+/// @return it
 static char *temp_alloc(int len) {
     if (len > STR_MAX)
         error(E_STRING_TOO_LONG);
@@ -590,12 +685,17 @@ static char *temp_alloc(int len) {
     return t;
 }
 
+/// A temporary copy of bytes.
+/// @param s them
+/// @param len their count
+/// @return it
 static char *temp_str(const char *s, int len) {
     char *t = temp_alloc(len);
     memcpy(t, s, len);
     return t;
 }
 
+/// Frees the temporaries.
 static void free_temps(void) {
     while (temp_count)
         sfree(temps[--temp_count]);
@@ -603,26 +703,40 @@ static void free_temps(void) {
 
 // ---- Values ---------------------------------------------------------------
 
+/// A value: a number or a string.
 typedef struct {
-    bool is_str;
-    double n;
+    bool is_str;  ///< a string
+    double n;  ///< the number
     const char *s;  ///< a temporary or a variable's string; never freed here
 } value_t;
 
+/// A number value.
+/// @param n it
+/// @return the value
 static value_t num(double n) {
     return (value_t){.is_str = false, .n = n};
 }
 
+/// A string value (a temporary copy).
+/// @param s the bytes
+/// @param len their count
+/// @return the value
 static value_t str(const char *s, int len) {
     return (value_t){.is_str = true, .s = temp_str(s, len)};
 }
 
+/// A value's number, or Type mismatch.
+/// @param v the value
+/// @return the number
 static double want_num(value_t v) {
     if (v.is_str)
         error(E_TYPE_MISMATCH);
     return v.n;
 }
 
+/// A value's string, or Type mismatch.
+/// @param v the value
+/// @return the string
 static const char *want_str(value_t v) {
     if (!v.is_str)
         error(E_TYPE_MISMATCH);
@@ -631,6 +745,9 @@ static const char *want_str(value_t v) {
 
 /// GW-BASIC style: no leading zero, a space in place of a + sign, and a
 /// trailing space when printed.
+/// @param n the number
+/// @param out the text
+/// @param size room in out
 static void format_number(double n, char *out, int size) {
     char buf[40];
     if (n == 0) {
@@ -661,15 +778,25 @@ static void format_number(double n, char *out, int size) {
 
 // ---- Program --------------------------------------------------------------
 
+/// A program line.
 typedef struct {
-    uint16_t num;
+    uint16_t num;  ///< its number
     char *text;  ///< statements after the line number
 } line_t;
 
+/// The program, by line number.
 static line_t *lines;
+/// Its lines and room.
+///@{
 static int line_count, line_cap;
+///@}
+/// The program's file name, for SAVE.
 static char program_name[64];
 
+/// Where a line number is (or would go).
+/// @param num the number
+/// @param exact set to it being there, or NULL
+/// @return its index
 static int find_line(int num, bool *exact) {
     int lo = 0, hi = line_count;
     while (lo < hi) {
@@ -684,12 +811,15 @@ static int find_line(int num, bool *exact) {
     return lo;
 }
 
+/// Deletes a line.
+/// @param i its index
 static void delete_line_at(int i) {
     free(lines[i].text);
     memmove(&lines[i], &lines[i + 1], (line_count - i - 1) * sizeof *lines);
     --line_count;
 }
 
+/// NEW: the program goes.
 static void clear_program(void) {
     while (line_count)
         delete_line_at(line_count - 1);
@@ -698,15 +828,22 @@ static void clear_program(void) {
     line_cap = 0;
 }
 
+/// Whether a character can start a name.
+/// @param c it
+/// @return it can
 static bool is_ident_start(int c) {
     return isalpha(c);
 }
 
+/// Whether a character can be in a name.
+/// @param c it
+/// @return it can
 static bool is_ident_char(int c) {
     return isalnum(c) || c == '.';
 }
 
 /// Upper-cases keywords and names, leaving strings, REM text and DATA as typed.
+/// @param s the line, in place
 static void normalise(char *s) {
     bool in_str = false, in_data = false;
     for (char *p = s; *p; ++p) {
@@ -741,6 +878,9 @@ static void normalise(char *s) {
 
 static int last_line_num;  ///< the line EDIT . means: the last one typed or that failed
 
+/// Adds, replaces or (with no text) deletes a program line.
+/// @param num its number
+/// @param text its statements
 static void store_line(int num, const char *text) {
     last_line_num = num;
     bool exact;
@@ -781,30 +921,33 @@ static void store_line(int num, const char *text) {
 
 // ---- Variables ------------------------------------------------------------
 
+/// A variable.
 typedef struct var {
-    struct var *next;
+    struct var *next;  ///< the next in its bucket
     char name[NAME_MAX + 2];  ///< including a $, %, ! or # suffix
-    bool is_str;
-    double n;
-    char *s;
-} var_t;
+    bool is_str;  ///< a string
+    double n;  ///< its number
+    char *s;  ///< its string
+} var_t;  ///< a variable
 
+/// An array.
 typedef struct array {
-    struct array *next;
-    char name[NAME_MAX + 2];
-    bool is_str;
-    int dims;
+    struct array *next;  ///< the next in its bucket
+    char name[NAME_MAX + 2];  ///< its name
+    bool is_str;  ///< of strings
+    int dims;  ///< its dimensions
     int size[8];  ///< upper bound + 1 per dimension
-    int count;
-    double *n;
-    char **s;
-} array_t;
+    int count;  ///< its elements
+    double *n;  ///< its numbers
+    char **s;  ///< its strings
+} array_t;  ///< an array
 
+/// A DEF FN function.
 typedef struct fn {
-    struct fn *next;
-    char name[NAME_MAX + 2];
-    char params[4][NAME_MAX + 2];
-    int param_count;
+    struct fn *next;  ///< the next
+    char name[NAME_MAX + 2];  ///< its name
+    char params[4][NAME_MAX + 2];  ///< its parameters' names
+    int param_count;  ///< their count
     int line;            ///< where the body lives
     const char *body;    ///< text after '='
     /// Across CHAIN ... ALL (see keep_fns_for_chain): the line number, where
@@ -812,16 +955,24 @@ typedef struct fn {
     ///@{
     int line_num, body_off;
     ///@}
-    char *saved;
-} fn_t;
+    char *saved;  ///< the copy
+} fn_t;  ///< a function
 
+/// Hash buckets for variables and arrays.
 #define BUCKETS 64
 static var_t *(*vars_p)[BUCKETS];  ///< (basic_ram, while BASIC runs)
+/// The arrays (basic_ram, while BASIC runs).
 static array_t *(*arrays_p)[BUCKETS];
+/// The variables.
 #define vars   (*vars_p)
+/// The arrays.
 #define arrays (*arrays_p)
+/// The DEF FN functions.
 static fn_t *fns;
 
+/// A name's bucket.
+/// @param s the name
+/// @return 0-63
 static unsigned hash(const char *s) {
     unsigned h = 5381;
     while (*s)
@@ -838,6 +989,8 @@ static char def_type[26];
 
 /// Frees the variables and arrays `keep` doesn't want (all of them if it's
 /// NULL), and every DEF FN.
+/// @param keep says which to keep (NULL: none)
+/// @param keep_fns keep the DEF FN functions
 static void prune_vars(bool (*keep)(const char *name, bool array), bool keep_fns) {
     forget_fields();
     memset(def_type, 0, sizeof def_type);
@@ -896,6 +1049,8 @@ static void keep_fns_for_chain(void) {
 }
 
 /// The function's body in the current program, or NULL.
+/// @param f the function
+/// @return the body, or NULL
 static const char *fn_body(fn_t *f) {
     if (f->body)
         return f->body;
@@ -916,6 +1071,7 @@ static int option_base;  ///< OPTION BASE: the lowest subscript, 0 or 1
 static void sprites_reset(void);
 static void fonts_reset(void);
 
+/// CLEAR: the variables, arrays, functions, sprites and fonts go.
 static void clear_vars(void) {
     sprites_reset();
     fonts_reset();
@@ -923,6 +1079,9 @@ static void clear_vars(void) {
     option_base = 0;
 }
 
+/// A variable, made if new.
+/// @param name its name (with its suffix)
+/// @return it
 static var_t *find_var(const char *name) {
     unsigned h = hash(name);
     for (var_t *v = vars[h]; v; v = v->next)
@@ -938,6 +1097,9 @@ static var_t *find_var(const char *name) {
 }
 
 /// Stores len bytes of s (any bytes) in a string variable.
+/// @param slot the variable's string
+/// @param s the bytes
+/// @param len their count
 static void set_strn(char **slot, const char *s, int len) {
     char *copy = salloc(len);
     memcpy(copy, s, len);
@@ -946,10 +1108,15 @@ static void set_strn(char **slot, const char *s, int len) {
 }
 
 /// Stores a BASIC string value in a string variable.
+/// @param slot the variable's string
+/// @param s the value
 static void set_str(char **slot, const char *s) {
     set_strn(slot, s, slen(s));
 }
 
+/// An array, or NULL.
+/// @param name its name
+/// @return it, or NULL
 static array_t *find_array(const char *name) {
     for (array_t *a = arrays[hash(name)]; a; a = a->next)
         if (!strcmp(a->name, name))
@@ -957,6 +1124,11 @@ static array_t *find_array(const char *name) {
     return NULL;
 }
 
+/// Makes an array.
+/// @param name its name
+/// @param dims its dimensions
+/// @param bounds their upper bounds
+/// @return it
 static array_t *make_array(const char *name, int dims, const int *bounds) {
     if (find_array(name))
         error(E_DUPLICATE_DEF);
@@ -1004,45 +1176,56 @@ static array_t *make_array(const char *name, int dims, const int *bounds) {
 /// A place in the program: a line index (-1 for the direct-mode line) and a
 /// position in its text.
 typedef struct {
-    int line;
-    const char *p;
+    int line;  ///< its line's index (-1: the direct line)
+    const char *p;  ///< where in its text
 } pos_t;
 
 static char (*direct_line_p)[LINE_MAX_LEN + 1];  ///< (basic_ram, while BASIC runs)
+/// The direct-mode line.
 #define direct_line (*direct_line_p)
 static int cur_line;    ///< index into lines[], or -1 in direct mode
 static const char *p;   ///< the parse position
 static bool running;    ///< a program (not just a direct line) is executing
 static bool jumped;     ///< the statement moved p (GOTO, IF, NEXT, ...)
+/// TRON: line numbers shown as they run.
 static bool trace;
 static pos_t cont_pos;  ///< where CONT resumes, line < -1 if it can't
 static pos_t data_pos;  ///< next DATA item
 
+/// A FOR loop.
 typedef struct {
-    var_t *var;
+    var_t *var;  ///< its variable
+    /// Its limit and step.
     ///@{
     double limit, step;
     ///@}
-    pos_t body;
+    pos_t body;  ///< where its body starts
 } for_frame_t;
 static for_frame_t *for_stack;  ///< STACK_MAX each, while BASIC runs (SRAM is short)
+/// FOR loops open.
 static int for_depth;
 /// A GOSUB also remembers the FOR and WHILE depths: as in GW-BASIC, loops
 /// started in a subroutine end at its RETURN, and a FOR or NEXT there doesn't
 /// touch the caller's loops (a FOR X inside a FOR X loop's subroutine).
 typedef struct {
-    pos_t ret;
+    pos_t ret;  ///< where RETURN goes
+    /// The FOR and WHILE depths when it was made.
     ///@{
     int for_base, while_base;
     ///@}
     int event;  ///< the trapped event this GOSUB handles, or -1
 } gosub_frame_t;
+/// GOSUBs open.
 static gosub_frame_t *gosub_stack;
+/// How many.
 static int gosub_depth;
+/// WHILE loops open: where each WHILE is.
 static pos_t *while_stack;
+/// How many.
 static int while_depth;
 
 /// The first FOR frame belonging to the current subroutine (or main program).
+/// @return its index
 static int for_base(void) {
     return gosub_depth ? gosub_stack[gosub_depth - 1].for_base : 0;
 }
@@ -1053,13 +1236,18 @@ static void push_gosub(void);
 /// ON ERROR GOTO: the handler's line number (-1: none), whether it's running,
 /// and what ERR, ERL and RESUME need.
 static int on_error_line = -1;
+/// The ON ERROR handler is running.
 static bool in_error_handler;
+/// ERR and ERL.
+///@{
 static int err_code, err_line;
+///@}
 static pos_t err_pos;   ///< the statement that failed
 static pos_t stmt_pos;  ///< the statement being run
 
 static void reset_events(void);
 
+/// Clears the loops, GOSUBs, events and error state (RUN, CLEAR).
 static void reset_run_state(void) {
     reset_events();
     on_error_line = -1;
@@ -1070,10 +1258,14 @@ static void reset_run_state(void) {
     data_pos.p = NULL;
 }
 
+/// The line running.
+/// @return its number, or -1 (direct mode)
 static int current_line_number(void) {
     return cur_line >= 0 && cur_line < line_count ? lines[cur_line].num : -1;
 }
 
+/// GOTO a line, or Undefined line number.
+/// @param num the line
 static void jump_to_line(int num) {
     bool exact;
     int i = find_line(num, &exact);
@@ -1087,12 +1279,15 @@ static void jump_to_line(int num) {
 
 // ---- Lexing ---------------------------------------------------------------
 
+/// Skips spaces and tabs at p.
 static void skip_spaces(void) {
     while (*p == ' ' || *p == '\t')
         ++p;
 }
 
 /// Matches a keyword at p (no word boundary needed, as in GW-BASIC).
+/// @param kw the keyword
+/// @return matched (p is past it)
 static bool accept(const char *kw) {
     skip_spaces();
     if (*p != kw[0])
@@ -1116,6 +1311,7 @@ static const char *const builtin_words[] = {
     "POINT", "POS", "RGB", "RIGHT", "RND", "SCREEN", "SGN", "SIN", "SPACE", "SPI", "SPRITEHIT", "SPRITEON", "SPRITEX", "SPRITEY", "SQR", "STICK",
     "STR", "TAN", "TEMP", "TIME", "UCASE", "USR", "VAL", "VARPTR",
 };
+/// The start of every keyword statement() tries.
 static const char *const statement_words[] = {
     "BASE", "BEEP", "BLOAD", "BSAVE", "BYE", "CALL", "CHAIN", "CHDIR", "CIRCLE", "CLEAR",
     "CLOSE", "CLS", "COLOR", "COM", "CONT", "DATA", "DATE", "DEF", "DELETE", "DIM", "DRAW",
@@ -1130,20 +1326,25 @@ static const char *const statement_words[] = {
 
 /// The words of a list grouped by first letter, built on first use.
 typedef struct {
-    const char *const *words;
-    uint8_t count;
-    bool ready;
+    const char *const *words;  ///< the words
+    uint8_t count;  ///< their count
+    bool ready;  ///< grouped yet
     uint8_t at[27];  ///< words for letter L: order[at[L]] .. order[at[L + 1] - 1]
-    uint8_t order[128];
-    uint8_t len[128];
+    uint8_t order[128];  ///< the words, grouped by letter
+    uint8_t len[128];  ///< each word's length
 } word_set_t;
 
+/// builtin()'s words.
 static word_set_t builtin_set = {.words = builtin_words,
                                  .count = sizeof builtin_words / sizeof *builtin_words};
+/// statement()'s words.
 static word_set_t statement_set = {.words = statement_words,
                                    .count = sizeof statement_words / sizeof *statement_words};
 
 /// False only if no word of the set starts the text at s.
+/// @param w the word set
+/// @param s the text
+/// @return a word may start it
 static bool may_be_keyword(word_set_t *w, const char *s) {
     if (*s < 'A' || *s > 'Z')
         return true;  // not a plain upper-case name: let the full chain decide
@@ -1169,11 +1370,15 @@ static bool may_be_keyword(word_set_t *w, const char *s) {
     return false;
 }
 
+/// Matches a keyword, or Syntax error.
+/// @param kw the keyword
 static void expect(const char *kw) {
     if (!accept(kw))
         error(E_SYNTAX);
 }
 
+/// Whether the statement ends here (end of line, ':', ELSE or a comment).
+/// @return it does
 static bool at_end_of_statement(void) {
     skip_spaces();
     return !*p || *p == ':' || *p == '\'' || !strncmp(p, "ELSE", 4);
@@ -1185,6 +1390,9 @@ static bool accept_word(const char *kw);
 static const char *const stop_words[] = {"THEN", "TO", "STEP", "ELSE", "GOTO", "GOSUB",
                                          "AND", "OR", "XOR", "MOD", "EQV", "IMP"};
 
+/// Reads a name at p (with its type suffix).
+/// @param name set to it
+/// @return there was one
 static bool read_name(char *name) {
     skip_spaces();
     if (!is_ident_start((unsigned char)*p))
@@ -1221,6 +1429,8 @@ static bool read_name(char *name) {
 
 /// The value of numeric variable `name` (as written in a DRAW or PLAY string,
 /// "=X1;"): a name without a type gets its DEF type, as in a program.
+/// @param raw the name as written
+/// @return its value
 static double named_number(const char *raw) {
     char name[NAME_MAX + 3];
     int n = 0;
@@ -1237,6 +1447,8 @@ static double named_number(const char *raw) {
     return v->n;
 }
 
+/// Reads a number: decimal, &H hex or &O octal.
+/// @return its value
 static double read_number_literal(void) {
     skip_spaces();
     if (*p == '&') {
@@ -1301,6 +1513,8 @@ slow:
     return strtod(buf, NULL);
 }
 
+/// Reads a line number (0-65529).
+/// @return it
 static int read_line_number(void) {
     skip_spaces();
     if (!isdigit((unsigned char)*p))
@@ -1315,14 +1529,20 @@ static int read_line_number(void) {
 
 static value_t expr(void);
 
+/// A numeric expression.
+/// @return its value
 static double num_expr(void) {
     return want_num(expr());
 }
 
+/// A string expression.
+/// @return it
 static const char *str_expr(void) {
     return want_str(expr());
 }
 
+/// An integer expression (rounded).
+/// @return it
 static int arg_int(void) {
     double d = num_expr();
     if (d < -32768.0 * 65536 || d > 32767.0 * 65536)
@@ -1331,6 +1551,7 @@ static int arg_int(void) {
 }
 
 /// A GPIO number (or LED for the board's LED) that BASIC may use.
+/// @return the pin
 static int pin_arg(void) {
     int pin = accept("LED") ? port_led_pin() : arg_int();
     if (pin < 0 || pin >= port_pin_count())
@@ -1345,6 +1566,9 @@ static int pin_arg(void) {
 }
 
 /// The element of `name(...)`, creating a default 0..10 array if needed.
+/// @param name the array's name
+/// @param is_str set to it holding strings
+/// @return the element (double * or char **)
 static void *array_element(const char *name, bool *is_str) {
     int idx[8], n = 0;
     do {
@@ -1372,9 +1596,13 @@ static void *array_element(const char *name, bool *is_str) {
     return a->is_str ? (void *)&a->s[off] : (void *)&a->n[off];
 }
 
+/// RND's generator (xorshift).
 static uint32_t rnd_state = 0x12345678u;
+/// The last number RND gave.
 static double rnd_last;
 
+/// RND's next number.
+/// @return 0 up to 1
 static double rnd_next(void) {
     rnd_state ^= rnd_state << 13;
     rnd_state ^= rnd_state >> 17;
@@ -1386,6 +1614,7 @@ static double rnd_next(void) {
 static value_t call_fn(const char *name);
 static value_t environ_value(value_t arg);
 static value_t inkey(void);
+/// KEY ON: the soft keys' labels are shown.
 static bool key_line_on;
 static void draw_key_line(void);
 static void set_key_line(bool on);
@@ -1402,6 +1631,8 @@ static double typed_value(char type, double d);
 
 static value_t primary(void);
 
+/// An expression in brackets.
+/// @return its value
 static value_t paren_expr(void) {
     expect("(");
     value_t v = expr();
@@ -1409,6 +1640,8 @@ static value_t paren_expr(void) {
     return v;
 }
 
+/// A function's one numeric argument, in brackets.
+/// @return it
 static double one_num_arg(void) {
     expect("(");
     double d = num_expr();
@@ -1423,6 +1656,9 @@ __attribute__((noinline)) // Microsoft Binary Format, GW-BASIC's MKS$/MKD$ layou
 /// mantissa (sign in the top bit of the byte below the exponent), then an
 /// exponent byte biased by 129 (0 means zero). Single precision is 4 bytes,
 /// double 8.
+/// @param x the number
+/// @param out the bytes
+/// @param size 4 (single) or 8 (double)
 static void to_mbf(double x, char *out, int size) {
     memset(out, 0, size);
     if (x == 0)
@@ -1451,6 +1687,10 @@ static void to_mbf(double x, char *out, int size) {
     out[size - 1] = (char)exp;
 }
 
+/// A number from Microsoft Binary Format (CVS, CVD).
+/// @param in the bytes
+/// @param size 4 or 8
+/// @return the number
 static double from_mbf(const char *in, int size) {
     int exp = (uint8_t)in[size - 1];
     if (!exp)
@@ -1475,8 +1715,11 @@ static int font_size(int n, bool width);
 static value_t dir_function(void);
 static value_t i2c_read_function(bool string);
 static value_t spi_function(void);
+/// The font FONT chose.
 static int cur_font;
 
+/// A built-in function, if one starts at p.
+/// @return its value
 static value_t builtin(void) {
     skip_spaces();
     const char *start = p;
@@ -1948,6 +2191,8 @@ static value_t builtin(void) {
     }
 }
 
+/// A primary: a number, a string, a variable, a function or an expression in brackets.
+/// @return its value
 static value_t primary(void) {
     skip_spaces();
     char c = *p;
@@ -1993,6 +2238,8 @@ static value_t primary(void) {
     return num(v->n);
 }
 
+/// ^.
+/// @return the value
 static value_t power(void) {
     value_t a = primary();
     while (accept("^")) {
@@ -2015,6 +2262,8 @@ static value_t power(void) {
     return a;
 }
 
+/// Unary + and -.
+/// @return the value
 static value_t unary(void) {
     skip_spaces();
     if (*p == '-') {
@@ -2028,6 +2277,8 @@ static value_t unary(void) {
     return power();
 }
 
+/// * and /.
+/// @return the value
 static value_t term(void) {
     value_t a = unary();
     for (;;) {
@@ -2043,6 +2294,8 @@ static value_t term(void) {
     }
 }
 
+/// \ (integer division).
+/// @return the value
 static value_t int_div(void) {
     value_t a = term();
     while (accept("\\")) {
@@ -2054,6 +2307,8 @@ static value_t int_div(void) {
     return a;
 }
 
+/// MOD.
+/// @return the value
 static value_t mod_expr(void) {
     value_t a = int_div();
     while (accept("MOD")) {
@@ -2065,6 +2320,8 @@ static value_t mod_expr(void) {
     return a;
 }
 
+/// + and - (and joining strings).
+/// @return the value
 static value_t additive(void) {
     value_t a = mod_expr();
     for (;;) {
@@ -2089,6 +2346,7 @@ static value_t additive(void) {
 }
 
 /// Relational results are -1 (true) or 0, as in GW-BASIC.
+/// @return the value
 static value_t relational(void) {
     value_t a = additive();
     for (;;) {
@@ -2118,6 +2376,9 @@ static value_t relational(void) {
     }
 }
 
+/// A number for AND, OR and the like, as an integer.
+/// @param v the value
+/// @return it
 static long to_int16ish(value_t v) {
     double d = want_num(v);
     if (d < -2147483648.0 || d > 2147483647.0)
@@ -2125,12 +2386,16 @@ static long to_int16ish(value_t v) {
     return lround(d);
 }
 
+/// NOT.
+/// @return the value
 static value_t not_expr(void) {
     if (accept("NOT"))
         return num(~to_int16ish(not_expr()));
     return relational();
 }
 
+/// AND.
+/// @return the value
 static value_t and_expr(void) {
     value_t a = not_expr();
     while (accept("AND"))
@@ -2138,6 +2403,8 @@ static value_t and_expr(void) {
     return a;
 }
 
+/// OR, XOR, EQV and IMP.
+/// @return the value
 static value_t or_expr(void) {
     value_t a = and_expr();
     for (;;) {
@@ -2150,6 +2417,8 @@ static value_t or_expr(void) {
     }
 }
 
+/// An expression.
+/// @return its value
 static value_t expr(void) {
     // Deeply nested expressions recurse; stop before the stack runs into
     // whatever lies below it (on the Pico, core 1's stack).
@@ -2166,6 +2435,9 @@ static value_t expr(void) {
     }
 }
 
+/// Calls a DEF FN function.
+/// @param name its name
+/// @return its value
 static value_t call_fn(const char *name) {
     fn_t *f;
     for (f = fns; f; f = f->next)
@@ -2224,13 +2496,17 @@ static value_t call_fn(const char *name) {
 
 // ---- Assignment targets ---------------------------------------------------
 
+/// Where an assignment goes.
 typedef struct {
-    bool is_str;
+    bool is_str;  ///< a string
     char type;  ///< '%', '!' or '#' for a number
-    double *n;
-    char **s;
+    double *n;  ///< the number
+    char **s;  ///< the string
 } lvalue_t;
 
+/// A name's type: its last character.
+/// @param name it
+/// @return it
 static char type_of(const char *name) {
     return name[strlen(name) - 1];
 }
@@ -2238,6 +2514,9 @@ static char type_of(const char *name) {
 /// What a numeric variable of `type` holds when given d. A % variable rounds
 /// to -32768..32767 and a ! one keeps single precision (so 0.05 added up
 /// twenty times reaches 1, as in GW-BASIC); # keeps d as it is.
+/// @param type the type
+/// @param d the value
+/// @return what it holds
 static double typed_value(char type, double d) {
     if (type == '%') {
         if (!(d > -32768.5 && d < 32767.5))
@@ -2253,10 +2532,15 @@ static double typed_value(char type, double d) {
     return d;
 }
 
+/// Sets a numeric target.
+/// @param lv it
+/// @param d the value
 static void set_num(lvalue_t lv, double d) {
     *lv.n = typed_value(lv.type, d);
 }
 
+/// The target of an assignment at p (a variable or an array element).
+/// @return it
 static lvalue_t lvalue(void) {
     char name[NAME_MAX + 2];
     if (!read_name(name))
@@ -2274,6 +2558,9 @@ static lvalue_t lvalue(void) {
                      : (lvalue_t){.is_str = false, .type = type_of(name), .n = &v->n};
 }
 
+/// Assigns, or Type mismatch.
+/// @param lv the target
+/// @param v the value
 static void assign(lvalue_t lv, value_t v) {
     if (lv.is_str != v.is_str)
         error(E_TYPE_MISMATCH);
@@ -2297,12 +2584,14 @@ static void skip_statement(void) {
     }
 }
 
+/// Moves p to the end of the line.
 static void skip_line(void) {
     p += strlen(p);
 }
 
 /// Moves to the next statement start, crossing into following lines.
 /// Returns false at the end of the program.
+/// @return there is one
 static bool next_statement(void) {
     skip_statement();
     if (*p == ':') {
@@ -2317,6 +2606,9 @@ static bool next_statement(void) {
 }
 
 /// Finds the matching NEXT (or WEND) for a FOR (WHILE) whose body is skipped.
+/// @param open the opening keyword
+/// @param close the closing one
+/// @param err the error if there is none
 static void skip_block(const char *open, const char *close, int err) {
     int depth = 1;
     for (;;) {
@@ -2339,6 +2631,8 @@ static void skip_block(const char *open, const char *close, int err) {
     }
 }
 
+/// Prints an error message (with the line).
+/// @param code the error
 static void print_error(int code) {
     out_flush();
     if (out_col)
@@ -2363,6 +2657,7 @@ static void print_error(int code) {
     out_newline();
 }
 
+/// Stops with Break on Ctrl-C.
 static void check_break(void) {
     read_keys(running);
     if (break_pending) {
@@ -2373,6 +2668,10 @@ static void check_break(void) {
 
 // ---- File helpers ---------------------------------------------------------
 
+/// A file name argument.
+/// @param out the name
+/// @param size room in out
+/// @param add_bas add .BAS if it has no extension
 static void file_name_arg(char *out, int size, bool add_bas) {
     const char *s = str_expr();
     if (!*s)
@@ -2392,6 +2691,8 @@ enum { LOAD_MERGE = 1, LOAD_KEEP_VARS = 2 };
 
 /// Loads a program (LOAD_MERGE: adds a plain-text one's lines to the program
 /// in memory; LOAD_KEEP_VARS: leaves the variables, for CHAIN).
+/// @param name the file
+/// @param flags LOAD_MERGE, LOAD_KEEP_VARS
 static void load_file(const char *name, int flags) {
     FIL f;  // (on the stack: kept across the longjmp below, as it's in memory)
     FRESULT r = f_open(&f, name, FA_READ);
@@ -2466,6 +2767,8 @@ static void load_file(const char *name, int flags) {
 }
 
 /// One line of a plain-text program; false if it has no line number.
+/// @param line the line
+/// @return it had a number
 static bool load_plain_line(char *line) {
     char *q = line;
     while (*q == ' ')
@@ -2501,22 +2804,29 @@ static const char *const tok1[] = {
     NULL, NULL, ">", "=", "<", "+", "-", "*", "/", "^", "AND", "OR", "XOR", "EQV", "IMP", "MOD",
     "\\",
 };
+/// GW-BASIC's tokens after 0xFE.
 static const char *const tok_fe[] = {
     [0x81] = "FILES", "FIELD", "SYSTEM", "NAME", "LSET", "RSET", "KILL", "PUT", "GET", "RESET",
     "COMMON", "CHAIN", "DATE$", "TIME$", "PAINT", "COM", "CIRCLE", "DRAW", "PLAY", "TIMER",
     "ERDEV", "IOCTL", "CHDIR", "MKDIR", "RMDIR", "SHELL", "ENVIRON", "VIEW", "WINDOW", "PMAP",
     "PALETTE", "LCOPY", "CALLS",
 };
+/// Its tokens after 0xFF.
 static const char *const tok_ff[] = {
     [0x81] = "LEFT$", "RIGHT$", "MID$", "SGN", "INT", "ABS", "SQR", "RND", "SIN", "LOG", "EXP",
     "COS", "TAN", "ATN", "FRE", "INP", "POS", "LEN", "STR$", "VAL", "ASC", "CHR$", "PEEK",
     "SPACE$", "OCT$", "HEX$", "LPOS", "CINT", "CSNG", "CDBL", "FIX", "PEN", "STICK", "STRIG",
     "EOF", "LOC", "LOF",
 };
+/// Its tokens after 0xFD.
 static const char *const tok_fd[] = {
     [0x81] = "CVI", "CVS", "CVD", "MKI$", "MKS$", "MKD$",
 };
 
+/// A number from Microsoft Binary Format, as tokenised files have them.
+/// @param b the bytes
+/// @param bytes 4 or 8
+/// @return the number
 static double mbf_to_double(const uint8_t *b, int bytes) {
     int exp = b[bytes - 1];
     if (!exp)
@@ -2530,6 +2840,10 @@ static double mbf_to_double(const uint8_t *b, int bytes) {
     return neg ? -v : v;
 }
 
+/// Loads a GW-BASIC tokenised program (as SAVE without ,A makes on a PC).
+/// @param buf the file
+/// @param len its length
+/// @return it was one
 static bool load_tokenised(const uint8_t *b, size_t len) {
     size_t i = 1;
     char text[LINE_MAX_LEN * 2];
@@ -2630,6 +2944,8 @@ static bool load_tokenised(const uint8_t *b, size_t len) {
     return true;
 }
 
+/// Saves the program as text.
+/// @param name the file
 static void save_file(const char *name) {
     FIL f;
     FRESULT r = f_open(&f, name, FA_WRITE | FA_CREATE_ALWAYS);
@@ -2662,6 +2978,7 @@ static void print_items(void);
 /// PRINT [#n,] items
 static void print_using(void);
 
+/// PRINT (and PRINT #, LPRINT).
 static void do_print(void) {
     skip_spaces();
     if (*p != '#') {
@@ -2687,6 +3004,7 @@ static void do_print(void) {
 typedef struct {
     int digits;       ///< positions before the point, including ** and $$ ones
     int decimals;     ///< digits after the point
+    /// The point; commas; ** fill; $$; a leading +; a trailing +; a trailing -.
     ///@{
     bool point, comma, star, dollar, plus_lead, plus_trail, minus_trail;
     ///@}
@@ -2695,6 +3013,11 @@ typedef struct {
 
 /// Parses a numeric field at f[*i] (moving *i past it). False if there isn't
 /// one there.
+/// @param f the format
+/// @param n its length
+/// @param i where (moved past it)
+/// @param nf set
+/// @return there was one
 static bool parse_num_field(const char *f, int n, int *i, num_field_t *nf) {
     int k = *i;
     memset(nf, 0, sizeof *nf);
@@ -2760,6 +3083,10 @@ static bool parse_num_field(const char *f, int n, int *i, num_field_t *nf) {
 }
 
 /// "\  \": a string field n + 2 characters wide.
+/// @param f the format
+/// @param n its length
+/// @param i where
+/// @return it is one
 static bool backslash_field(const char *f, int n, int i) {
     if (i >= n || f[i] != '\\')
         return false;
@@ -2769,6 +3096,11 @@ static bool backslash_field(const char *f, int n, int i) {
     return k < n && f[k] == '\\';
 }
 
+/// A number in a PRINT USING field.
+/// @param v the number
+/// @param nf the field
+/// @param out the text
+/// @param size room in out
 static void format_using_number(double v, const num_field_t *nf, char *out, size_t size) {
     bool neg = v < 0;
     double a = fabs(v);
@@ -2964,6 +3296,7 @@ static void print_using(void) {
     out_flush();
 }
 
+/// PRINT's items: expressions, ; , TAB( and SPC(, and USING.
 static void print_items(void) {
     int width = out_dev ? 255 : SCREEN_COLS;  // files don't wrap at 80
     bool newline = true;
@@ -3032,6 +3365,8 @@ static void print_items(void) {
     out_flush();
 }
 
+/// INPUT and LINE INPUT.
+/// @param line_input LINE INPUT
 static void do_input(bool line_input) {
     skip_spaces();
     bool question = true;
@@ -3116,6 +3451,7 @@ static void do_input(bool line_input) {
     }
 }
 
+/// FOR var = from TO to [STEP step].
 static void do_for(void) {
     char name[NAME_MAX + 2];
     if (!read_name(name))
@@ -3146,6 +3482,7 @@ static void do_for(void) {
     for_stack[for_depth++] = (for_frame_t){v, limit, step, {cur_line, p}};
 }
 
+/// NEXT [var[, var...]].
 static void do_next(void) {
     for (;;) {
         var_t *v = NULL;
@@ -3173,6 +3510,8 @@ static void do_next(void) {
     }
 }
 
+/// GOTO or GOSUB line.
+/// @param gosub GOSUB
 static void do_goto_or_gosub(bool gosub) {
     int n = read_line_number();
     if (gosub) {
@@ -3195,29 +3534,42 @@ static void push_gosub(void) {
 // statements; one happening while STOPped (or while its handler runs) is
 // handled once it's back ON.
 
-enum { EV_KEY = 0, EV_TIMER = 21, EV_PLAY, EV_COM, EV_COUNT };  ///< KEY(1)-KEY(20) are 1-20
+/// The events: KEY(1)-KEY(20) are 1-20, then TIMER, PLAY and COM.
+enum { EV_KEY = 0, EV_TIMER = 21, EV_PLAY, EV_COM, EV_COUNT };
+/// An event's state.
 enum { EV_OFF, EV_ON, EV_STOP };
 
+/// An event trap.
 typedef struct {
     int line;     ///< the handler, 0 none
-    int state;
+    int state;  ///< EV_OFF, EV_ON or EV_STOP
+    /// It happened (and waits to be handled); its handler is running.
     ///@{
     bool pending, in_handler;
     ///@}
 } event_t;
 static event_t (*events_p)[EV_COUNT];  ///< (basic_ram, while BASIC runs)
+/// The event traps.
 #define events (*events_p)
+/// ON TIMER's interval and when it is next due.
+///@{
 static double timer_interval, timer_next;
+///@}
+/// ON PLAY's threshold, and the notes left when last checked.
+///@{
 static int play_threshold, play_last;
+///@}
 
 static bool events_enabled;  ///< some event isn't OFF: check_events has work to do
 
+/// Every trap off.
 static void reset_events(void) {
     memset(events, 0, sizeof events);
     events_enabled = false;
 }
 
 /// KEY(n) / TIMER / PLAY / COM(n) ON|OFF|STOP
+/// @param ev the event
 static void set_event_state(int ev) {
     if (accept_word("ON"))
         events[ev].state = EV_ON;
@@ -3235,6 +3587,8 @@ static void set_event_state(int ev) {
 }
 
 /// The event number of KEY(n) etc. after ON or before ON/OFF/STOP.
+/// @param what the text
+/// @return the event
 static int event_number(const char *what) {
     if (!strcmp(what, "TIMER") || !strcmp(what, "PLAY"))
         return what[0] == 'T' ? EV_TIMER : EV_PLAY;
@@ -3253,6 +3607,7 @@ static int event_number(const char *what) {
 /// Function keys and arrows waiting in the key queue, for ON KEY: takes the
 /// first trapped one out and returns its KEY number (1-10 F1-F10, 11 up,
 /// 12 left, 13 right, 14 down), or 0.
+/// @return the KEY number, or 0
 static int take_trapped_key(void) {
     char q[sizeof key_queue];
     int n = 0;
@@ -3297,6 +3652,7 @@ static int take_trapped_key(void) {
 }
 
 /// True if COM1 is open and something has arrived on it.
+/// @return something arrived
 static bool files_com_waiting(void) {
     for (int i = 1; i <= MAX_FILES; ++i)
         if (files[i] && files[i]->mode == FM_COM)
@@ -3339,6 +3695,7 @@ static void check_events(void) {
 }
 
 /// ON KEY(n) / TIMER(s) / PLAY(n) / COM(n) GOSUB line (0: no handler).
+/// @param what the text after ON
 static void do_on_event(const char *what) {
     expect("(");
     int ev;
@@ -3374,6 +3731,7 @@ static void do_on_event(const char *what) {
 }
 
 
+/// IF cond THEN ... [ELSE ...].
 static void do_if(void) {
     jumped = true;  // execution carries on from wherever p ends up
     value_t c = expr();
@@ -3461,6 +3819,8 @@ static void do_resume(void) {
 
 /// Sends an error to the program's ON ERROR handler, if it has one and isn't
 /// in it already. False if the error should stop the program instead.
+/// @param code the error
+/// @return it went to the handler
 static bool trap_error(int code) {
     if (!running || cur_line < 0 || on_error_line < 0 || in_error_handler || code > 255)
         return false;
@@ -3472,6 +3832,7 @@ static bool trap_error(int code) {
     return true;
 }
 
+/// ON ERROR GOTO, ON n GOTO/GOSUB, and ON KEY and the like.
 static void do_on(void) {
     if (accept_word("ERROR")) {
         do_on_error();
@@ -3570,6 +3931,8 @@ static void do_erase(void) {
 }
 
 /// DATE$ = "mm-dd-yy[yy]" and TIME$ = "hh[:mm[:ss]]" set the clock (UTC).
+/// @param v the value
+/// @param date DATE$ (else TIME$)
 static void set_date_or_time(const char *v, bool date) {
     char text[32];
     snprintf(text, sizeof text, "%.*s", (int)slen(v), v);
@@ -3604,8 +3967,11 @@ static void set_date_or_time(const char *v, bool date) {
 
 /// ENVIRON "NAME=value" and ENVIRON$: a small table of strings (no DOS).
 #define MAX_ENVIRON 16
+/// The table.
 static char *environ_table[MAX_ENVIRON];
 
+/// ENVIRON "NAME=value".
+/// @param v the text
 static void set_environ(const char *v) {
     char text[256];
     snprintf(text, sizeof text, "%.*s", (int)slen(v), v);
@@ -3633,6 +3999,9 @@ static void set_environ(const char *v) {
     strcpy(environ_table[slot], text);
 }
 
+/// ENVIRON$(name or n).
+/// @param arg the name, or the entry's number
+/// @return its value
 static value_t environ_value(value_t arg) {
     if (!arg.is_str) {
         int n = (int)lround(arg.n), k = 0;
@@ -3656,6 +4025,7 @@ static value_t environ_value(value_t arg) {
 
 /// INKEY$: one key, or as on a PC CHR$(0) and the scan code for function
 /// and cursor keys. A key whose ON KEY trap is set goes to the trap instead.
+/// @return the key
 static value_t inkey(void) {
     int c = key_now();
     if (c < 0)
@@ -3697,6 +4067,7 @@ static value_t inkey(void) {
 // KEY ON: the soft keys' labels on text row 25, as on a PC (the rows above
 // then scroll on their own).
 
+/// Draws (or clears) the soft keys' line at the bottom.
 static void draw_key_line(void) {
     out_flush();
     printf("\x1b" "7\x1b[25;1H");
@@ -3719,6 +4090,8 @@ static void draw_key_line(void) {
     fflush(stdout);
 }
 
+/// KEY ON / OFF.
+/// @param on on
 static void set_key_line(bool on) {
     if (on == key_line_on)
         return;
@@ -3768,6 +4141,7 @@ static void do_key(void) {
         draw_key_line();
 }
 
+/// DIM name(bounds)[, ...].
 static void do_dim(void) {
     do {
         char name[NAME_MAX + 2];
@@ -3787,6 +4161,7 @@ static void do_dim(void) {
 
 /// Finds the next DATA item. data_pos.p is NULL to scan from the start of
 /// data_pos.line, or points just after the last item read.
+/// @return found
 static bool find_data(void) {
     if (data_pos.p) {
         const char *q = data_pos.p;
@@ -3820,6 +4195,7 @@ static bool find_data(void) {
     }
 }
 
+/// READ var[, var...].
 static void do_read(void) {
     do {
         lvalue_t lv = lvalue();
@@ -3862,6 +4238,7 @@ static void do_read(void) {
     } while (accept(","));
 }
 
+/// RESTORE [line].
 static void do_restore(void) {
     data_pos.line = 0;
     data_pos.p = NULL;
@@ -3877,6 +4254,7 @@ static void do_restore(void) {
 
 /// DEFINT A-Z, X (and DEFSNG, DEFDBL, DEFSTR): the type of names without a
 /// suffix, by first letter.
+/// @param type '%', '!', '#' or '$'
 static void do_deftype(char type) {
     do {
         skip_spaces();
@@ -3898,6 +4276,7 @@ static void do_deftype(char type) {
 
 static void do_def_seg(void);
 
+/// DEF FN, DEF SEG and DEF USR.
 static void do_def(void) {
     if (accept_word("SEG")) {
         do_def_seg();
@@ -3937,6 +4316,7 @@ static void do_def(void) {
     fns = g;
 }
 
+/// SWAP a, b.
 static void do_swap(void) {
     lvalue_t a = lvalue();
     expect(",");
@@ -3964,17 +4344,32 @@ static void do_swap(void) {
 // changes it); a colour of 256 or more is a direct RGB332 value, which is
 // what RGB(r,g,b) returns.
 
+/// The screen's width.
 #define FB_W 640
+/// Its height.
 #define FB_H 480
 
 static int screen_mode;            ///< 0 = text
 static int page_count = 1;          ///< screen pages the mode has
-static int active_page, visual_page; ///< the one drawn on, the one shown
-static int gw, gh, gsx, gsy, gyoff;  ///< logical size, scale, vertical offset
+/// The page drawn on, and the page shown.
+///@{
+static int active_page, visual_page;
+///@}
+/// The mode's logical size, its scale, and its vertical offset.
+///@{
+static int gw, gh, gsx, gsy, gyoff;
+///@}
 static int gcolours;               ///< attributes in this mode
-static int gfg, gbg;               ///< drawing and background attributes
-static double last_x, last_y;      ///< the "last point" for STEP and DRAW
+/// The drawing and background attributes.
+///@{
+static int gfg, gbg;
+///@}
+/// The last point, for STEP and DRAW.
+///@{
+static double last_x, last_y;
+///@}
 static uint8_t (*attr_map_p)[256];  ///< (basic_ram, while BASIC runs)
+/// The attributes' colours.
 #define attr_map (*attr_map_p)
 
 /// The PC's 16 colours in RGB332.
@@ -3983,6 +4378,11 @@ static const uint8_t pc_rgb[16] = {
     0x49, 0x4b, 0x5d, 0x5f, 0xe9, 0xeb, 0xfd, 0xff,
 };
 
+/// An RGB colour (each 0-1) in RGB332.
+/// @param r red
+/// @param g green
+/// @param b blue
+/// @return the colour
 static uint8_t to_rgb332(double r, double g, double b) {
     int ri = (int)(r * 7 + 0.5), gi = (int)(g * 7 + 0.5), bi = (int)(b * 3 + 0.5);
     return (uint8_t)(ri << 5 | gi << 2 | bi);
@@ -4035,11 +4435,15 @@ static void default_palette(void) {
     }
 }
 
+/// Illegal function call in text mode.
 static void need_graphics(void) {
     if (!screen_mode)
         error(E_ILLEGAL_CALL);
 }
 
+/// A colour's RGB332: an attribute, or a direct RGB332 value (256 + it).
+/// @param c the colour
+/// @return it
 static uint8_t colour_rgb(int c) {
     if (c >= 256 && c < 512)
         return c - 256;
@@ -4050,11 +4454,24 @@ static uint8_t colour_rgb(int c) {
 
 /// VIEW (the viewport, in screen pixels, inclusive) and WINDOW (the world
 /// coordinates mapped onto it). Drawing is clipped to the viewport.
+/// VIEW is set (and SCREEN: drawing in screen coordinates); WINDOW is set (and SCREEN: y grows downwards).
+///@{
 static bool view_set, view_screen, window_set, window_screen;
+///@}
+/// The viewport.
+///@{
 static int view_x1, view_y1, view_x2, view_y2;
+///@}
+/// The world coordinates.
+///@{
 static double win_x1, win_y1, win_x2, win_y2;
+///@}
+/// Where drawing is clipped.
+///@{
 static int clip_x1, clip_y1, clip_x2, clip_y2;
+///@}
 
+/// VIEW and WINDOW off.
 static void reset_view(void) {
     view_set = window_set = false;
     clip_x1 = clip_y1 = 0;
@@ -4063,6 +4480,8 @@ static void reset_view(void) {
 }
 
 /// World (program) coordinates to screen pixels and back.
+/// @param x a world x
+/// @return the pixel
 static double phys_x(double x) {
     int ox = view_set ? view_x1 : 0, w = view_set ? view_x2 - view_x1 : gw - 1;
     if (window_set)
@@ -4070,6 +4489,9 @@ static double phys_x(double x) {
     return x + (view_set && !view_screen ? ox : 0);
 }
 
+/// A world y to a pixel.
+/// @param y it
+/// @return the pixel
 static double phys_y(double y) {
     int oy = view_set ? view_y1 : 0, h = view_set ? view_y2 - view_y1 : gh - 1;
     if (window_set)
@@ -4077,6 +4499,9 @@ static double phys_y(double y) {
     return y + (view_set && !view_screen ? oy : 0);
 }
 
+/// A pixel x to the world.
+/// @param x it
+/// @return the world x
 static double world_x(double x) {
     int ox = view_set ? view_x1 : 0, w = view_set ? view_x2 - view_x1 : gw - 1;
     if (window_set)
@@ -4084,6 +4509,9 @@ static double world_x(double x) {
     return x - (view_set && !view_screen ? ox : 0);
 }
 
+/// A pixel y to the world.
+/// @param y it
+/// @return the world y
 static double world_y(double y) {
     int oy = view_set ? view_y1 : 0, h = view_set ? view_y2 - view_y1 : gh - 1;
     if (window_set) {
@@ -4095,20 +4523,35 @@ static double world_y(double y) {
 
 static int round_coord(double d);
 
+/// A world x to a whole pixel.
+/// @param x it
+/// @return the pixel
 static int px_of(double x) {
     return round_coord(phys_x(x));
 }
 
+/// A world y to a whole pixel.
+/// @param y it
+/// @return the pixel
 static int py_of(double y) {
     return round_coord(phys_y(y));
 }
 
+/// Sets a pixel (clipped).
+/// @param x it
+/// @param y it
+/// @param rgb the colour
 static void plot(int x, int y, uint8_t rgb) {
     if (x < clip_x1 || y < clip_y1 || x > clip_x2 || y > clip_y2)
         return;
     port_fill_rect(x * gsx, y * gsy + gyoff, gsx, gsy, rgb);
 }
 
+/// A horizontal line (clipped).
+/// @param x1 one end
+/// @param x2 the other
+/// @param y its row
+/// @param rgb the colour
 static void hspan(int x1, int x2, int y, uint8_t rgb) {
     if (y < clip_y1 || y > clip_y2)
         return;
@@ -4125,10 +4568,18 @@ static void hspan(int x1, int x2, int y, uint8_t rgb) {
         port_fill_rect(x1 * gsx, y * gsy + gyoff, (x2 - x1 + 1) * gsx, gsy, rgb);
 }
 
+/// A pixel's colour.
+/// @param x it
+/// @param y it
+/// @return RGB332
 static uint8_t read_rgb(int x, int y) {
     return port_get_pixel(x * gsx, y * gsy + gyoff);
 }
 
+/// POINT: a pixel's attribute.
+/// @param x it
+/// @param y it
+/// @return the attribute (256 + RGB332 if none has it), or -1 off the screen
 static int gfx_point(int x, int y) {
     need_graphics();
     if (x < 0 || y < 0 || x >= gw || y >= gh)
@@ -4141,6 +4592,12 @@ static int gfx_point(int x, int y) {
 }
 
 /// Bresenham, with GW-BASIC's 16-bit line style (bit 15 first).
+/// @param x1 the start
+/// @param y1 it
+/// @param x2 the end
+/// @param y2 it
+/// @param rgb the colour
+/// @param style the line style
 static void draw_line(int x1, int y1, int x2, int y2, uint8_t rgb, unsigned style) {
     int dx = abs(x2 - x1), dy = -abs(y2 - y1);
     int sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1;
@@ -4165,6 +4622,8 @@ static void draw_line(int x1, int y1, int x2, int y2, uint8_t rgb, unsigned styl
 }
 
 /// "(x,y)" or "STEP(x,y)" (relative to the last point).
+/// @param x set to x
+/// @param y set to y
 static void read_point(double *x, double *y) {
     bool step = accept("STEP");
     expect("(");
@@ -4178,6 +4637,9 @@ static void read_point(double *x, double *y) {
     }
 }
 
+/// A coordinate rounded to a pixel (Overflow if far off).
+/// @param d it
+/// @return the pixel
 static int round_coord(double d) {
     if (d < -1e6 || d > 1e6)
         error(E_OVERFLOW);
@@ -4185,6 +4647,8 @@ static int round_coord(double d) {
 }
 
 /// An optional ",value" argument; true if present (empty ",," counts as absent).
+/// @param v set to the value
+/// @return present
 static bool optional_arg(double *v) {
     if (!accept(","))
         return false;
@@ -4195,6 +4659,8 @@ static bool optional_arg(double *v) {
     return true;
 }
 
+/// SCREEN mode: the size, scale, colours and pages it has.
+/// @param mode 0 text, else a graphics mode
 static void set_screen_mode(int mode) {
     int pages = 1;
     switch (mode) {
@@ -4235,6 +4701,9 @@ static void set_screen_mode(int mode) {
         draw_key_line();
 }
 
+/// MOUSEX and MOUSEY: in text cells (from 1) in text mode, else in the mode's pixels.
+/// @param want_x x (else y)
+/// @return it, 0 without a mouse
 static int mouse_coord(bool want_x) {
     int x, y, b;
     if (!port_mouse(&x, &y, &b))
@@ -4251,6 +4720,7 @@ static int mouse_coord(bool want_x) {
 /// prompt plays on until MUSIC STOP, NEW, RUN or SYSTEM.
 static bool music_from_program;
 
+/// MUSIC "file" [, volume] and MUSIC STOP / PAUSE / RESUME: plays a MOD or XM in the background.
 static void do_music(void) {
     if (accept_word("STOP")) {
         port_music_stop();
@@ -4334,6 +4804,8 @@ static void do_screen(void) {
     }
 }
 
+/// PSET (x,y)[, colour] and PRESET.
+/// @param preset PRESET (the background colour)
 static void do_pset(bool preset) {
     need_graphics();
     double x, y, c;
@@ -4346,6 +4818,7 @@ static void do_pset(bool preset) {
     last_y = y;
 }
 
+/// LINE [(x1,y1)]-(x2,y2)[, colour][, B[F]][, style].
 static void do_gline(void) {
     need_graphics();
     double x1 = last_x, y1 = last_y, x2, y2, c;
@@ -4392,6 +4865,7 @@ static void do_gline(void) {
     last_y = y2;
 }
 
+/// CIRCLE (x,y), r[, colour[, start, end[, aspect]]].
 static void do_circle(void) {
     need_graphics();
     double cx, cy, r, c, start = 0, end = 2 * M_PI, aspect = (double)gsx / gsy;
@@ -4445,6 +4919,10 @@ static void do_circle(void) {
 /// Scanline flood fill with an explicit stack of seed points (no recursion:
 /// BASIC's stack is only 16 KB). Fills until the border colour, and treats
 /// pixels already in the paint colour as filled.
+/// @param x the seed's x
+/// @param y its y
+/// @param paint the fill colour
+/// @param border the border colour
 static void flood_fill(int x, int y, uint8_t paint, uint8_t border) {
     if (x < clip_x1 || y < clip_y1 || x > clip_x2 || y > clip_y2)
         return;
@@ -4510,6 +4988,7 @@ static void flood_fill(int x, int y, uint8_t paint, uint8_t border) {
     free(stack);
 }
 
+/// PAINT (x,y)[, paint[, border]].
 static void do_paint(void) {
     need_graphics();
     double x, y, c;
@@ -4525,6 +5004,7 @@ static void do_paint(void) {
     last_y = y;
 }
 
+/// PALETTE [attribute, colour].
 static void do_palette(void) {
     need_graphics();
     if (at_end_of_statement()) {
@@ -4544,9 +5024,10 @@ static void do_palette(void) {
         error(E_ILLEGAL_CALL);
 }
 
-/// DRAW: U D L R E F G H [n], M [+|-]x,[+|-]y, B (move without drawing),
-/// N (return afterwards), C colour, S scale (quarter pixels), A angle (x90),
-/// TA degrees, P paint,border. Numbers may be "=variable;".
+/// A number in a DRAW string ("=variable;" too).
+/// @param s the string (moved past it)
+/// @param present set to there being one
+/// @return it
 static double draw_number(const char **s, bool *present) {
     while (**s == ' ')
         ++*s;
@@ -4569,6 +5050,9 @@ static double draw_number(const char **s, bool *present) {
     return d;
 }
 
+/// DRAW: U D L R E F G H [n], M [+|-]x,[+|-]y, B (move without drawing),
+/// N (return afterwards), C colour, S scale (quarter pixels), A angle (x90),
+/// TA degrees, P paint,border. Numbers may be "=variable;".
 static void do_draw(void) {
     need_graphics();
     const char *cmd = str_expr();
@@ -4687,6 +5171,7 @@ static void do_draw(void) {
 /// 6 brown, 7 white, +8 bright) to ANSI colour numbers.
 static const int pc_to_ansi[8] = {0, 4, 2, 6, 1, 5, 3, 7};
 
+/// COLOR fg[, bg[, border]].
 static void do_color(void) {
     if (screen_mode) {
         double c;
@@ -4729,6 +5214,7 @@ static void do_color(void) {
     out_flush();
 }
 
+/// LOCATE [row][, col][, cursor].
 static void do_locate(void) {
     int row = out_row + 1, col = out_col + 1;
     skip_spaces();
@@ -4761,6 +5247,7 @@ static void do_locate(void) {
 
 static long def_seg = -1;  ///< -1: BASIC's own data segment (not emulated)
 
+/// DEF SEG [= segment].
 static void do_def_seg(void) {
     def_seg = -1;
     if (accept("=")) {
@@ -4771,6 +5258,9 @@ static void do_def_seg(void) {
     }
 }
 
+/// An address in the DEF SEG segment.
+/// @param offset the offset
+/// @return the address
 static long seg_address(double offset) {
     if (def_seg < 0 || offset < -32768 || offset > 65535)
         error(E_ILLEGAL_CALL);
@@ -4780,6 +5270,10 @@ static long seg_address(double offset) {
 /// SCREEN 1 and 2 keep their pixels at &HB800 as a CGA does: even lines in
 /// the first 8 KB, odd ones from &H2000, 80 bytes a line, the leftmost pixel
 /// in the top bits (4 two-bit pixels a byte in SCREEN 1, 8 in SCREEN 2).
+/// @param addr the address
+/// @param x set to the first pixel's x
+/// @param y its y
+/// @return it is screen memory
 static bool cga_pixels(long addr, int *x, int *y) {
     long o = addr - 0xB8000;
     if ((screen_mode != 1 && screen_mode != 2) || o < 0 || o >= 0x4000)
@@ -4792,11 +5286,18 @@ static bool cga_pixels(long addr, int *x, int *y) {
     return true;
 }
 
+/// Sets a mode pixel without the viewport's clipping.
+/// @param x it
+/// @param y it
+/// @param rgb the colour
 static void raw_plot(int x, int y, uint8_t rgb) {
     if (x >= 0 && y >= 0 && x < gw && y < gh)
         port_fill_rect(x * gsx, y * gsy + gyoff, gsx, gsy, rgb);
 }
 
+/// PEEK: CGA screen memory, or 0.
+/// @param addr the address
+/// @return the byte
 static int peek_byte(long addr) {
     int cx, cy;
     if (cga_pixels(addr, &cx, &cy)) {
@@ -4836,6 +5337,9 @@ static int peek_byte(long addr) {
     return 0;
 }
 
+/// POKE: CGA screen memory (else nothing).
+/// @param addr the address
+/// @param v the byte
 static void poke_byte(long addr, int v) {
     if (v < 0 || v > 255)
         error(E_ILLEGAL_CALL);
@@ -5020,6 +5524,9 @@ static void do_view(void) {
 
 /// PMAP(v, n): world x (n 0) or y (1) to pixels, or pixels to world x (2)
 /// or y (3); pixels count from the viewport's corner.
+/// @param v the value
+/// @param n the conversion
+/// @return it converted
 static double pmap(double v, int n) {
     need_graphics();
     int ox = view_set && !view_screen ? view_x1 : 0, oy = view_set && !view_screen ? view_y1 : 0;
@@ -5034,6 +5541,8 @@ static double pmap(double v, int n) {
 }
 
 /// POINT(n): the graphics cursor in pixels (n 0, 1) or world units (2, 3).
+/// @param n which
+/// @return it
 static double point_cursor(int n) {
     need_graphics();
     return n == 0 ? phys_x(last_x) : n == 1 ? phys_y(last_y) : n == 2 ? last_x : last_y;
@@ -5079,11 +5588,15 @@ static void do_window(void) {
 // the mode's bits per pixel, so arrays dimensioned by GW-BASIC's formula are
 // big enough: here 32 bits go in each element.
 
+/// Bits a pixel in this mode (GET/PUT arrays).
+/// @return 1, 2, 4 or 8
 static int mode_bits(void) {
     return gcolours <= 2 ? 1 : gcolours <= 4 ? 2 : gcolours <= 16 ? 4 : 8;
 }
 
 /// The array named at p and the element to start at.
+/// @param room set to the elements from there on
+/// @return the element
 static double *graphics_array(long *room) {
     char name[NAME_MAX + 2];
     if (!read_name(name))
@@ -5110,6 +5623,7 @@ static double *graphics_array(long *room) {
     return a->n + start;
 }
 
+/// GET (x1,y1)-(x2,y2), array: the picture into an array.
 static void do_gget(void) {
     need_graphics();
     double x1, y1, x2, y2;
@@ -5153,6 +5667,7 @@ static void do_gget(void) {
         a[k] = word;
 }
 
+/// PUT (x,y), array[, action]: a picture from an array.
 static void do_gput(void) {
     need_graphics();
     double x, y;
@@ -5219,10 +5734,14 @@ static void do_gput(void) {
 // last]) is the first sprite whose pixels touch sprite n's (or -1);
 // SPRITEX(n), SPRITEY(n) and SPRITEON(n) read them back.
 
+/// Sprites.
 #define SPRITES 64
+/// Sprite shapes.
 #define SHAPES  64
 
+/// A sprite's shape.
 typedef struct {
+    /// Its width and height.
     ///@{
     int w, h;
     ///@}
@@ -5230,11 +5749,14 @@ typedef struct {
     uint8_t *mask;  ///< 1 where the shape isn't see-through
 } shape_t;
 
+/// A sprite.
 typedef struct {
+    /// Shown; drawn on the screen now.
     ///@{
     bool on, drawn;
     ///@}
-    int shape;
+    int shape;  ///< its shape
+    /// Where it is, and how far it moves a frame.
     ///@{
     double x, y, dx, dy;
     ///@}
@@ -5246,8 +5768,8 @@ typedef struct {
     ///@{
     int bx, by, bw, bh;
     ///@}
-    uint8_t *bg;
-    int bg_cap;
+    uint8_t *bg;  ///< what was there (malloc'd)
+    int bg_cap;  ///< its room
 } sprite_t;
 
 /// Made when BASIC starts and freed when it ends (no app keeps SRAM while
@@ -5261,6 +5783,7 @@ static void sprites_forget(void) {
         sprites[i].drawn = false;
 }
 
+/// Every sprite off and forgotten.
 static void sprites_reset(void) {
     if (!sprites)
         return;
@@ -5277,6 +5800,7 @@ static void sprites_reset(void) {
 
 /// Puts back what was behind a sprite's pixels, except where the program has
 /// drawn over them since (that drawing stays).
+/// @param sp the sprite
 static void sprite_restore(sprite_t *sp) {
     if (!sp->drawn)
         return;
@@ -5291,6 +5815,8 @@ static void sprite_restore(sprite_t *sp) {
     sp->drawn = false;
 }
 
+/// Draws a sprite, keeping what was under it.
+/// @param sp it
 static void sprite_draw(sprite_t *sp) {
     const shape_t *sh = &shapes[sp->shape];
     int x0 = round_coord(sp->x), y0 = round_coord(sp->y);
@@ -5328,6 +5854,8 @@ static void sprite_draw(sprite_t *sp) {
     sp->drawn = true;
 }
 
+/// Moves the sprites a frame on and draws them again.
+/// @param f frames (fractions too)
 static void sprite_update(double f) {
     for (int i = SPRITES - 1; i >= 0; --i)
         sprite_restore(&sprites[i]);
@@ -5346,6 +5874,8 @@ static void sprite_update(double f) {
             sprite_draw(&sprites[i]);
 }
 
+/// A sprite number argument.
+/// @return 0-63
 static int sprite_number(void) {
     int n = arg_int();
     if (n < 0 || n >= SPRITES)
@@ -5353,6 +5883,7 @@ static int sprite_number(void) {
     return n;
 }
 
+/// SPRITE SHAPE n, array or (x1,y1)-(x2,y2).
 static void do_sprite_shape(void) {
     int s = arg_int();
     if (s < 0 || s >= SHAPES)
@@ -5392,6 +5923,7 @@ static void do_sprite_shape(void) {
     sh->mask = m;
 }
 
+/// SPRITE n, ON / OFF / x, y / MOVE dx, dy and the like.
 static void do_sprite(void) {
     need_graphics();
     if (accept_word("SHAPE")) {
@@ -5441,6 +5973,10 @@ static void do_sprite(void) {
 
 /// SPRITEHIT(n[, first, last]): the lowest-numbered sprite from first to last
 /// (all of them) that is on and has a pixel where sprite n has one, or -1.
+/// @param n the sprite
+/// @param first the first to look at
+/// @param last the last
+/// @return the sprite hit, or -1
 static int sprite_hit(int n, int first, int last) {
     const sprite_t *a = &sprites[n];
     if (!a->on)
@@ -5464,6 +6000,9 @@ static int sprite_hit(int n, int first, int last) {
     return -1;
 }
 
+/// SPRITEHIT, SPRITEX, SPRITEY and SPRITEON.
+/// @param what which
+/// @return its value
 static value_t sprite_function(int what) {
     int n = sprite_number();
     if (what == 0) {
@@ -5564,6 +6103,10 @@ static void do_pwm(void) {
 
 /// Bytes from a list of numbers (0-255) and strings, into buf; NOSTOP (at the
 /// end) sets *nostop. The count.
+/// @param buf the bytes
+/// @param max room in buf
+/// @param nostop set by NOSTOP, or NULL (not allowed)
+/// @return their count
 static int byte_items(uint8_t *buf, int max, bool *nostop) {
     int n = 0;
     for (;;) {
@@ -5589,6 +6132,8 @@ static int byte_items(uint8_t *buf, int max, bool *nostop) {
     return n;
 }
 
+/// An I2C result to an error.
+/// @param r the result
 static void i2c_check(int r) {
     if (r == -2)
         error(E_DEVICE_UNAVAILABLE);  // I2C OPEN first
@@ -5596,6 +6141,8 @@ static void i2c_check(int r) {
         error(E_DEVICE_IO);           // no device answered at that address
 }
 
+/// An I2C address argument (0-127).
+/// @return it
 static int i2c_addr_arg(void) {
     int a = arg_int();
     if (a < 0 || a > 127)
@@ -5603,6 +6150,8 @@ static int i2c_addr_arg(void) {
     return a;
 }
 
+/// Stops with Illegal function call, saying why, if opening failed.
+/// @param why the reason, or NULL
 static void open_failed(const char *why) {
     if (!why)
         return;
@@ -5656,6 +6205,8 @@ static void do_i2c(void) {
 
 /// I2CREAD$(addr, n[, reg]): n bytes from the device (after writing the
 /// register number reg, without a stop, if given). I2CREAD(addr[, reg]): one.
+/// @param string I2CREAD$ (else I2CREAD)
+/// @return the value
 static value_t i2c_read_function(bool string) {
     int addr = i2c_addr_arg(), n = 1, reg = -1;
     if (string) {
@@ -5708,6 +6259,7 @@ static void do_spi(void) {
 }
 
 /// SPI$(out$): sends out$ and gives back the bytes received meanwhile.
+/// @return the bytes
 static value_t spi_function(void) {
     const char *out = str_expr();
     expect(")");
@@ -5729,13 +6281,17 @@ static value_t spi_function(void) {
 // The glyphs live in PSRAM on the board with a checksum each; a glyph
 // found damaged has its sheet read again.
 
+/// Font slots (0: the built-in 8x16).
 #define MAX_FONTS 9
 
+/// A font: a sheet of glyphs.
 typedef struct {
+    /// It is loaded; it is proportional.
     ///@{
     bool loaded, prop;
     ///@}
-    char path[64];
+    char path[64];  ///< the sheet's path
+    /// The cell size, the first character, glyphs, glyphs a row in the sheet, and the gap.
     ///@{
     int cw, ch, first, count, perrow, gap;
     ///@}
@@ -5750,10 +6306,16 @@ typedef struct {
 } font_t;
 
 static font_t (*fonts_p)[MAX_FONTS];  ///< (basic_ram, while BASIC runs)
+/// The fonts.
 #define fonts (*fonts_p)
 static int cur_font;
-static double gp_x, gp_y;  ///< where GPRINT goes on (world coordinates)
+/// Where GPRINT goes on (world coordinates).
+///@{
+static double gp_x, gp_y;
+///@}
 
+/// Frees a font's glyphs.
+/// @param f the font
 static void font_free(font_t *f) {
     free(f->pix);
     free(f->solid);
@@ -5763,6 +6325,7 @@ static void font_free(font_t *f) {
     memset(f, 0, sizeof *f);
 }
 
+/// Frees the fonts.
 static void fonts_reset(void) {
     for (int i = 1; i < MAX_FONTS; ++i)
         font_free(&fonts[i]);
@@ -5770,6 +6333,10 @@ static void fonts_reset(void) {
     gp_x = gp_y = 0;
 }
 
+/// A glyph's checksum.
+/// @param f the font
+/// @param g the glyph
+/// @return the sum
 static uint16_t glyph_sum(const font_t *f, int g) {
     size_t n = (size_t)f->cw * f->ch, at = (size_t)g * n;
     uint16_t h = 1;
@@ -5780,6 +6347,12 @@ static uint16_t glyph_sum(const font_t *f, int g) {
 
 /// The cell size and glyphs a row of a sheet w x h pixels: the layout that
 /// gives a usual number of characters (96, 64, 60...), square cells first.
+/// @param w the sheet's width
+/// @param h its height
+/// @param cw set to the cell width
+/// @param ch the cell height
+/// @param perrow the glyphs a row
+/// @return a layout fits
 static bool font_guess(int w, int h, int *cw, int *ch, int *perrow) {
     static const int per[] = {16, 20, 32, 10, 8, 12, 24, 40, 64, 15, 18};
     static const int usual[] = {96, 95, 64, 60, 59, 80, 128, 224, 256, 48, 40};
@@ -5813,13 +6386,18 @@ static bool font_guess(int w, int h, int *cw, int *ch, int *perrow) {
     return best >= 0;
 }
 
+/// A PNG's RGB pixel in RGB332.
+/// @param p the pixel
+/// @return the colour
 static uint8_t rgb_to_332(const uint8_t *p) {
     return (uint8_t)(((p[0] * 7 + 127) / 255) << 5 | ((p[1] * 7 + 127) / 255) << 2 | (p[2] * 3 + 127) / 255);
 }
 
-/// Reads the sheet into f (its path, sizes, first and key already set; cw = 0:
-/// guessed). NULL if fine, else why not.
 /// A size in the file's name, as in "16X16-F2.PNG" or "font8x16.bmp".
+/// @param path the file
+/// @param cw set to the width
+/// @param ch the height
+/// @return there is one
 static bool font_size_in_name(const char *path, int *cw, int *ch) {
     const char *base = strrchr(path, '/');
     base = base ? base + 1 : path;
@@ -5840,6 +6418,10 @@ static bool font_size_in_name(const char *path, int *cw, int *ch) {
     return false;
 }
 
+/// Reads the sheet into f (its path, sizes, first and key already set; cw = 0:
+/// guessed). NULL if fine, else why not.
+/// @param f the font
+/// @return NULL, or why not
 static const char *font_read(font_t *f) {
     image_t img;
     const char *err;
@@ -5899,6 +6481,10 @@ static const char *font_read(font_t *f) {
     return NULL;
 }
 
+/// A font number argument.
+/// @param n it
+/// @param loaded it must be loaded
+/// @return it
 static int font_slot(int n, bool loaded) {
     if (n < 0 || n >= MAX_FONTS || (loaded && n && !fonts[n].loaded))
         error(E_ILLEGAL_CALL);
@@ -5906,6 +6492,9 @@ static int font_slot(int n, bool loaded) {
 }
 
 /// FONTW(n), FONTH(n): the cell size, 0 if nothing is loaded there.
+/// @param n the font
+/// @param width the width (else the height)
+/// @return it
 static int font_size(int n, bool width) {
     if (!n)
         return width ? 8 : 16;
@@ -5914,6 +6503,9 @@ static int font_size(int n, bool width) {
 
 /// The glyph for character c in font f, or -1 (lower case falls back on upper
 /// case when the sheet has none).
+/// @param f the font
+/// @param c the character
+/// @return the glyph
 static int font_glyph(const font_t *f, int c) {
     int g = c - f->first;
     bool have = g >= 0 && g < f->count && (f->width[g] || c == ' ');
@@ -5923,6 +6515,9 @@ static int font_glyph(const font_t *f, int c) {
 }
 
 /// How far character c moves the cursor, in the font's pixels.
+/// @param n the font
+/// @param c the character
+/// @return pixels
 static int font_advance(int n, int c) {
     if (!n)
         return 8;
@@ -5935,6 +6530,11 @@ static int font_advance(int n, int c) {
     return f->width[g] + f->gap;
 }
 
+/// A text's width in a font.
+/// @param n the font
+/// @param s the text
+/// @param len its length
+/// @return pixels
 static int text_width(int n, const char *s, int len) {
     int w = 0;
     for (int i = 0; i < len; ++i)
@@ -5943,6 +6543,11 @@ static int text_width(int n, const char *s, int len) {
 }
 
 /// A box of the mode's pixels, clipped to the viewport.
+/// @param x left
+/// @param y top
+/// @param w width
+/// @param h height
+/// @param rgb the colour
 static void fill_box(int x, int y, int w, int h, uint8_t rgb) {
     if (x < clip_x1)
         w -= clip_x1 - x, x = clip_x1;
@@ -5959,6 +6564,8 @@ static void fill_box(int x, int y, int w, int h, uint8_t rgb) {
 /// In modes of 16 colours or fewer, the sheet's colours become the nearest
 /// in the palette (so POINT and PALETTE work on them); SCREEN 13 shows them
 /// as they are.
+/// @param v the colour
+/// @return the palette's nearest
 static uint8_t palette_colour(uint8_t v) {
     static uint8_t map[256], valid[256 / 8], for_attr[16];
     static int for_mode = -1;
@@ -5985,6 +6592,13 @@ static uint8_t palette_colour(uint8_t v) {
 /// Draws character c at (x, y) (the mode's pixels, top left), each font pixel
 /// `scale` pixels across, in its own colours or `rgb` (>= 0). Returns the
 /// advance in the mode's pixels.
+/// @param n the font
+/// @param c the character
+/// @param x left
+/// @param y top
+/// @param scale its scale
+/// @param rgb its colour, or -1 the sheet's
+/// @return the advance
 static int draw_char(int n, int c, int x, int y, int scale, int rgb) {
     if (!n) {
         const uint8_t *bits = font8x16[c & 255];
@@ -6266,10 +6880,15 @@ static void do_servo(void) {
 // GW-BASIC's music macro language. The settings last from one PLAY to the
 // next (RUN resets them).
 
+/// The octave, the note length and the tempo.
+///@{
 static int play_octave = 4, play_length = 4, play_tempo = 120;
+///@}
 static int play_on = 7;  ///< eighths of each note that sound: MN 7, ML 8, MS 6
+/// MB: playing in the background.
 static bool play_background;
 
+/// PLAY's settings back to their start.
 static void reset_play(void) {
     play_octave = 4;
     play_length = 4;
@@ -6278,6 +6897,9 @@ static void reset_play(void) {
     play_background = false;
 }
 
+/// Queues a sound (waiting for room).
+/// @param freq Hz (0: a rest)
+/// @param ms its length
 static void queue_sound(unsigned freq, unsigned ms) {
     while (!port_play(freq, ms)) {  // the queue is full: wait for room
         check_break();
@@ -6286,6 +6908,8 @@ static void queue_sound(unsigned freq, unsigned ms) {
 }
 
 /// Note n (0 = the C of octave 0; middle C is 36) for the given length.
+/// @param n the note
+/// @param ms its length
 static void play_tone(int n, double ms) {
     if (n < 0 || n > 83)
         error(E_ILLEGAL_CALL);
@@ -6298,6 +6922,10 @@ static void play_tone(int n, double ms) {
 
 /// A number in the macro string at *i ("=variable;" too), or -1 if there
 /// isn't one.
+/// @param m the string
+/// @param len its length
+/// @param i where (moved past it)
+/// @return it, or -1
 static int play_number(const char *m, int len, int *i) {
     if (*i < len && m[*i] == '=') {
         char name[NAME_MAX + 2];
@@ -6321,6 +6949,10 @@ static int play_number(const char *m, int len, int *i) {
 }
 
 /// A length (1-64, or the L value) and any dots, as milliseconds.
+/// @param m the string
+/// @param len its length
+/// @param i where (moved past it)
+/// @return ms
 static double play_duration(const char *m, int len, int *i) {
     int l = play_number(m, len, i);
     if (l == -1)
@@ -6366,6 +6998,7 @@ static void do_sound(void) {
     }
 }
 
+/// PLAY "macro string".
 static void do_play(void) {
     const char *str = str_expr();
     int len = slen(str);
@@ -6446,6 +7079,7 @@ static void do_play(void) {
     }
 }
 
+/// RANDOMIZE [seed] (alone: from the clock).
 static void do_randomize(void) {
     double seed;
     if (at_end_of_statement())
@@ -6460,6 +7094,8 @@ static void do_randomize(void) {
 // ---- Program-level commands -----------------------------------------------
 
 /// Parses "[from][-[to]]" and returns the first and last line index (last < first if none).
+/// @param first set to the first index
+/// @param last the last
 static void line_range(int *first, int *last) {
     int lo = 0, hi = 65535;
     skip_spaces();
@@ -6477,6 +7113,8 @@ static void line_range(int *first, int *last) {
     *last = find_line(hi + 1, NULL) - 1;
 }
 
+/// Pauses LIST: false for Ctrl-C, Q or Esc.
+/// @return go on
 static bool more(void) {
     out_str("-- more --");
     out_flush();
@@ -6485,6 +7123,7 @@ static bool more(void) {
     return c != 3 && c != 'q' && c != 'Q' && c != 0x1b;
 }
 
+/// LIST [range].
 static void do_list(void) {
     int first, last;
     line_range(&first, &last);
@@ -6509,6 +7148,7 @@ static void do_list(void) {
     out_flush();
 }
 
+/// DELETE range.
 static void do_delete(void) {
     skip_spaces();
     if (at_end_of_statement())
@@ -6522,8 +7162,12 @@ static void do_delete(void) {
     cont_pos.line = -2;
 }
 
-/// RENUM [new][,[old][,step]]: renumbers and fixes GOTO, GOSUB, THEN, ELSE,
-/// RESTORE, RUN and ON ... GOTO/GOSUB references.
+/// A line number's new number.
+/// @param old the number
+/// @param from_index the first line renumbered
+/// @param start the new first number
+/// @param step the step
+/// @return the new number
 static int renum_map(int old, int from_index, int start, int step) {
     bool exact;
     int i = find_line(old, &exact);
@@ -6532,6 +7176,8 @@ static int renum_map(int old, int from_index, int start, int step) {
     return start + (i - from_index) * step;
 }
 
+/// RENUM [new][,[old][,step]]: renumbers and fixes GOTO, GOSUB, THEN, ELSE,
+/// RESTORE, RUN and ON ... GOTO/GOSUB references.
 static void do_renum(void) {
     int start = 10, old = 0, step = 10;
     skip_spaces();
@@ -6617,6 +7263,9 @@ static void do_renum(void) {
 }
 
 /// '*' and '?' wildcards (both upper case).
+/// @param w the pattern
+/// @param s the name
+/// @return it matches
 static bool wild_match(const char *w, const char *s) {
     const char *star = NULL, *mark = NULL;
     while (*s) {
@@ -6640,6 +7289,7 @@ static bool wild_match(const char *w, const char *s) {
 
 /// DIR$(pattern$[, n]): the n-th (1 first) name matching the pattern ("*.PNG",
 /// "/FONTS/*.*") in that folder, folders included; "" past the last.
+/// @return the name
 static value_t dir_function(void) {
     char pattern[96];
     snprintf(pattern, sizeof pattern, "%s", str_expr());
@@ -6680,6 +7330,7 @@ static value_t dir_function(void) {
     return str("", 0);
 }
 
+/// FILES [pattern].
 static void do_files(void) {
     char pattern[64] = "*";
     skip_spaces();
@@ -6728,6 +7379,8 @@ static void do_files(void) {
 // ---- Data files: OPEN, CLOSE, PRINT #, WRITE, INPUT #, FIELD, GET, PUT -----
 
 
+/// Closes file n.
+/// @param n the file number
 static void close_file(int n) {
     bfile_t *b = files[n];
     if (!b)
@@ -6741,6 +7394,7 @@ static void close_file(int n) {
     free(b);
 }
 
+/// Closes every file.
 static void close_all_files(void) {
     for (int n = 1; n <= MAX_FILES; ++n)
         close_file(n);
@@ -6754,6 +7408,8 @@ static void forget_fields(void) {
             files[n]->nfields = 0;
 }
 
+/// A file number argument (#n).
+/// @return 1-4
 static int file_number(void) {
     accept("#");
     int n = arg_int();
@@ -6762,6 +7418,8 @@ static int file_number(void) {
     return n;
 }
 
+/// An open file by number.
+/// @return it
 static bfile_t *open_file_arg(void) {
     int n = file_number();
     if (!files[n])
@@ -6771,6 +7429,8 @@ static bfile_t *open_file_arg(void) {
 
 /// The keyword `kw` as a whole word (so a variable such as NAME$ or OPENED
 /// isn't taken for the statement).
+/// @param kw the keyword
+/// @return matched
 static bool accept_word(const char *kw) {
     const char *save = p;
     if (!accept(kw))
@@ -6787,6 +7447,8 @@ static bool accept_word(const char *kw) {
 /// 7 data bits and 1 stop bit; options are LF (send LF after CR), RS, CS, DS,
 /// CD, PE, BIN and ASC (accepted, no effect: there are no handshake lines),
 /// and TXn / RXn to choose the pins (default TX GP4, RX GP5).
+/// @param n the file number
+/// @param spec the text after COM1:
 static void open_com(int n, const char *spec) {
     if (spec[3] != '1')
         error(E_BAD_FILE_NAME);  // COM0/UART0 is the debug console
@@ -6954,6 +7616,9 @@ static void do_close(void) {
     while (accept(","));
 }
 
+/// A character from a file (or COM1).
+/// @param b the file
+/// @return it, or -1 at the end
 static int file_getc(bfile_t *b) {
     if (b->peek != -2) {
         int c = b->peek;
@@ -6977,6 +7642,8 @@ static int file_getc(bfile_t *b) {
 
 /// The next character without taking it; -1 at the end (or, for COM1,
 /// when nothing has arrived: a look ahead never waits for the line).
+/// @param b the file
+/// @return it, or -1
 static int file_peek(bfile_t *b) {
     if (b->peek == -2) {
         if (b->mode == FM_COM) {
@@ -6991,6 +7658,8 @@ static int file_peek(bfile_t *b) {
     return b->peek;
 }
 
+/// A file open for reading, by number.
+/// @return it
 static bfile_t *reading_file(void) {
     bfile_t *b = open_file_arg();
     if (b->mode != FM_INPUT && b->mode != FM_COM)
@@ -6998,6 +7667,8 @@ static bfile_t *reading_file(void) {
     return b;
 }
 
+/// A file open for writing, by number.
+/// @return it
 static bfile_t *writing_file(void) {
     bfile_t *b = open_file_arg();
     if (b->mode != FM_OUTPUT && b->mode != FM_APPEND && b->mode != FM_COM)
@@ -7006,12 +7677,15 @@ static bfile_t *writing_file(void) {
 }
 
 /// Starts sending out_char's output to the file `b`.
+/// @param b the file
 static void begin_file_output(bfile_t *b) {
     screen_col = out_col;
     out_col = b->col;
     out_dev = b;
 }
 
+/// Back to the screen.
+/// @param b the file
 static void end_file_output(bfile_t *b) {
     b->col = out_col;
     out_col = screen_col;
@@ -7020,6 +7694,9 @@ static void end_file_output(bfile_t *b) {
 
 /// One item for INPUT #: a quoted string, or text up to a comma or the end
 /// of the line (for numbers, also up to a space).
+/// @param b the file
+/// @param is_str a string
+/// @param out the item
 static void read_item(bfile_t *b, bool is_str, char *out) {
     int c;
     do
@@ -7157,6 +7834,7 @@ static void do_field(void) {
 }
 
 /// Copies the record buffer into the FIELD variables.
+/// @param b the file
 static void fields_from_buffer(bfile_t *b) {
     for (int i = 0; i < b->nfields; ++i)
         set_strn(b->fields[i].slot, b->buf + b->fields[i].off, b->fields[i].len);
@@ -7164,6 +7842,7 @@ static void fields_from_buffer(bfile_t *b) {
 
 /// LSET / RSET var$ = expr: pads or cuts to the variable's width (its FIELD
 /// width, or else its current length), left- or right-aligned.
+/// @param right RSET
 static void do_lrset(bool right) {
     lvalue_t lv = lvalue();
     if (!lv.is_str)
@@ -7195,6 +7874,7 @@ static void do_lrset(bool right) {
 }
 
 /// GET / PUT #n [, record]
+/// @param put PUT
 static void do_getput(bool put) {
     bfile_t *b = open_file_arg();
     if (b->mode != FM_RANDOM)
@@ -7238,6 +7918,8 @@ static void do_name(void) {
         error(r == FR_EXIST ? E_FILE_EXISTS : fresult_error(r));
 }
 
+/// The first free file number.
+/// @return it
 static int free_file_number(void) {
     for (int n = 1; n <= MAX_FILES; ++n)
         if (!files[n])
@@ -7246,6 +7928,7 @@ static int free_file_number(void) {
     return 0;
 }
 
+/// KILL file.
 static void do_kill(void) {
     char name[64];
     file_name_arg(name, sizeof name, false);
@@ -7256,6 +7939,7 @@ static void do_kill(void) {
 
 static void run_program(int start_line);
 
+/// RUN [line or file].
 static void do_run(void) {
     port_music_stop();
     skip_spaces();
@@ -7275,9 +7959,15 @@ static void do_run(void) {
 /// COMMON names: the variables CHAIN passes on ("A()" for an array).
 #define MAX_COMMON 64
 static char (*common_names)[NAME_MAX + 4];  ///< MAX_COMMON, while BASIC runs
+/// COMMON names given.
 static int common_count;
+/// CHAIN ... ALL.
 static bool chain_all;
 
+/// Whether CHAIN keeps a variable.
+/// @param name its name
+/// @param array an array
+/// @return keep it
 static bool keep_for_chain(const char *name, bool array) {
     if (chain_all)
         return true;
@@ -7289,6 +7979,7 @@ static bool keep_for_chain(const char *name, bool array) {
     return false;
 }
 
+/// COMMON var[, var...].
 static void do_common(void) {
     do {
         char name[NAME_MAX + 2];
@@ -7359,6 +8050,7 @@ static void do_chain(void) {
     }
 }
 
+/// EDIT line.
 static void do_edit(void) {
     // The program goes to a scratch file, the editor opens it, and whatever
     // is in the file afterwards becomes the program.
@@ -7374,12 +8066,14 @@ static void do_edit(void) {
 
 // ---- The statement loop ---------------------------------------------------
 
+/// What a statement asks for: go on, END, SYSTEM.
 enum { S_CONTINUE, S_END, S_SYSTEM };
 
 static int statement(void);
 
 /// Runs statements from p until the end of the line (direct mode) or the end
 /// of the program.
+/// @return S_END or S_SYSTEM
 static int execute(void) {
     for (;;) {
         skip_spaces();
@@ -7420,6 +8114,8 @@ static int execute(void) {
     }
 }
 
+/// RUN: starts the program.
+/// @param start_line the line to start at
 static void run_program(int start_line) {
     common_count = 0;
     reset_play();
@@ -7440,6 +8136,8 @@ static void run_program(int start_line) {
     jumped = true;
 }
 
+/// Runs one statement.
+/// @return S_CONTINUE, S_END or S_SYSTEM
 static int statement(void) {
     skip_spaces();
     jumped = false;
@@ -7829,6 +8527,8 @@ static int statement(void) {
 
 /// Runs one direct-mode line (and any program it starts). Returns false on
 /// SYSTEM.
+/// @param text the line
+/// @return go on
 static bool direct(const char *text) {
     snprintf(direct_line, sizeof direct_line, "%s", text);
     normalise(direct_line);
@@ -7869,6 +8569,9 @@ static bool direct(const char *text) {
 
 /// Stores a typed program line; reports an error and returns false if it
 /// can't. (setjmp lives here so no caller's locals are live across it.)
+/// @param n its number
+/// @param text its statements
+/// @return stored
 static bool try_store_line(int n, const char *text) {
     int code = setjmp(error_jump);
     if (code) {
@@ -7885,6 +8588,9 @@ static bool try_store_line(int n, const char *text) {
     return true;
 }
 
+/// AUTO: numbers lines as they are typed.
+/// @param start the first
+/// @param step the step
 static void do_auto(int start, int step) {
     for (int n = start; n <= 65529; n += step) {
         char prefix[16], buf[LINE_MAX_LEN + 1];
@@ -7908,22 +8614,26 @@ static void do_auto(int start, int step) {
 }
 
 static char (*edit_initial_p)[LINE_MAX_LEN + 8];  ///< EDIT n: the next line's starting text
+/// The text the next line starts with (EDIT).
 #define edit_initial (*edit_initial_p)
 
 /// BASIC's own variables, in SRAM (they're used all the time) but only while
 /// it runs: the shell keeps none of BASIC's SRAM.
 typedef struct {
-    jmp_buf r_error_jump;
-    var_t *r_vars[BUCKETS];
-    array_t *r_arrays[BUCKETS];
-    char r_direct_line[LINE_MAX_LEN + 1];
-    event_t r_events[EV_COUNT];
-    uint8_t r_attr_map[256];
-    font_t r_fonts[MAX_FONTS];
-    char r_edit_initial[LINE_MAX_LEN + 8];
+    jmp_buf r_error_jump;  ///< where errors go
+    var_t *r_vars[BUCKETS];  ///< the variables
+    array_t *r_arrays[BUCKETS];  ///< the arrays
+    char r_direct_line[LINE_MAX_LEN + 1];  ///< the direct-mode line
+    event_t r_events[EV_COUNT];  ///< the event traps
+    uint8_t r_attr_map[256];  ///< the attributes' colours
+    font_t r_fonts[MAX_FONTS];  ///< the fonts
+    char r_edit_initial[LINE_MAX_LEN + 8];  ///< EDIT's text
 } basic_ram_t;
+/// BASIC's SRAM while it runs.
 static basic_ram_t *basic_ram;
 
+/// Makes basic_ram.
+/// @return made
 static bool basic_ram_alloc(void) {
     basic_ram = (malloc)(sizeof *basic_ram);
     if (!basic_ram)
@@ -7940,6 +8650,7 @@ static bool basic_ram_alloc(void) {
     return true;
 }
 
+/// Frees basic_ram.
 static void basic_ram_free(void) {
     (free)(basic_ram);
     basic_ram = NULL;
