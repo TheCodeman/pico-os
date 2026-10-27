@@ -65,17 +65,26 @@
 #include "tusb.h"
 #include "usb_keyboard.h"
 
+/// Where the ROMs and programs are looked for.
 #define DEFAULT_DIR "/C64"
+/// Room for a path.
 #define PATH_LEN    320
 
 /// The framebuffer's second half: 150 KB, for the C64's memory and ROMs.
 #define PIC_ROWS   240
+/// The framebuffer below the picture: working memory while c64 runs.
 #define SPARE      (dvi_framebuf + DVI_WIDTH * PIC_ROWS)
+/// Its size.
 #define SPARE_SIZE (DVI_WIDTH * (DVI_HEIGHT - PIC_ROWS))
+/// The C64's 64 KB of RAM, at the start of the spare framebuffer.
 #define RAM_AT     0
+/// The colour RAM.
 #define COLOR_AT   0x10000
+/// The KERNAL ROM's copy.
 #define KERNAL_AT  0x10400
+/// The BASIC ROM's copy.
 #define BASIC_AT   0x12400
+/// The character ROM's copy.
 #define CHAR_AT    0x14400
 #define ROMS_SIZE  0x5000  ///< KERNAL, BASIC and the character ROM, in that order
 #define D1541_AT     0x15400  ///< the true 1541: its state,
@@ -89,11 +98,14 @@ _Static_assert(D1541_ROM_AT + 0x4000 <= SPARE_SIZE, "no room for the C64");
 /// down when a game draws further out (see pan); and the 320 pixels of the
 /// screen at x 24-343.
 #define FIRST_ROW (31 - C64_FIRST_LINE)
+/// The first VIC column shown (the left border cut).
 #define FIRST_COL (24 - C64_FIRST_X)
 
 #define FRAME_US_X1000 ((uint64_t)C64_FRAME_CYCLES * 1000000000ull / C64_CPU_HZ)  ///< 19951 us
 
 /// The SDK's malloc panics when SRAM runs out, so check first (as BASIC does).
+/// @param n bytes wanted
+/// @return true if malloc can give them
 static bool sram_free(size_t n) {
     extern char __StackLimit;  // top of the heap, from the SDK's linker script
     struct mallinfo mi = mallinfo();
@@ -102,6 +114,11 @@ static bool sram_free(size_t n) {
 
 // ---- Files ---------------------------------------------------------------------
 
+/// Whether a file name (any case) contains a or b.
+/// @param name the name
+/// @param a one word
+/// @param b another, or NULL
+/// @return true if it does
 static bool name_has(const char *name, const char *a, const char *b) {
     char low[256];
     size_t i;
@@ -111,11 +128,20 @@ static bool name_has(const char *name, const char *a, const char *b) {
     return strstr(low, a) || (b && strstr(low, b));
 }
 
+/// Whether s ends with ext (any case).
+/// @param s the string
+/// @param ext the ending
+/// @return true if it does
 static bool ends_with(const char *s, const char *ext) {
     size_t n = strlen(s), e = strlen(ext);
     return n >= e && !strcasecmp(s + n - e, ext);
 }
 
+/// Reads a file of exactly n bytes.
+/// @param path the file
+/// @param buf where it goes
+/// @param n its size
+/// @return false if it couldn't, or its size is different
 static bool read_all(const char *path, void *buf, UINT n) {
     FIL f;
     if (f_open(&f, path, FA_READ) != FR_OK)
@@ -135,7 +161,7 @@ extern volatile uint32_t c64_rom_entries, c64_menu_ms;
 static struct {
     uint8_t *data;  ///< NULL: not read yet
     char dir[64];
-    bool have_1541;
+    bool have_1541;  ///< the 1541's ROM was found too
 } roms;
 
 /// Reads the ROMs from dir in one look through it, stopping once it has them
@@ -144,6 +170,10 @@ static struct {
 /// and the 1541's (16 KB with "1541" or "dos" in its name, or the 8 KB
 /// halves 325302-01 for $C000 and 901229-0x for $E000), which may be missing.
 /// (A big folder takes long: see get_roms.)
+/// @param dir the folder
+/// @param buf where the ROMs go
+/// @param have_1541 set if the 1541's ROM was found
+/// @return false without the C64's three
 static bool read_roms(const char *dir, uint8_t *buf, bool *have_1541) {
     static const struct {
         ///@{
@@ -199,15 +229,19 @@ static bool read_roms(const char *dir, uint8_t *buf, bool *have_1541) {
 /// The file holds this header, the ROMs and the folder they came from.
 #define ROM_CACHE "/C64ROMS.BIN"
 
+/// /C64ROMS.BIN's header: what folder the ROMs came from.
 typedef struct {
     char magic[8];  ///< "C64ROMS1"
-    uint32_t have_1541;
-    char dir[64];
+    uint32_t have_1541;  ///< the 1541's ROM is in it
+    char dir[64];  ///< the folder they were read from
 } rom_cache_head;
 
 static bool write_file(const char *path, const void *data, UINT n);
 static void list_add(const char *dir, const char *name);
 
+/// Reads /C64ROMS.BIN, if it holds the ROMs of dir.
+/// @param dir the folder
+/// @return true if it did
 static bool load_rom_cache(const char *dir) {
     FIL f;
     rom_cache_head h;
@@ -223,6 +257,8 @@ static bool load_rom_cache(const char *dir) {
     return ok;
 }
 
+/// Writes the ROMs to /C64ROMS.BIN for the next time.
+/// @param dir the folder they came from
 static void save_rom_cache(const char *dir) {
     uint8_t *buf = psram_buffer_alloc(sizeof(rom_cache_head) + ROMS_SIZE + 0x4000);
     if (!buf)
@@ -242,6 +278,9 @@ static void save_rom_cache(const char *dir) {
 /// /C64ROMS.BIN, else read from the folder (and /C64ROMS.BIN written);
 /// reread (c64 -r) goes to the folder. False, with a message, if the
 /// C64's aren't there.
+/// @param dir the folder
+/// @param reread read the folder whatever is kept
+/// @return false without the C64's ROMs
 static bool get_roms(const char *dir, bool reread) {
     if (roms.data && !reread && !strcmp(roms.dir, dir))
         return true;
@@ -260,6 +299,10 @@ static bool get_roms(const char *dir, bool reread) {
 }
 
 /// dir/name in out (empty if it doesn't fit).
+/// @param out where the path goes
+/// @param n its size
+/// @param dir the folder
+/// @param name the file
 static void path_join(char *out, size_t n, const char *dir, const char *name) {
     size_t d = strlen(dir), k = strlen(name);
     bool slash = d && dir[d - 1] == '/';
@@ -274,6 +317,12 @@ static void path_join(char *out, size_t n, const char *dir, const char *name) {
 }
 
 /// Finds name as given, then in dir; the path found in path.
+/// @param name the file
+/// @param dir the folder
+/// @param path set to the path found
+/// @param n its size
+/// @param fi set to the file's info
+/// @return false if not found
 static bool find_file(const char *name, const char *dir, char *path, size_t n, FILINFO *fi) {
     snprintf(path, n, "%s", name);
     if (f_stat(path, fi) == FR_OK)
@@ -283,6 +332,9 @@ static bool find_file(const char *name, const char *dir, char *path, size_t n, F
 }
 
 /// Reads a whole file into PSRAM (NULL, with a message, if it can't).
+/// @param path the file
+/// @param size its size
+/// @return the bytes, or NULL
 static uint8_t *read_to_psram(const char *path, FSIZE_t size) {
     uint8_t *buf = psram_buffer_alloc((size_t)size);
     if (!buf) {
@@ -302,8 +354,8 @@ static uint8_t *read_to_psram(const char *path, FSIZE_t size) {
 static struct {
     const char *dir;
     uint8_t *image;  ///< a .d64 in PSRAM, or NULL: the folder
-    size_t size;
-    char name[64];
+    size_t size;  ///< the image's size
+    char name[64];  ///< its name, for the menu
     char path[PATH_LEN];  ///< the .d64's file, where SAVE writes it back
 } drive APP_OV_DATA(c64);  ///< (the apps' SRAM area, while c64 runs)
 
@@ -311,14 +363,15 @@ static struct {
 /// once the next time, and in /C64LIST.BIN for after a reset (see
 /// cached_list); F5 reads it again.
 static struct {
-    struct menu_entry *list;
-    int n;
+    struct menu_entry *list;  ///< the files
+    int n;  ///< how many
     char *dir;  ///< PATH_LEN bytes after the list
 } cache;
 
 static void d1541_save(void);
 static void d1541_insert(void);
 
+/// Takes the disk out of drive 8 (saving what a true 1541 wrote first).
 static void eject(void) {
     d1541_save();  // what the true 1541 wrote, first
     if (drive.image)
@@ -328,6 +381,10 @@ static void eject(void) {
     d1541_insert();
 }
 
+/// Puts a .d64 in drive 8.
+/// @param name the file
+/// @param quiet no messages
+/// @return false if it can't
 static bool insert(const char *name, bool quiet) {
     FILINFO fi;
     char path[PATH_LEN];
@@ -355,6 +412,9 @@ static bool insert(const char *name, bool quiet) {
 }
 
 /// A file name as a 16-character C64 name: upper case, ".prg" dropped.
+/// @param file the file's name
+/// @param name set to the C64 name
+/// @return false if it isn't a .prg
 static bool prg_name(const char *file, uint8_t name[16]) {
     size_t n = strlen(file);
     if (n < 5 || !ends_with(file, ".prg") || n - 4 > 16)
@@ -366,6 +426,10 @@ static bool prg_name(const char *file, uint8_t name[16]) {
 }
 
 /// The folder as a disk: its .prg files.
+/// @param typed the name LOAD gave
+/// @param len its length
+/// @param buf where the file goes
+/// @return the file's length, or a C64_LOAD_ error
 static int folder_load(const uint8_t *typed, int len, uint8_t *buf) {
     DIR d;
     FILINFO fi;
@@ -398,6 +462,13 @@ static int folder_load(const uint8_t *typed, int len, uint8_t *buf) {
     return dir ? c64_listing_end(&l, 664) : n;
 }
 
+/// LOAD on drive 8 (the KERNAL trap's): from the .d64, or the folder's .prg files.
+/// @param user not used
+/// @param device the device
+/// @param name the name
+/// @param len its length
+/// @param buf where the file goes
+/// @return its length, or a C64_LOAD_ error
 static int drive_load(void *user, unsigned device, const uint8_t *name, int len, uint8_t *buf) {
     if (device != 8)
         return C64_LOAD_NO_DEVICE;
@@ -410,6 +481,10 @@ static int drive_load(void *user, unsigned device, const uint8_t *name, int len,
 }
 
 /// Writes a file whole and safely: to path.tmp first, then in place of path.
+/// @param path the file
+/// @param data the bytes
+/// @param n how many
+/// @return false on failure
 static bool write_file(const char *path, const void *data, UINT n) {
     char tmp[PATH_LEN + 4];
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
@@ -437,7 +512,7 @@ static bool write_file(const char *path, const void *data, UINT n) {
 static struct {
     c64_drive *d;    ///< NULL: off (the KERNAL's LOAD and SAVE answered at once)
     uint8_t *gcr;    ///< PSRAM
-    bool have_rom;
+    bool have_rom;  ///< the 1541's ROM is there
 } d1541;
 
 
@@ -447,11 +522,15 @@ static void d1541_save(void) {
         write_file(drive.path, drive.image, (UINT)drive.size);
 }
 
+/// Puts drive 8's disk into the true 1541 too.
 static void d1541_insert(void) {
     if (d1541.d)
         c64_drive_insert(d1541.d, drive.image, drive.image ? drive.size : 0, false);
 }
 
+/// Turns the true 1541 on: its memory and GCR tracks made, the disk put in.
+/// @param m the machine
+/// @return true if it is on
 static bool d1541_on(c64 *m) {
     if (d1541.d || !d1541.have_rom)
         return d1541.d != NULL;
@@ -469,6 +548,8 @@ static bool d1541_on(c64 *m) {
     return true;
 }
 
+/// Turns the true 1541 off (saving what it wrote).
+/// @param m the machine
 static void d1541_off(c64 *m) {
     if (!d1541.d)
         return;
@@ -499,6 +580,8 @@ static struct {
     char name[64];
 } slot;
 
+/// Takes the cartridge out.
+/// @param m the machine
 static void unplug(c64 *m) {
     c64_cart_attach(m, NULL);
     if (slot.cart)
@@ -508,6 +591,10 @@ static void unplug(c64 *m) {
 }
 
 /// Loads a .crt and plugs it in (the caller switches off and on after).
+/// @param m the machine
+/// @param name the .crt file
+/// @param quiet no messages
+/// @return false if it can't
 static bool plug(c64 *m, const char *name, bool quiet) {
     FILINFO fi;
     char path[PATH_LEN];
@@ -547,6 +634,13 @@ static bool plug(c64 *m, const char *name, bool quiet) {
 
 /// SAVE on drive 8: into the .d64, written back to the drive at once, or as
 /// NAME.PRG in the folder (the characters a file name can't hold as _).
+/// @param user not used
+/// @param device the device
+/// @param name the name
+/// @param len its length
+/// @param data the file
+/// @param n its length
+/// @return 0, or a C64_ save error
 static int drive_save(void *user, unsigned device, const uint8_t *name, int len, const uint8_t *data, int n) {
     if (device != 8)
         return C64_LOAD_NO_DEVICE;
@@ -578,11 +672,15 @@ static int drive_save(void *user, unsigned device, const uint8_t *name, int len,
 /// What to start once BASIC is up after a power-on: a .prg file, or the
 /// first file on the disk in drive 8.
 static struct {
-    enum { START_NONE, START_PRG, START_DISK } what;
+    enum { START_NONE, START_PRG, START_DISK } what;  ///< what is waiting to start
     char name[PATH_LEN];
     uint64_t give_up;  ///< the frame after which it no longer waits
 } pending APP_OV_DATA(c64);
 
+/// Starts a program or disk once BASIC is up.
+/// @param what START_PRG or START_DISK
+/// @param name the file
+/// @param frame the frame now
 static void start_when_ready(int what, const char *name, uint64_t frame) {
     pending.what = what;
     size_t n = name ? strlen(name) : 0;
@@ -594,6 +692,8 @@ static void start_when_ready(int what, const char *name, uint64_t frame) {
 }
 
 /// Once a frame: starts what is pending once BASIC says READY.
+/// @param m the machine
+/// @param frame the frame now
 static void start_pending(c64 *m, uint64_t frame) {
     if (pending.what == START_NONE)
         return;
@@ -621,10 +721,17 @@ static void start_pending(c64 *m, uint64_t frame) {
 // ---- Sound ---------------------------------------------------------------------
 
 /// Cycle counts to time_us_64() times, on the schedule the frames keep.
+/// The time a frame started, and its first cycle.
+///@{
 static uint64_t sched_us, sched_cycle;
+///@}
 
 /// The SID's register writes go to core 1 with the time they were made,
 /// where they are played 40 ms later, as exactly spaced as they came.
+/// @param user not used
+/// @param reg the register
+/// @param value the value
+/// @param cycle the cycle written in
 static void sid_write(void *user, uint8_t reg, uint8_t value, uint64_t cycle) {
     uint64_t when = cycle >= sched_cycle ? sched_us + (cycle - sched_cycle) * 1000000ull / C64_CPU_HZ
                                          : time_us_64();
@@ -636,6 +743,7 @@ static void sid_write(void *user, uint8_t reg, uint8_t value, uint64_t cycle) {
 static uint16_t pal16[16];  ///< each colour as two RGB332 pixels
 static uint8_t pal8[16];    ///< and as one
 
+/// The C64's 16 colours as RGB332, singly and in pairs.
 static void make_palette(void) {
     for (int i = 0; i < 16; ++i) {
         uint32_t c = c64_palette[i];
@@ -651,14 +759,21 @@ static void make_palette(void) {
 /// the 272 is drawn, and the ones with something on them (not all one
 /// colour) are noted for pan.
 static int window_row = FIRST_ROW, window_rows = PIC_ROWS;  ///< more than 240: some left out
+/// This frame's first and last rows with something on them.
+///@{
 static int busy_top, busy_bottom;  ///< this frame's first and last such rows
+///@}
 /// With more than 240 rows: the framebuffer row for each VIC row (-1: left
 /// out), and which rows were all one colour last frame (those go first).
 static int16_t squeeze_map[C64_SCREEN_H] APP_OV_DATA(c64);
+/// Rows that were all one colour last frame (a bit per row).
 static uint32_t plain[(C64_SCREEN_H + 31) / 32];
 
 /// The framebuffer row for a VIC row, or -1 if it isn't shown. With more
 /// than 240 rows in the window some share a framebuffer row: the later wins.
+/// @param row the VIC row
+/// @param pix its pixels
+/// @return the framebuffer row, or -1
 static inline int __attribute__((section("app_ov_c64.take_row"))) take_row(int row, const uint8_t *pix) {
     bool squeezed = window_rows != PIC_ROWS;
     if (squeezed || row < busy_top || row > busy_bottom) {
@@ -708,6 +823,10 @@ static void make_squeeze_map(void) {
         squeeze_map[r] = (r >= window_row && r < window_row + window_rows && !out[r] && fb < PIC_ROWS) ? fb++ : -1;
 }
 
+/// The VIC's line callback: the row drawn 2x across without the side borders.
+/// @param ctx not used
+/// @param row the VIC row
+/// @param pix its pixels
 static void __attribute__((section("app_ov_c64.put_line"))) put_line(void *ctx, int row, const uint8_t *pix) {
     int fb = take_row(row, pix);
     if (fb < 0)
@@ -721,6 +840,9 @@ static void __attribute__((section("app_ov_c64.put_line"))) put_line(void *ctx, 
 /// With the side borders: all 384 pixels across the 640, every 3 C64 pixels
 /// as 5 (2, 2 and 1 wide). Slightly uneven, which is why the sharper 2x view
 /// without them is the default.
+/// @param ctx not used
+/// @param row the VIC row
+/// @param pix its pixels
 static void __attribute__((section("app_ov_c64.put_line_wide"))) put_line_wide(void *ctx, int row, const uint8_t *pix) {
     int fb = take_row(row, pix);
     if (fb < 0)
@@ -737,6 +859,8 @@ static void __attribute__((section("app_ov_c64.put_line_wide"))) put_line_wide(v
 static bool wide;  ///< the side borders shown (F2 in the menu switches)
 static bool want_1541;  ///< the true 1541 (F4 in the menu switches)
 
+/// Picks the line callback for the view.
+/// @param m the machine
 static void set_view(c64 *m) {
     m->vic.line_out = wide ? put_line_wide : put_line;
 }
@@ -794,11 +918,18 @@ static void pan(void) {
     }
 }
 
+/// The clock for the timings.
+/// @return microseconds
 static uint32_t clock_us(void) {
     return time_us_32();
 }
 
 /// Text in 6x8 cells (the 5x7 font with a column and a row of background).
+/// @param x the left
+/// @param y the top
+/// @param s the text
+/// @param fg the foreground
+/// @param bg the background
 static void draw_text(int x, int y, const char *s, uint8_t fg, uint8_t bg) {
     for (; *s && x + 6 <= DVI_WIDTH; ++s, x += 6) {
         uint8_t ch = (uint8_t)*s;
@@ -817,6 +948,7 @@ static void draw_text(int x, int y, const char *s, uint8_t fg, uint8_t bg) {
 
 static int ungetc_key = -1;  ///< a character read after a lone Esc
 
+/// Keys that arrive as escape sequences.
 enum {
     K_UP = 0x100, K_DOWN, K_RIGHT, K_LEFT, K_HOME, K_END, K_INSERT, K_DELETE, K_PGUP, K_PGDN,
     K_F1, K_F2, K_F3, K_F4, K_F5, K_F6, K_F7, K_F8, K_F9, K_F10, K_F11, K_F12,
@@ -828,6 +960,9 @@ enum {
 /// console too (taps, F9-F12): get_key then reads only that.
 static bool serial_only;
 
+/// A character from the console, or only the serial one while a USB keyboard drives the matrix.
+/// @param timeout_us how long to wait
+/// @return the character, or -1
 static int read_char(uint32_t timeout_us) {
     if (!serial_only)
         return getchar_timeout_us(timeout_us);
@@ -840,6 +975,8 @@ static int read_char(uint32_t timeout_us) {
     return -1;
 }
 
+/// A key as typed on the console: ASCII, or a K_ value.
+/// @return the key, or -1
 static int get_key(void) {
     int c;
     if (ungetc_key >= 0) {
@@ -890,24 +1027,30 @@ static int get_key(void) {
     return get_key();  // a sequence we don't use
 }
 
+/// Throws away keys waiting.
 static void drain_keys(void) {
     ungetc_key = -1;
     while (getchar_timeout_us(0) >= 0) {
     }
 }
 
+/// What the keys asked for besides the C64's own.
 enum { ACT_NONE, ACT_RESET, ACT_EXIT, ACT_MENU, ACT_LOUDER, ACT_QUIETER };
 
 /// A matrix key and whether Shift must be down (1), up (0) or as it is (-1).
 typedef struct {
-    uint8_t key;
-    int8_t shift;
+    uint8_t key;  ///< the C64 key
+    int8_t shift;  ///< Shift: -1 as it is, 0 off, 1 on
 } c64key;
 
+/// No C64 key.
 #define NO_KEY 0xff
 
 /// The C64 key for a PC key that types a symbol: the C64 key with that symbol
 /// on it (so Shift may change).
+/// @param hid the PC key
+/// @param shifted Shift is held
+/// @return the C64 key
 static c64key symbol_key(uint8_t hid, bool shifted) {
     static const uint8_t to_ascii[128][2] = {HID_KEYCODE_TO_ASCII};
     if (hid == HID_KEY_BACKSLASH || hid == HID_KEY_EUROPE_1)
@@ -924,6 +1067,9 @@ static c64key symbol_key(uint8_t hid, bool shifted) {
 }
 
 /// The C64 key for a PC key, or NO_KEY.
+/// @param hid the PC key
+/// @param shifted Shift is held
+/// @return the C64 key, or NO_KEY
 static c64key pc_key(uint8_t hid, bool shifted) {
     static const uint8_t fkeys[4] = {C64K_F1, C64K_F3, C64K_F5, C64K_F7};
     unsigned key;
@@ -957,6 +1103,8 @@ static c64key pc_key(uint8_t hid, bool shifted) {
 }
 
 /// The keypad as a joystick: up, down, left, right, fire.
+/// @param hid the PC key
+/// @return the joystick bits
 static uint8_t keypad_joy(uint8_t hid) {
     switch (hid) {
     case HID_KEY_KEYPAD_8: return 0x01;
@@ -972,15 +1120,24 @@ static uint8_t keypad_joy(uint8_t hid) {
     return 0;
 }
 
+/// The keys held at the last report.
 static uint8_t prev_keys[6];
 static uint8_t ignored[6];  ///< keys held when the menu closed, until let go
 
+/// Whether a key was held at the last report.
+/// @param hid the key
+/// @return true if it was
 static bool was_held(uint8_t hid) {
     return memchr(prev_keys, hid, sizeof prev_keys) != NULL;
 }
 
 /// The USB keyboard as the C64's: the matrix from the keys held now; F9-F12
 /// act when pressed. *joy gets the keypad's joystick.
+/// @param m the machine
+/// @param keys the HID keys held
+/// @param mods the modifiers
+/// @param joy set to the keypad's joystick
+/// @return an ACT_ action
 static int usb_matrix(c64 *m, const uint8_t keys[6], uint8_t mods, uint8_t *joy) {
     int act = ACT_NONE;
     bool shifted = mods & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
@@ -1032,19 +1189,30 @@ static int usb_matrix(c64 *m, const uint8_t keys[6], uint8_t mods, uint8_t *joy)
 /// Without a USB keyboard, the serial console types: each key is a tap,
 /// pressed for two frames and let go for two.
 typedef struct {
-    uint8_t key;
+    uint8_t key;  ///< the C64 key
     int8_t shift;  ///< 1: with Shift, 2: with CTRL
-    bool restore;
+    bool restore;  ///< RESTORE instead
 } tap;
 
+/// Frames a tapped key is held down.
 #define TAP_DOWN 2
+/// Frames it is let go after.
 #define TAP_UP   2
+/// Taps waiting.
 #define TAPQ_LEN 64
 
+/// The taps waiting.
 static tap tapq[TAPQ_LEN];
+/// The queue's ends.
+///@{
 static unsigned tapq_head, tapq_tail;
+///@}
 static int tap_frames;  ///< >0: the tap at tapq_tail is down; <0: the gap after it
 
+/// Queues a tap.
+/// @param key the C64 key
+/// @param shift 1 Shift, 2 CTRL
+/// @param restore RESTORE instead
 static void tap_put(uint8_t key, int shift, bool restore) {
     unsigned next = (tapq_head + 1) % TAPQ_LEN;
     if (next != tapq_tail) {
@@ -1053,6 +1221,8 @@ static void tap_put(uint8_t key, int shift, bool restore) {
     }
 }
 
+/// The serial console's keys as taps.
+/// @return an ACT_ action
 static int serial_keys(void) {
     static const uint8_t fkeys[4] = {C64K_F1, C64K_F3, C64K_F5, C64K_F7};
     int c;
@@ -1091,6 +1261,8 @@ static int serial_keys(void) {
 }
 
 /// fresh: the matrix starts empty (else the tap joins the USB keyboard's keys).
+/// @param m the machine
+/// @param fresh the matrix starts empty
 static void tap_frame(c64 *m, bool fresh) {
     if (fresh) {
         memset(m->keys, 0, sizeof m->keys);
@@ -1118,6 +1290,8 @@ static void tap_frame(c64 *m, bool fresh) {
 }
 
 /// USB joystick or gamepad n (0 or 1): up, down, left, right, fire.
+/// @param n 0 or 1
+/// @return the joystick bits
 static uint8_t read_gamepad(unsigned n) {
     uint8_t x, y, j = 0;
     uint32_t buttons;
@@ -1134,24 +1308,37 @@ static uint8_t read_gamepad(unsigned n) {
 // ---- The menu (F9) -------------------------------------------------------------------
 
 #define MAX_FILES 4096  ///< in PSRAM: 4096 x 257 bytes, 1 MB
+/// Characters in a menu column.
 #define COL_CHARS 49
+/// Rows on a page.
 #define ROWS      23
+/// Columns on a page.
 #define COLS      2
+/// Files on a page.
 #define PAGE      (ROWS * COLS)
+/// The menu's box.
 #define C_BOX     RGB332(0, 0, 1)
+/// Its text.
 #define C_TEXT    RGB332(7, 7, 3)
+/// Its folders.
 #define C_DIR     RGB332(3, 7, 3)
+/// Grey text.
 #define C_GREY    RGB332(3, 3, 1)
 
+/// A file or folder in the menu.
 typedef struct menu_entry {
-    char name[256];
-    bool dir;
-} entry;
+    char name[256];  ///< its name
+    bool dir;  ///< a folder
+} entry;  ///< the menu's entry type
 
 /// The folder the menu shows (it remembers it): in PSRAM, made the first
 /// time c64 runs (SRAM is for what's running).
 static char *menu_dir;  ///< PATH_LEN bytes
 
+/// qsort's order: folders first (".." first of all), then by name.
+/// @param a one entry
+/// @param b the other
+/// @return <0, 0 or >0
 static int entry_cmp(const void *a, const void *b) {
     const entry *x = a, *y = b;
     if (x->dir != y->dir)
@@ -1166,6 +1353,11 @@ static int entry_cmp(const void *a, const void *b) {
 /// The scan's progress over the picture: what has been read so far, and a
 /// bar sweeping across (FAT doesn't say how many entries a folder has without
 /// reading them all). Drawn at most every 40 ms.
+/// @param dir the folder
+/// @param seen entries read
+/// @param kept files kept
+/// @param what the name just read
+/// @param now draw whatever the time
 static void scan_progress(const char *dir, int seen, int kept, const char *what, bool now) {
     static uint64_t last;
     uint64_t t = time_us_64();
@@ -1190,6 +1382,10 @@ static void scan_progress(const char *dir, int seen, int kept, const char *what,
 
 /// The folders and the .d64 and .prg files in dir, sorted, with the progress
 /// on the screen while it reads.
+/// @param dir the folder
+/// @param list where the files go
+/// @param max room in list
+/// @return how many
 static int list_files(const char *dir, entry *list, int max) {
     DIR d;
     FILINFO fi;
@@ -1228,12 +1424,18 @@ static int list_files(const char *dir, entry *list, int max) {
 /// entry as a byte (1: a folder) and its name with a 0 after it.
 #define LIST_CACHE "/C64LIST.BIN"
 
+/// /C64LIST.BIN's header: the folder and how many entries.
 typedef struct {
     char magic[8];  ///< "C64LIST1"
-    uint32_t n;
-    char dir[PATH_LEN];
+    uint32_t n;  ///< entries
+    char dir[PATH_LEN];  ///< the folder
 } list_cache_head;
 
+/// Reads /C64LIST.BIN if it lists dir.
+/// @param dir the folder
+/// @param list where the files go
+/// @param max room in list
+/// @return how many, or -1
 static int load_list_cache(const char *dir, entry *list, int max) {
     FIL f;
     list_cache_head h;
@@ -1265,6 +1467,10 @@ static int load_list_cache(const char *dir, entry *list, int max) {
     return n;
 }
 
+/// Writes /C64LIST.BIN.
+/// @param dir the folder
+/// @param list the files
+/// @param n how many
 static void save_list_cache(const char *dir, const entry *list, int n) {
     size_t size = sizeof(list_cache_head);
     for (int i = 0; i < n; ++i)
@@ -1288,6 +1494,8 @@ static void save_list_cache(const char *dir, const entry *list, int n) {
     psram_buffer_free(buf);
 }
 
+/// Makes the PSRAM list if it isn't there.
+/// @return false if out of memory
 static bool cache_ready(void) {
     if (!cache.list) {
         if (!(cache.list = psram_malloc(MAX_FILES * sizeof(entry) + PATH_LEN)))
@@ -1298,6 +1506,10 @@ static bool cache_ready(void) {
     return true;
 }
 
+/// The folder's files: kept from last time, from /C64LIST.BIN, or read.
+/// @param dir the folder
+/// @param reread read the folder again
+/// @return how many
 static int cached_list(const char *dir, bool reread) {
     if (!cache_ready())
         return 0;
@@ -1315,6 +1527,8 @@ static int cached_list(const char *dir, bool reread) {
 
 /// A file SAVE made in dir joins the list (in PSRAM and in the file), if
 /// the list is of that folder.
+/// @param dir the folder
+/// @param name the file
 static void list_add(const char *dir, const char *name) {
     if (!cache_ready() || strcmp(cache.dir, dir)) {
         FIL f;
@@ -1342,6 +1556,8 @@ static void list_add(const char *dir, const char *name) {
 
 /// A name in at most COL_CHARS - 1 characters: a long one keeps its start and
 /// its end (with the extension), with a ~ between.
+/// @param out where the name goes
+/// @param e the entry
 static void short_name(char *out, const entry *e) {
     char full[260];
     snprintf(full, sizeof full, "%s%s", e->name, e->dir && strcmp(e->name, "..") ? "/" : "");
@@ -1356,6 +1572,12 @@ static void short_name(char *out, const entry *e) {
     memcpy(out + head + 1, full + n - tail, tail + 1);
 }
 
+/// The next entry after sel starting with c.
+/// @param list the files
+/// @param n how many
+/// @param sel the one selected
+/// @param c the letter
+/// @return its index, or sel
 static int jump_to(const entry *list, int n, int sel, int c) {
     if (c >= 'A' && c <= 'Z')
         c += 32;
@@ -1378,6 +1600,9 @@ static int jump_to(const entry *list, int n, int sel, int c) {
 /// (all 384 pixels, or the sharper 2x view of the screen); F5 reads the folder
 /// again; F11 switches off and on; a letter or digit jumps to the next name starting with it; Esc or F9
 /// goes back.
+/// @param m the machine
+/// @param port the joystick port, changed here
+/// @param frame the frame now
 static void menu(c64 *m, int *port, uint64_t frame) {
     drain_keys();
     if (!menu_dir[0])
@@ -1509,9 +1734,14 @@ static void menu(c64 *m, int *port, uint64_t frame) {
 /// Keypad + and -: 0-9, 6 as the chip comes; the level shows in the top
 /// border for two seconds.
 static const unsigned volume_gain[10] = {0, 40, 70, 110, 160, 210, 256, 330, 420, 520};
+/// The SID's volume, 0-9.
 static int volume = 6;
+/// The frame the volume stops being shown.
 static uint64_t volume_shown_until;
 
+/// Changes the volume and shows it.
+/// @param step +1 or -1
+/// @param frame the frame now
 static void change_volume(int step, uint64_t frame) {
     volume += step;
     volume = volume < 0 ? 0 : volume > 9 ? 9 : volume;
@@ -1520,6 +1750,7 @@ static void change_volume(int step, uint64_t frame) {
 }
 
 /// After each frame (the VIC has just redrawn the border under it).
+/// @param frame the frame now
 static void show_volume(uint64_t frame) {
     if (frame >= volume_shown_until)
         return;
@@ -1536,14 +1767,21 @@ static void show_volume(uint64_t frame) {
 /// console (the serial one too) when c64 starts and ends; c64_start_ms can be
 /// read over SWD as well.
 enum { T_CHECKS, T_ROMS, T_FILE, T_SCREEN, T_POWER, T_FRAME1, T_READY, T_PHASES };
+/// How long each start-up phase took (ms), and the ROM folder's entries read.
+///@{
 volatile uint32_t c64_start_ms[T_PHASES], c64_rom_entries;
+///@}
 volatile uint32_t c64_menu_ms;  ///< how long F9 took to get its list, last time
+/// When c64 started.
 static uint64_t start_us;
 
+/// Notes when a start-up phase ended.
+/// @param phase a T_ phase
 static void mark(int phase) {
     c64_start_ms[phase] = (uint32_t)((time_us_64() - start_us) / 1000);
 }
 
+/// Prints the start-up times.
 static void print_start_times(void) {
     printf("c64 start (ms): checks %lu, ROMs %lu (%lu folder entries read%s), file %lu, screen %lu, "
            "power-on %lu, first frame %lu, READY. %lu\n",
