@@ -22,6 +22,28 @@ keyboard, mouse and flash drive, WiFi, and a set of programs to go with it.
 - **Emulators:** Applesoft BASIC, an Apple IIe, a Commodore 64 and a Sega
   Genesis / Mega Drive (bring your own ROMs).
 
+## Screenshots
+
+Captured with `screenshot` on the board, or drawn by the PC tests in
+`tools/` (the same code, the same 640x480 picture).
+
+| | |
+|---|---|
+| <img src="screenshots/TEST1.PNG" width="400" alt="The shell (on the board)"><br>The shell (on the board) | <img src="docs/help.png" width="400" alt="help"><br>help |
+| <img src="docs/editor.png" width="400" alt="Text editor (edit)"><br>Text editor (`edit`) | <img src="docs/mc.png" width="400" alt="File manager (mc)"><br>File manager (`mc`) |
+| <img src="screenshots/tracker.png" width="400" alt="MOD tracker (on the board)"><br>MOD tracker (on the board) | <img src="docs/tracker_xm.png" width="400" alt="XM in the tracker"><br>XM in the tracker |
+| <img src="docs/radio.png" width="400" alt="Internet radio (radio)"><br>Internet radio (`radio`) | <img src="screenshots/sdr.png" width="400" alt="SDR receiver (on the board)"><br>SDR receiver (on the board) |
+| <img src="docs/sdr_main.png" width="400" alt="SDR receiver (sdr)"><br>SDR receiver (`sdr`) | <img src="docs/fm_main.png" width="400" alt="FM radio (fm)"><br>FM radio (`fm`) |
+| <img src="screenshots/Si5351A.png" width="400" alt="Clock generator (on the board)"><br>Clock generator (on the board) | <img src="docs/si5351_main.png" width="400" alt="Clock generator (si5351)"><br>Clock generator (`si5351`) |
+| <img src="docs/sprite_main.png" width="400" alt="Sprite editor (sprite)"><br>Sprite editor (`sprite`) | <img src="docs/wav_main.png" width="400" alt="WAV editor (wav)"><br>WAV editor (`wav`) |
+| <img src="docs/wav_effects.png" width="400" alt="WAV editor effects"><br>WAV editor effects | <img src="docs/swarm_title.png" width="400" alt="Swarm (swarm)"><br>Swarm (`swarm`) |
+| <img src="docs/swarm_beam.png" width="400" alt="Swarm: the tractor beam"><br>Swarm: the tractor beam | <img src="docs/swarm_dual.png" width="400" alt="Swarm: the twin fighter"><br>Swarm: the twin fighter |
+| <img src="docs/swarm_challenge.png" width="400" alt="Swarm: a challenging stage"><br>Swarm: a challenging stage | <img src="docs/term.png" width="400" alt="Serial terminal (term)"><br>Serial terminal (`term`) |
+| <img src="docs/telnet.png" width="400" alt="telnet and its BBS list"><br>telnet and its BBS list | <img src="docs/basic_nova.png" width="400" alt="BASIC: the NOVA demo"><br>BASIC: the NOVA demo |
+| <img src="docs/basic_house.png" width="400" alt="BASIC graphics"><br>BASIC graphics | <img src="docs/basic_lissa.png" width="400" alt="BASIC: Lissajous figures"><br>BASIC: Lissajous figures |
+| <img src="docs/basic_fontdemo.png" width="400" alt="BASIC font sheets"><br>BASIC font sheets | <img src="docs/basic_chart.png" width="400" alt="BASIC: a chart"><br>BASIC: a chart |
+| <img src="screenshots/APPLE2E.PNG" width="400" alt="Apple IIe (on the board)"><br>Apple IIe (on the board) | <img src="screenshots/c64.png" width="400" alt="Commodore 64 (on the board)"><br>Commodore 64 (on the board) |
+
 ## Manuals
 
 PDFs in [manuals/](manuals/), one for the OS and one for each application
