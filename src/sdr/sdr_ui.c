@@ -997,11 +997,32 @@ static bool spectrum_step(void) {
     return true;
 }
 
-/// Shows a new spectrum line on the screen: the spectrum, and the waterfall
-/// moved down a row (in the framebuffer itself, quicker than from PSRAM).
-static void spectrum_show(void) {
+/// Copies rows of the off-screen picture onto the screen.
+/// @param y the first row
+/// @param h how many
+static void copy_rows(int y, int h) {
+    memcpy(dvi_framebuf + y * W, S->g + y * W, (size_t)h * W);
+}
+
+/// Draws the meter and title strip off the screen and copies them over in
+/// one go (drawn on the screen itself, the scanout catches them half done).
+static void meter_show(void) {
+    S->t = S->g;
+    draw_top();
+    draw_meter();
     S->t = dvi_framebuf;
+    copy_rows(0, TOP_H);
+    copy_rows(DISP_Y + 26, 30);
+}
+
+/// Shows a new spectrum line on the screen: the spectrum (drawn off the
+/// screen, then copied, so it doesn't flicker), and the waterfall moved down
+/// a row (in the framebuffer itself, quicker than from PSRAM).
+static void spectrum_show(void) {
+    S->t = S->g;
     draw_spectrum();
+    S->t = dvi_framebuf;
+    copy_rows(SP_Y, SCALE_Y + 16 - SP_Y);
     memmove(dvi_framebuf + (WF_Y + 1) * W, dvi_framebuf + WF_Y * W, (WF_H - 1) * W);
     memcpy(dvi_framebuf + WF_Y * W + SP_X, S->wf + S->wf_top * SP_W, SP_W);
 }
@@ -1646,11 +1667,8 @@ static void receiver(void) {
         }
         if ((int32_t)(now - S->next_meter) >= 0) {
             S->next_meter = now + 100;
-            if (!S->dirty && S->dlg == DLG_NONE) {
-                S->t = dvi_framebuf;
-                draw_meter();
-                draw_top();
-            }
+            if (!S->dirty && S->dlg == DLG_NONE)
+                meter_show();
         }
         bool msg_on = S->msg[0] && now < S->msg_until;
         if (msg_on != msg_shown) {
@@ -1662,11 +1680,13 @@ static void receiver(void) {
             draw();
             show();
         } else if (S->dirty && S->drag) {
-            // Dragging a slider: just the controls.
+            // Dragging a slider: just the controls (and the meter's squelch mark).
             S->dirty = false;
-            S->t = dvi_framebuf;
+            S->t = S->g;
             draw_controls();
-            draw_meter();
+            S->t = dvi_framebuf;
+            copy_rows(CTL_Y, FILE_Y - 4 - CTL_Y);
+            meter_show();
         }
         if (!S->running)
             sleep_ms(5);
