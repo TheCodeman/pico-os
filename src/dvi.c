@@ -138,6 +138,7 @@ static volatile uint32_t lines_built;  ///< check_scanout() watches this move
 /// The buffer being sent is the second.
 static bool dma_pong = false;
 static uint v_scanline;  ///< the next line to build
+volatile uint32_t dvi_frames;
 
 static uint build_line(uint32_t *buf, uint line);
 
@@ -150,6 +151,8 @@ static uint __not_in_flash_func(build_lines)(uint32_t *buf) {
         p += build_line(p, v_scanline);
         v_scanline = (v_scanline + 1) % MODE_V_TOTAL_LINES;
         ++lines_built;
+        if (v_scanline == MODE_V_FRONT_PORCH)
+            ++dvi_frames;
     }
     return p - buf;
 }

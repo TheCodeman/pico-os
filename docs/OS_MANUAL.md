@@ -549,6 +549,7 @@ Each manual is a PDF in the `manuals` folder (made from `docs/*.md` with
 | The Si4703 FM radio (`fm`, `fmradio`) | `manuals/Pico 2 mini OS FM Radio.pdf` |
 | The sprite editor (`sprite`, `spredit`) | `manuals/Pico 2 mini OS Sprite Editor.pdf` |
 | The WAV sound editor (`wav`, `wavedit`) | `manuals/Pico 2 mini OS WAV Editor.pdf` |
+| Swarm, the arcade space shooter (`swarm`) | `manuals/Pico 2 mini OS Swarm.pdf` |
 | `wget`, `telnet` and its BBS directory, `ssh`, `scp` | `manuals/Pico 2 mini OS Network Tools.pdf` |
 | The serial terminal (`term`) and XMODEM/YMODEM/ZMODEM | `manuals/Pico 2 mini OS Serial Terminal.pdf` |
 | Applesoft, the Apple IIe, the Commodore 64 and the Sega Genesis | `manuals/Pico 2 mini OS Emulators.pdf` |
