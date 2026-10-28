@@ -48,6 +48,7 @@
 #include "sprite.h"
 #include "usb_storage.h"
 #include "wav.h"
+#include "sdr.h"
 
 #define LINE_MAX      255  ///< a command may wrap over several screen rows
 /// Lines of history kept.
@@ -359,6 +360,12 @@ static const help_t help_programs[] = {
      "                           flanger, filters..., undo; plays over HDMI\n"
      "wav info file.wav          its rate, bits, channels and length\n"
      "  F1 in the editor lists its keys."},
+    {"sdr", NULL, "radio receiver (RTL-SDR)",
+     "sdr [MHz] [wfm|nfm|am]     the receiver: spectrum, waterfall, wide and\n"
+     "                           narrow FM and AM, squelch, favourites, scan\n"
+     "sdr info                   the dongle and its tuner\n"
+     "  An RTL2832U dongle (R820T or R828D tuner, e.g. RTL-SDR Blog V3/V4) on\n"
+     "  the hub; 240 kS/s. F1 in it lists its keys; kept in /SDR.INI."},
     {"view", NULL, "show a picture",
      "view file\n"
      "  Shows a BMP, PNG or JPEG; any key returns."},
@@ -1641,7 +1648,7 @@ static const struct {
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset},
-    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"screenshot", cmd_screenshot},
+    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"sdr", sdr_command}, {"screenshot", cmd_screenshot},
 };  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.

@@ -8,7 +8,8 @@
  * (src/ld/section_extra_post_data.incl, an OVERLAY) and keeps each app's in
  * flash. app_overlay_load copies an app's in when it starts. The radio uses
  * the area for its decoder while it plays (as raw memory), and gives it up
- * when another app loads its own.
+ * when another app loads its own; the SDR receiver uses it as raw memory
+ * too (the dongle's samples and its demodulator).
  *
  * @author Ken Segler
  * @copyright Copyright (c) 2026 Ken Segler
@@ -31,7 +32,7 @@
 #endif
 
 /// The users of the shared SRAM area.
-enum { APP_OV_NONE, APP_OV_C64, APP_OV_APPLESOFT, APP_OV_APPLE2E, APP_OV_GENESIS, APP_OV_RADIO };
+enum { APP_OV_NONE, APP_OV_C64, APP_OV_APPLESOFT, APP_OV_APPLE2E, APP_OV_GENESIS, APP_OV_RADIO, APP_OV_SDR };
 
 /// Makes the area the app's: stops whoever had it (the radio), then copies
 /// the app's code and data in (zeroed variables included).

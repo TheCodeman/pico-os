@@ -119,7 +119,8 @@ cyan, command names in white):
       fm          FM radio (Si4703)           memtest     test the PSRAM
       sprite      sprite editor (RGB332)      reset       restart the board
       wav         WAV sound editor            run         run a script
-      view        show a picture              help        this list
+      sdr         radio receiver (RTL-SDR)    help        this list
+      view        show a picture
 
     Type help and a command name for how to use it, e.g. help wifi.
     Also: dir=ls del=rm copy=cp ren=mv type=cat clear=cls ed=edit reboot=reset
@@ -184,6 +185,7 @@ Esc or Ctrl-C stops between files. Copying a file onto itself is refused.
 | `si5351 [set N FREQ \| on N \| off N \| status ...]` | `clockgen` | A Si5351A clock generator on I2C: a graphical panel, or settings from the shell (see the *Clock Generator* manual). |
 | `sprite [file.spr \| info file \| png file [out]]` | `spredit` | A sprite editor: draw RGB332 sprites up to 32x32 with up to 64 animation frames with the mouse, for BASIC's `SPRITE LOAD` (see the *Sprite Editor* manual). |
 | `wav [file.wav \| info file]` | `wavedit` | A WAV sound editor: select, cut, copy, paste, trim, gain, normalize, fades, reverse, silence, echo, reverb, chorus, flanger, filters, distortion, rate and channels, undo, with the mouse, playing over HDMI (see the *WAV Editor* manual). |
+| `sdr [MHz] [wfm \| nfm \| am] \| info` | | A radio receiver for an RTL-SDR dongle on the hub (RTL2832U with an R820T or R828D tuner): spectrum, waterfall, wide and narrow FM and AM over HDMI, squelch, favourites and scan (see the *SDR Receiver* manual). |
 | `term [baud] [format]` | `serial` | Serial terminal on COM1 with a settings page (see the *Serial Terminal* manual). |
 | `applesoft [file]` | | An Apple IIe at the Applesoft BASIC prompt (see the *Emulators* manual). |
 | `apple2e [disk1 [disk2]]` | | An enhanced Apple IIe running its own ROMs, with disk drives (see the *Emulators* manual). |
@@ -549,6 +551,7 @@ Each manual is a PDF in the `manuals` folder (made from `docs/*.md` with
 | The Si4703 FM radio (`fm`, `fmradio`) | `manuals/Pico 2 mini OS FM Radio.pdf` |
 | The sprite editor (`sprite`, `spredit`) | `manuals/Pico 2 mini OS Sprite Editor.pdf` |
 | The WAV sound editor (`wav`, `wavedit`) | `manuals/Pico 2 mini OS WAV Editor.pdf` |
+| The SDR receiver for RTL-SDR dongles (`sdr`) | `manuals/Pico 2 mini OS SDR Receiver.pdf` |
 | `wget`, `telnet` and its BBS directory, `ssh`, `scp` | `manuals/Pico 2 mini OS Network Tools.pdf` |
 | The serial terminal (`term`) and XMODEM/YMODEM/ZMODEM | `manuals/Pico 2 mini OS Serial Terminal.pdf` |
 | Applesoft, the Apple IIe, the Commodore 64 and the Sega Genesis | `manuals/Pico 2 mini OS Emulators.pdf` |

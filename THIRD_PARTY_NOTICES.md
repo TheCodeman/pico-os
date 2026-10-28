@@ -25,6 +25,13 @@ apart from changes marked "pico-os" in the source.
 | TinyUSB | Pico SDK | MIT | |
 | cyw43-driver (WiFi) | Pico SDK | Raspberry Pi licence: only with Raspberry Pi parts | |
 
+The RTL-SDR receiver's dongle driver (`src/sdr/rtl2832.c`) is our own
+code, written for this project; the register settings it uses for the
+RTL2832U and the R820T/R828D tuner (and the tuner's gain steps) follow
+those of the open-source rtl-sdr driver (osmocom librtlsdr and the
+RTL-SDR Blog fork, GPL-2.0), which documents how these chips are set up.
+No code of theirs is included.
+
 ## Licence conflicts to be aware of
 
 - The **Genesis emulator core is AGPL-3.0**, so a firmware that includes it
