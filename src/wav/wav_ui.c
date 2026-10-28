@@ -106,14 +106,15 @@ enum {
     HIT_WAVE = 1, HIT_OVER, HIT_TOOL, HIT_FILE,
     HIT_ASK, HIT_ROW, HIT_FD_OK, HIT_FD_CANCEL, HIT_FD_UP,
     HIT_GAIN, HIT_GAIN_OK, HIT_GAIN_NORM, HIT_BOX_CANCEL,
-    HIT_RATE, HIT_CHANS, HIT_BITS, HIT_RESAMPLE, HIT_FMT_OK, HIT_SWALLOW,
+    HIT_RATE, HIT_CHANS, HIT_BITS, HIT_RESAMPLE, HIT_FMT_OK,
+    HIT_FX, HIT_FXP, HIT_FX_OK, HIT_SWALLOW,
 };
 
 /// The buttons above the file buttons (HIT_TOOL).
 enum {
     TB_PLAY, TB_LOOP, TB_ZIN, TB_ZOUT, TB_ZSEL, TB_ZALL, TB_ALL,
     TB_CUT, TB_COPY, TB_PASTE, TB_DELETE, TB_TRIM, TB_SILENCE, TB_REVERSE,
-    TB_GAIN, TB_NORMAL, TB_FADEIN, TB_FADEOUT, TB_COUNT
+    TB_GAIN, TB_NORMAL, TB_FADEIN, TB_FADEOUT, TB_EFFECTS, TB_COUNT
 };
 /// The file buttons (HIT_FILE).
 enum { FB_NEW, FB_LOAD, FB_SAVE, FB_SAVEAS, FB_FORMAT, FB_UNDO, FB_REDO, FB_HELP, FB_QUIT, FB_COUNT };
@@ -122,7 +123,7 @@ enum { FB_NEW, FB_LOAD, FB_SAVE, FB_SAVEAS, FB_FORMAT, FB_UNDO, FB_REDO, FB_HELP
 enum { ACT_NONE, ACT_NEW, ACT_LOAD, ACT_QUIT, ACT_SAVE_THEN, ACT_WRITE };
 
 /// The boxes over the editor.
-enum { DLG_NONE, DLG_ASK, DLG_FILE, DLG_GAIN, DLG_FORMAT, DLG_HELP };
+enum { DLG_NONE, DLG_ASK, DLG_FILE, DLG_GAIN, DLG_FORMAT, DLG_EFFECTS, DLG_HELP };
 /// What the file box is for.
 enum { FD_LOAD, FD_SAVE };
 
@@ -132,6 +133,43 @@ enum { DRAG_NONE, DRAG_SEL, DRAG_OVER };
 /// The rates the format box offers.
 static const uint32_t rates[] = {8000, 11025, 16000, 22050, 32000, 44100, 48000};
 #define NRATES (int)(sizeof rates / sizeof *rates)  ///< how many
+
+/// The effects in the effects box.
+enum { E_ECHO, E_REVERB, E_CHORUS, E_FLANGER, E_TREMOLO, E_LOWPASS, E_HIGHPASS, E_DISTORT, E_COUNT };
+
+/// An effect's setting.
+typedef struct {
+    const char *label;  ///< its name
+    const char *unit;   ///< after the value
+    int16_t min,        ///< the least
+        max,            ///< the most
+        step,           ///< a click of - or +
+        def;            ///< as it starts
+} fx_param_t;
+
+/// An effect: its name and up to three settings (label NULL: none).
+static const struct {
+    const char *name;     ///< its name
+    const char *about;    ///< what it does
+    fx_param_t p[3];      ///< its settings
+} fx_defs[E_COUNT] = {
+    [E_ECHO] = {"Echo", "repeats, each quieter, after the sound",
+                {{"Delay", "ms", 10, 2000, 10, 300}, {"Feedback", "%", 0, 90, 5, 40}, {"Level", "%", 0, 100, 5, 50}}},
+    [E_REVERB] = {"Reverb", "a room's sound; the tail runs on after it",
+                  {{"Room", "%", 0, 100, 5, 70}, {"Damping", "%", 0, 100, 5, 50}, {"Level", "%", 0, 100, 5, 30}}},
+    [E_CHORUS] = {"Chorus", "a wavering copy mixed in: thicker, wider",
+                  {{"Depth", "ms", 1, 20, 1, 4}, {"Speed", "/10 Hz", 1, 50, 1, 8}, {"Level", "%", 0, 100, 5, 50}}},
+    [E_FLANGER] = {"Flanger", "a sweeping comb, the jet-plane sound",
+                   {{"Depth", "ms", 1, 10, 1, 3}, {"Speed", "/10 Hz", 1, 50, 1, 3}, {"Feedback", "%", 0, 90, 5, 50}}},
+    [E_TREMOLO] = {"Tremolo", "the level goes up and down",
+                   {{"Speed", "/10 Hz", 1, 200, 5, 50}, {"Depth", "%", 0, 100, 5, 50}, {NULL, NULL, 0, 0, 0, 0}}},
+    [E_LOWPASS] = {"Low-pass", "takes out the highs above the cutoff",
+                   {{"Cutoff", "Hz", 50, 20000, 50, 1000}, {NULL, NULL, 0, 0, 0, 0}, {NULL, NULL, 0, 0, 0, 0}}},
+    [E_HIGHPASS] = {"High-pass", "takes out the lows below the cutoff",
+                    {{"Cutoff", "Hz", 20, 10000, 10, 300}, {NULL, NULL, 0, 0, 0, 0}, {NULL, NULL, 0, 0, 0, 0}}},
+    [E_DISTORT] = {"Distortion", "overdrive: louder parts squashed round",
+                   {{"Drive", "x", 1, 50, 1, 8}, {"Level", "%", 0, 100, 5, 100}, {NULL, NULL, 0, 0, 0, 0}}},
+};
 
 /// A place to click.
 typedef struct {
@@ -256,6 +294,9 @@ typedef struct {
     int f_rate, f_ch, f_bits;
     bool f_resample;
     ///@}
+    int fx;                ///< the effect chosen in the effects box
+    int fxp[E_COUNT][3];   ///< each effect's settings
+    int fxk;               ///< the setting the keys change
     char msg[96];          ///< a message for the title strip
     uint32_t msg_until;    ///< until when
     uint8_t io[4096];      ///< file reading and writing
@@ -908,6 +949,7 @@ static const struct {
     [TB_PASTE] = {"Paste", 56, 1},   [TB_DELETE] = {"Delete", 64, 1}, [TB_TRIM] = {"Trim", 56, 1},
     [TB_SILENCE] = {"Silence", 72, 1}, [TB_REVERSE] = {"Reverse", 72, 1}, [TB_GAIN] = {"Gain", 56, 2},
     [TB_NORMAL] = {"Normalize", 88, 2}, [TB_FADEIN] = {"Fade in", 72, 2}, [TB_FADEOUT] = {"Fade out", 80, 2},
+    [TB_EFFECTS] = {"Effects", 72, 2},
 };
 
 /// Draws the play, view, edit and effect buttons.
@@ -1063,6 +1105,41 @@ static void draw_format_box(void) {
     button(x + 144, y + h - 36, 120, 26, "Cancel (Esc)", false, HIT_BOX_CANCEL, 0);
 }
 
+/// The effects box's size and place.
+#define FXB_W 560
+#define FXB_H 236               ///< its height
+#define FXB_X ((W - FXB_W) / 2) ///< its left
+#define FXB_Y 110               ///< its top
+
+/// Draws the effects box: the effects down the left, the one chosen's settings on the right.
+static void draw_effects_box(void) {
+    int x = FXB_X, y = FXB_Y;
+    box(x, y, FXB_W, FXB_H, F->sel1 > F->sel0 ? "Effects on the selection" : "Effects on all of the sound");
+    for (int i = 0; i < E_COUNT; ++i)
+        button(x + 16, y + 34 + i * 22, 104, 20, fx_defs[i].name, F->fx == i, HIT_FX, i);
+    int px = x + 140;
+    text(px, y + 36, fx_defs[F->fx].about, C_DIM, C_FACE);
+    for (int k = 0; k < 3; ++k) {
+        const fx_param_t *p = &fx_defs[F->fx].p[k];
+        if (!p->label)
+            continue;
+        int ry = y + 64 + k * 30, v = F->fxp[F->fx][k];
+        text(px, ry + 3, p->label, k == F->fxk ? C_YELLOW : C_LABEL, C_FACE);
+        button(px + 80, ry, 30, 22, "-", false, HIT_FXP, k * 2);
+        bevel(px + 114, ry, 152, 22, false, C_FIELD);
+        if (!strcmp(p->unit, "/10 Hz"))
+            textf(px + 120, ry + 3, C_CYAN, C_FIELD, "%d.%d Hz", v / 10, v % 10);
+        else
+            textf(px + 120, ry + 3, C_CYAN, C_FIELD, "%d %s", v, p->unit);
+        button(px + 270, ry, 30, 22, "+", false, HIT_FXP, k * 2 + 1);
+    }
+    if (F->fx == E_ECHO || F->fx == E_REVERB || F->fx == E_CHORUS || F->fx == E_FLANGER)
+        text(px, y + 160, "Its tail mixes into what follows", C_DIM, C_FACE);
+    text(px, y + 178, "Up Down: effect  Tab: setting  Left Right: -+", C_DIM, C_FACE);
+    button(px, y + FXB_H - 36, 120, 26, "OK (Enter)", true, HIT_FX_OK, 0);
+    button(px + 128, y + FXB_H - 36, 120, 26, "Cancel (Esc)", false, HIT_BOX_CANCEL, 0);
+}
+
 /// Draws the keys.
 static void draw_help(void) {
     int w = 608, h = 392, x = (W - w) / 2, y = 40;
@@ -1077,8 +1154,8 @@ static void draw_help(void) {
         "Left Right PgUp PgDn  move the view   Ctrl-A  select all",
         "Ctrl-X cut  Ctrl-C copy  Ctrl-V paste  Del delete  T trim",
         "S silence (none selected: put in a second)  R reverse",
-        "G gain  N normalize  I fade in  O fade out (on the selection,",
-        "                                            or all of it)",
+        "G gain  N normalize  I fade in  O fade out  E effects (echo,",
+        "  reverb, chorus, flanger, filters...), on the selection or all",
         "U, Ctrl-Z  undo   Ctrl-Y  redo   F  format (rate, mono/stereo)",
         "Ctrl-S, F2 save   F3 load   Ctrl-N new   Esc  stop, then quit",
         "",
@@ -1110,6 +1187,7 @@ static void draw(void) {
     case DLG_FILE: draw_file_box(); break;
     case DLG_GAIN: draw_gain_box(); break;
     case DLG_FORMAT: draw_format_box(); break;
+    case DLG_EFFECTS: draw_effects_box(); break;
     case DLG_HELP: draw_help(); break;
     }
     F->collect = false;
@@ -1660,6 +1738,283 @@ static void silence(void) {
     F->sel1 = a + F->rate;
     view_fix();
     done("A second of silence put in");
+}
+
+// ---- Effects ----------------------------------------------------------------------------------------
+
+/// Freeverb's comb and all-pass lengths at 44100 Hz, and the right channel's spread.
+static const int16_t rv_comb[8] = {1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617};
+static const int16_t rv_ap[4] = {556, 441, 341, 225};
+#define RV_SPREAD 23  ///< the right channel's lines are this much longer
+
+/// An effect's working state for one channel (PSRAM, while it runs).
+typedef struct {
+    float *line;            ///< a delay line (echo, chorus, flanger), or NULL
+    uint32_t line_len;      ///< its length
+    float *comb[8];         ///< reverb: the combs
+    float *ap[4];           ///< and the all-passes
+    int comb_len[8];        ///< their lengths
+    int ap_len[4];          ///< and these
+    int comb_at[8];         ///< where each is
+    int ap_at[4];           ///< and these
+    float comb_lp[8];       ///< each comb's damping filter
+    float b0, b1, b2, a1, a2;  ///< a filter's coefficients
+    float x1, x2, y1, y2;   ///< and its memory
+} fx_chan_t;
+
+/// A delay line's sample some way back, between samples.
+/// @param c the channel
+/// @param at where the line is now
+/// @param back how far back (frames, with a fraction)
+/// @return the sample
+static float line_back(const fx_chan_t *c, uint32_t at, float back) {
+    float pos = (float)at - back;
+    while (pos < 0)
+        pos += (float)c->line_len;
+    uint32_t i = (uint32_t)pos;
+    float f = pos - (float)i;
+    float a = c->line[i % c->line_len], b = c->line[(i + 1) % c->line_len];
+    return a + (b - a) * f;
+}
+
+/// Sets a channel's filter (RBJ's biquads, Q 0.707).
+/// @param c the channel
+/// @param hz the cutoff
+/// @param high a high-pass (else low-pass)
+static void filter_set(fx_chan_t *c, float hz, bool high) {
+    if (hz > F->rate * 0.45f)
+        hz = F->rate * 0.45f;
+    float w = 2 * (float)M_PI * hz / F->rate, cs = cosf(w), al = sinf(w) / (2 * 0.7071f), a0 = 1 + al;
+    c->b0 = (high ? (1 + cs) : (1 - cs)) / 2 / a0;
+    c->b1 = (high ? -(1 + cs) : (1 - cs)) / a0;
+    c->b2 = c->b0;
+    c->a1 = -2 * cs / a0;
+    c->a2 = (1 - al) / a0;
+}
+
+/// The frames an effect goes on for after its sound ends.
+/// @return them
+static uint32_t fx_tail(void) {
+    const int *p = F->fxp[F->fx];
+    float t = 0;  // seconds
+    switch (F->fx) {
+    case E_ECHO:
+        // Until the repeats are 60 dB down (or one repeat with no feedback).
+        t = p[0] / 1000.0f * (p[1] ? ceilf(logf(0.001f) / logf(p[1] / 100.0f)) : 1);
+        break;
+    case E_REVERB: t = 0.5f + 2.5f * p[0] / 100.0f; break;
+    case E_CHORUS: case E_FLANGER: t = 0.05f; break;
+    }
+    if (t > 10)
+        t = 10;
+    return (uint32_t)(t * F->rate);
+}
+
+/// Frees an effect's working state.
+/// @param st the channels' (NULL is fine)
+static void fx_free(fx_chan_t *st) {
+    if (!st)
+        return;
+    for (int c = 0; c < 2; ++c) {
+        psram_free(st[c].line);
+        for (int k = 0; k < 8; ++k)
+            psram_free(st[c].comb[k]);
+        for (int k = 0; k < 4; ++k)
+            psram_free(st[c].ap[k]);
+    }
+    psram_free(st);
+}
+
+/// An effect's working state: delay lines, combs, filters.
+/// @return it (fx_free), or NULL if there isn't the memory
+static fx_chan_t *fx_init(void) {
+    fx_chan_t *st = psram_malloc(2 * sizeof *st);
+    if (!st)
+        return NULL;
+    memset(st, 0, 2 * sizeof *st);
+    const int *p = F->fxp[F->fx];
+    bool ok = true;
+    for (int c = 0; c < F->ch && ok; ++c) {
+        fx_chan_t *s = &st[c];
+        uint32_t len = 0;
+        switch (F->fx) {
+        case E_ECHO:  // a delay's length exactly: what comes out is what went in then
+            len = (uint32_t)((uint64_t)p[0] * F->rate / 1000);
+            len = len ? len : 1;
+            break;
+        case E_CHORUS: len = (uint32_t)((25 + p[0]) * F->rate / 1000) + 4; break;
+        case E_FLANGER: len = (uint32_t)((1 + p[0]) * F->rate / 1000) + 4; break;
+        case E_REVERB:
+            for (int k = 0; k < 8 && ok; ++k) {
+                s->comb_len[k] = (int)((rv_comb[k] + c * RV_SPREAD) * (float)F->rate / 44100) + 1;
+                ok = (s->comb[k] = psram_malloc(s->comb_len[k] * sizeof(float))) != NULL;
+                if (ok)
+                    memset(s->comb[k], 0, s->comb_len[k] * sizeof(float));
+            }
+            for (int k = 0; k < 4 && ok; ++k) {
+                s->ap_len[k] = (int)((rv_ap[k] + c * RV_SPREAD) * (float)F->rate / 44100) + 1;
+                ok = (s->ap[k] = psram_malloc(s->ap_len[k] * sizeof(float))) != NULL;
+                if (ok)
+                    memset(s->ap[k], 0, s->ap_len[k] * sizeof(float));
+            }
+            break;
+        case E_LOWPASS: filter_set(s, (float)p[0], false); break;
+        case E_HIGHPASS: filter_set(s, (float)p[0], true); break;
+        }
+        if (len) {
+            s->line_len = len;
+            ok = (s->line = psram_malloc(len * sizeof(float))) != NULL;
+            if (ok)
+                memset(s->line, 0, len * sizeof(float));
+        }
+    }
+    if (!ok) {
+        fx_free(st);
+        return NULL;
+    }
+    return st;
+}
+
+/// One frame of the effect.
+/// @param st the channels' state
+/// @param i the frame, from the start of the part
+/// @param in its samples (-1 to 1; 0 past the part's end)
+/// @param out set to what comes out (before anything that follows is added)
+static void fx_frame(fx_chan_t *st, uint32_t i, const float *in, float *out) {
+    const int *p = F->fxp[F->fx];
+    float t = (float)i / F->rate;
+    for (int c = 0; c < F->ch; ++c) {
+        fx_chan_t *s = &st[c];
+        float x = in[c], y = x;
+        switch (F->fx) {
+        case E_ECHO: {
+            uint32_t k = i % s->line_len;
+            float w = s->line[k];  // what went in a delay ago, with its echoes
+            s->line[k] = x + w * p[1] / 100.0f;
+            y = x + w * p[2] / 100.0f;
+            break;
+        }
+        case E_REVERB: {
+            float room = p[0] / 100.0f * 0.28f + 0.7f, damp = p[1] / 100.0f * 0.4f;
+            float mono = (F->ch == 2 ? (in[0] + in[1]) : 2 * x) * 0.015f, wet = 0;
+            for (int k = 0; k < 8; ++k) {
+                float o = s->comb[k][s->comb_at[k]];
+                s->comb_lp[k] = o * (1 - damp) + s->comb_lp[k] * damp;
+                s->comb[k][s->comb_at[k]] = mono + s->comb_lp[k] * room;
+                if (++s->comb_at[k] == s->comb_len[k])
+                    s->comb_at[k] = 0;
+                wet += o;
+            }
+            for (int k = 0; k < 4; ++k) {
+                float b = s->ap[k][s->ap_at[k]];
+                s->ap[k][s->ap_at[k]] = wet + b * 0.5f;
+                wet = b - wet;
+                if (++s->ap_at[k] == s->ap_len[k])
+                    s->ap_at[k] = 0;
+            }
+            y = x + wet * 3 * p[2] / 100.0f;
+            break;
+        }
+        case E_CHORUS: case E_FLANGER: {
+            bool cho = F->fx == E_CHORUS;
+            float rate = p[1] / 10.0f, phase = c ? (float)M_PI / 2 : 0;
+            float ms = (cho ? 20 : 0.5f) + p[0] * 0.5f * (1 - cosf(2 * (float)M_PI * rate * t + phase));
+            uint32_t k = i % s->line_len;
+            float d = line_back(s, k, ms * F->rate / 1000);
+            s->line[k] = cho ? x : x + d * p[2] / 100.0f;
+            y = cho ? x + d * p[2] / 100.0f : (x + d) * 0.7f;
+            break;
+        }
+        case E_TREMOLO: {
+            float phase = 0.5f - 0.5f * cosf(2 * (float)M_PI * p[0] / 10.0f * t);
+            y = x * (1 - p[1] / 100.0f * phase);
+            break;
+        }
+        case E_LOWPASS: case E_HIGHPASS:
+            y = s->b0 * x + s->b1 * s->x1 + s->b2 * s->x2 - s->a1 * s->y1 - s->a2 * s->y2;
+            s->x2 = s->x1, s->x1 = x, s->y2 = s->y1, s->y1 = y;
+            break;
+        case E_DISTORT: {
+            float dr = (float)p[0];
+            y = x + (tanhf(dr * x) / tanhf(dr) - x) * p[1] / 100.0f;
+            break;
+        }
+        }
+        out[c] = y;
+    }
+}
+
+/// Does the effect chosen in the effects box to the selection (or all of
+/// it); an echo's or reverb's tail is mixed into what follows, and makes the
+/// sound longer if it runs past the end.
+static void apply_effect(void) {
+    uint32_t a, b;
+    if (!target(&a, &b))
+        return;
+    play_stop();
+    busy("Working...");
+    uint32_t n = b - a, tail = fx_tail(), out_len = n + tail, ext = F->len - b < tail ? F->len - b : tail;
+    int ch = F->ch;
+    int16_t *out = galloc((size_t)out_len * ch * sizeof *out);
+    fx_chan_t *st = out ? fx_init() : NULL;
+    if (!st || !reserve(F->len - (n + ext) + out_len)) {
+        fx_free(st);
+        gfree(out);
+        message("Not enough memory for that");
+        return;
+    }
+    for (uint32_t i = 0; i < out_len; ++i) {
+        float in[2] = {0, 0}, o[2] = {0, 0};
+        if (i < n)
+            for (int c = 0; c < ch; ++c)
+                in[c] = F->d[(size_t)(a + i) * ch + c] / 32768.0f;
+        fx_frame(st, i, in, o);
+        for (int c = 0; c < ch; ++c) {
+            float v = o[c] * 32768.0f;
+            if (i >= n && i - n < ext)
+                v += F->d[(size_t)(b + i - n) * ch + c];  // what follows, with the tail over it
+            out[(size_t)i * ch + c] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : lrintf(v));
+        }
+    }
+    fx_free(st);
+    gtouch(out, (size_t)out_len * ch * sizeof *out);
+    undo_save(a, n + ext, out_len, fx_defs[F->fx].name);
+    replace(a, n + ext, out, out_len);  // the room is there
+    gfree(out);
+    view_fix();
+    done(fx_defs[F->fx].name);
+}
+
+/// Changes one of the effect's settings.
+/// @param k the setting
+/// @param d steps (- down)
+static void fx_add(int k, int d) {
+    const fx_param_t *p = &fx_defs[F->fx].p[k];
+    if (!p->label)
+        return;
+    int *v = &F->fxp[F->fx][k];
+    *v += d * p->step;
+    *v = *v < p->min ? p->min : *v > p->max ? p->max : *v;
+}
+
+/// A key while the effects box is up.
+/// @param k the key
+static void effects_key(int k) {
+    switch (k) {
+    case '\r': case '\n': F->dlg = DLG_NONE; apply_effect(); break;
+    case KEY_ESC: F->dlg = DLG_NONE; break;
+    case KEY_UP: F->fx = (F->fx + E_COUNT - 1) % E_COUNT; F->fxk = 0; break;
+    case KEY_DOWN: F->fx = (F->fx + 1) % E_COUNT; F->fxk = 0; break;
+    case '\t':
+        do
+            F->fxk = (F->fxk + 1) % 3;
+        while (!fx_defs[F->fx].p[F->fxk].label);
+        break;
+    case KEY_LEFT: case '-': fx_add(F->fxk, -1); break;
+    case KEY_RIGHT: case '+': case '=': fx_add(F->fxk, 1); break;
+    case KEY_PGDN: fx_add(F->fxk, -10); break;
+    case KEY_PGUP: fx_add(F->fxk, 10); break;
+    }
 }
 
 /// Changes the format: the channels and the rate (resampled, or only relabelled), and the bits saved.
@@ -2321,6 +2676,10 @@ static void tool_button(int b) {
     case TB_NORMAL: normalize(); break;
     case TB_FADEIN: effect(FX_FADEIN, 0); break;
     case TB_FADEOUT: effect(FX_FADEOUT, 0); break;
+    case TB_EFFECTS:
+        if (F->len)
+            F->dlg = DLG_EFFECTS;
+        break;
     }
 }
 
@@ -2423,6 +2782,7 @@ static void key(int k) {
     case DLG_FILE: fd_key(k); return;
     case DLG_GAIN: gain_key(k); return;
     case DLG_FORMAT: format_key(k); return;
+    case DLG_EFFECTS: effects_key(k); return;
     case DLG_ASK:
         if (k == '\r' || k == '\n')
             act(F->ask_act[0]);
@@ -2459,6 +2819,7 @@ static void key(int k) {
     case 'N': tool_button(TB_NORMAL); break;
     case 'I': tool_button(TB_FADEIN); break;
     case 'O': tool_button(TB_FADEOUT); break;
+    case 'E': tool_button(TB_EFFECTS); break;
     case 'F': file_button(FB_FORMAT); break;
     case 'U': case CTRL('z'): undo_step(false); break;
     case CTRL('y'): undo_step(true); break;
@@ -2530,6 +2891,9 @@ static void box_click(const hit_t *h) {
     case HIT_BITS: F->f_bits = h->arg; break;
     case HIT_RESAMPLE: F->f_resample = !F->f_resample; break;
     case HIT_FMT_OK: format_ok(); break;
+    case HIT_FX: F->fx = h->arg; F->fxk = 0; break;
+    case HIT_FXP: F->fxk = h->arg / 2; fx_add(h->arg / 2, h->arg & 1 ? 1 : -1); break;
+    case HIT_FX_OK: F->dlg = DLG_NONE; apply_effect(); break;
     }
 }
 
@@ -2559,6 +2923,9 @@ static void mouse(const mouse_event_t *e) {
         if (F->dlg == DLG_FILE) {
             F->fd_sel += d * 3;
             F->fd_sel = F->fd_sel < 0 ? 0 : F->fd_sel >= F->fd_n ? F->fd_n - 1 : F->fd_sel;
+            F->dirty = true;
+        } else if (F->dlg == DLG_EFFECTS) {
+            fx_add(F->fxk, -d);
             F->dirty = true;
         } else if (F->dlg == DLG_GAIN) {
             gain_add(-d * 10);
@@ -2661,6 +3028,9 @@ static bool start(void) {
         return false;
     }
     F->ph_x = F->hover_x = -1;
+    for (int e = 0; e < E_COUNT; ++e)
+        for (int k = 0; k < 3; ++k)
+            F->fxp[e][k] = fx_defs[e].p[k].def;
     F->t = dvi_framebuf;
     F->refresh_at = now_ms() + REFRESH_MS;
     new_sound();

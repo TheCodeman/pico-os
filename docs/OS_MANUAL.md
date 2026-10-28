@@ -183,7 +183,7 @@ Esc or Ctrl-C stops between files. Copying a file onto itself is refused.
 | `fm [on \| off \| tune MHz \| seek \| scan \| status ...]` | `fmradio` | An FM radio on a Si4703 module: a graphical panel with RDS, seek, scan and favourites, or the shell (see the *FM Radio* manual). |
 | `si5351 [set N FREQ \| on N \| off N \| status ...]` | `clockgen` | A Si5351A clock generator on I2C: a graphical panel, or settings from the shell (see the *Clock Generator* manual). |
 | `sprite [file.spr \| info file \| png file [out]]` | `spredit` | A sprite editor: draw RGB332 sprites up to 32x32 with up to 64 animation frames with the mouse, for BASIC's `SPRITE LOAD` (see the *Sprite Editor* manual). |
-| `wav [file.wav \| info file]` | `wavedit` | A WAV sound editor: select, cut, copy, paste, trim, gain, normalize, fades, reverse, silence, rate and channels, undo, with the mouse, playing over HDMI (see the *WAV Editor* manual). |
+| `wav [file.wav \| info file]` | `wavedit` | A WAV sound editor: select, cut, copy, paste, trim, gain, normalize, fades, reverse, silence, echo, reverb, chorus, flanger, filters, distortion, rate and channels, undo, with the mouse, playing over HDMI (see the *WAV Editor* manual). |
 | `term [baud] [format]` | `serial` | Serial terminal on COM1 with a settings page (see the *Serial Terminal* manual). |
 | `applesoft [file]` | | An Apple IIe at the Applesoft BASIC prompt (see the *Emulators* manual). |
 | `apple2e [disk1 [disk2]]` | | An enhanced Apple IIe running its own ROMs, with disk drives (see the *Emulators* manual). |

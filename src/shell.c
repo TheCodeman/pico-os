@@ -355,7 +355,8 @@ static const help_t help_programs[] = {
     {"wav", "wavedit", "WAV sound editor",
      "wav [file.wav]             edit a sound with the mouse: select, cut,\n"
      "                           copy, paste, trim, gain, normalize, fades,\n"
-     "                           reverse, silence, undo; plays over HDMI\n"
+     "                           reverse, silence, echo, reverb, chorus,\n"
+     "                           flanger, filters..., undo; plays over HDMI\n"
      "wav info file.wav          its rate, bits, channels and length\n"
      "  F1 in the editor lists its keys."},
     {"view", NULL, "show a picture",

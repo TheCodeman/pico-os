@@ -539,6 +539,74 @@ int main(void) {
     press('u');
     CHECK(F->len == n && !memcmp(F->d, orig, n * 4), "undo after running out");
 
+    // Effects. Echo of a click: 10 ms (220 frames), half fed back, at full level.
+    CHECK(load("/TONE.WAV"), "TONE.WAV for the effects");
+    press(CTRL('a'));
+    press('s');
+    F->d[1000 * 2] = 16384;
+    gtouch(F->d, n * 4);
+    F->sel0 = 0, F->sel1 = 2000;
+    tool_btn(TB_EFFECTS);
+    CHECK(F->dlg == DLG_EFFECTS && F->fx == E_ECHO, "Effects opened %d on %d", F->dlg, F->fx);
+    for (int i = 0; i < 40; ++i)
+        press(KEY_LEFT);  // the delay down to 10 ms
+    press('\t');
+    click(FXB_X + 140 + 270 + 15, FXB_Y + 64 + 30 + 10, MOUSE_LEFT);  // feedback + 5: 45
+    press(KEY_RIGHT);                                                   // 50
+    press('\t');
+    for (int i = 0; i < 10; ++i)
+        press(KEY_RIGHT);  // level 100
+    CHECK(F->fxp[E_ECHO][0] == 10 && F->fxp[E_ECHO][1] == 50 && F->fxp[E_ECHO][2] == 100, "echo settings %d %d %d",
+          F->fxp[E_ECHO][0], F->fxp[E_ECHO][1], F->fxp[E_ECHO][2]);
+    press('\r');
+    CHECK(F->len == n && F->d[1000 * 2] == 16384 && F->d[1220 * 2] == 16384 && F->d[1440 * 2] == 8192 &&
+              F->d[1660 * 2] == 4096 && F->d[2100 * 2] == 1024 && F->d[1220 * 2 + 1] == 0,
+          "echo: %d %d %d %d %d", F->d[1000 * 2], F->d[1220 * 2], F->d[1440 * 2], F->d[1660 * 2], F->d[2100 * 2]);
+    CHECK(F->d[1221 * 2] == 0 && F->d[4300 * 2] == 0, "echo: something between the repeats");
+    press('u');
+    CHECK(F->d[1220 * 2] == 0 && F->d[1000 * 2] == 16384, "undo of the echo");
+    // Reverb on all of the tone: the tail makes it longer.
+    CHECK(load("/TONE.WAV"), "TONE.WAV again");
+    press('e');
+    press(KEY_DOWN);
+    CHECK(F->fx == E_REVERB, "Down chose %d", F->fx);
+    press('\r');
+    uint32_t rtail = (uint32_t)((0.5f + 2.5f * 0.7f) * 22050);
+    CHECK(F->len == n + rtail && peak(n, n + 2000, 0) > 500 && peak(n + rtail - 100, n + rtail, 0) < 200,
+          "reverb: %u frames, tail %d then %d", F->len, peak(n, n + 2000, 0), peak(n + rtail - 100, n + rtail, 0));
+    press('u');
+    CHECK(F->len == n && !memcmp(F->d, orig, n * 4), "undo of the reverb");
+    // The filters: high-pass at 3 kHz all but takes out 440 and 220 Hz; low-pass at 5 kHz leaves them.
+    press('e');
+    F->fx = E_HIGHPASS;
+    F->fxp[E_HIGHPASS][0] = 3000;
+    press('\r');
+    CHECK(peak(2000, n, 0) < 1200 && peak(2000, n, 1) < 200, "high-pass: %d %d", peak(2000, n, 0), peak(2000, n, 1));
+    press('u');
+    press('e');
+    F->fx = E_LOWPASS;
+    F->fxp[E_LOWPASS][0] = 5000;
+    press('\r');
+    CHECK(abs(peak(2000, n, 0) - 16384) < 400 && abs(peak(2000, n, 1) - 8192) < 200, "low-pass: %d %d",
+          peak(2000, n, 0), peak(2000, n, 1));
+    press('u');
+    // Distortion makes the quiet side louder, never past full scale; the rest just run.
+    press('e');
+    F->fx = E_DISTORT;
+    press('\r');
+    CHECK(peak(0, n, 1) > 20000 && peak(0, n, 0) <= 32767, "distortion: %d", peak(0, n, 1));
+    press('u');
+    static const int others[3] = {E_CHORUS, E_FLANGER, E_TREMOLO};
+    for (int i = 0; i < 3; ++i) {
+        press('e');
+        F->fx = others[i];
+        press('\r');
+        CHECK(F->len == n + (others[i] == E_TREMOLO ? 0 : 22050 / 20) && peak(0, n, 0) > 4000, "%s: %u frames",
+              fx_defs[others[i]].name, F->len);
+        press('u');
+    }
+    CHECK(F->len == n && !memcmp(F->d, orig, n * 4), "the effects didn't all undo");
+
     // The screenshots: the demo, part selected, playing.
     CHECK(load("/DEMO.WAV"), "DEMO.WAV");
     F->modified = false;
@@ -560,6 +628,10 @@ int main(void) {
     press(KEY_ESC);
     CHECK(F->dlg == DLG_ASK && !F->quit, "Esc with changes didn't ask");
     snap("shot_ask.raw", 330, 248);
+    press(KEY_ESC);
+    press('e');
+    click(FXB_X + 16 + 50, FXB_Y + 34 + E_REVERB * 22 + 10, MOUSE_LEFT);
+    snap("shot_effects.raw", FXB_X + 16 + 50, FXB_Y + 34 + E_REVERB * 22 + 10);
     press(KEY_ESC);
     press(KEY_F1);
     snap("shot_help.raw", -1, -1);

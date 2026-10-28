@@ -2,7 +2,8 @@
 
 A sound editor for WAV files, worked with the mouse: see the whole sound
 and zoom into it, select part of it, cut, copy, paste, delete and trim,
-change its level (gain, normalize, fades), reverse it or make it silent,
+change its level (gain, normalize, fades), add effects (echo, reverb,
+chorus, flanger, tremolo, filters, distortion), reverse it or make it silent,
 change its rate or make it mono or stereo, undo and redo, and hear it
 through the HDMI sound as you go.
 
@@ -35,7 +36,7 @@ From the top:
 - **The buttons:** Play (Stop while playing), Loop, Zoom + and -, Zoom
   sel (the selection fills the view), Zoom all and Select all; Cut, Copy,
   Paste, Delete, Trim, Silence and Reverse; Gain, Normalize, Fade in and
-  Fade out. Buttons that can't do anything now are greyed.
+  Fade out, and Effects. Buttons that can't do anything now are greyed.
 - **The file buttons** along the bottom, as in the sprite editor: New,
   Load, Save, Save as, Format, Undo, Redo, Help (the keys) and Quit.
 
@@ -98,6 +99,36 @@ shows what that multiplies by. +6 dB is about twice as loud, -6 dB half.
 Samples that would go past full scale are held at it (they clip), so
 Normalize is the way to make something as loud as it can be without
 clipping. **Normalize** in the box (N) normalizes instead.
+
+### Effects
+
+![effects](wav_effects.png)
+
+**Effects** (E) opens a box with the effects down the left and the one
+chosen's settings on the right. Like the level changes, an effect works
+on the selection, or on all of the sound if nothing is selected. Click an
+effect (or Up/Down), set it with its - and + buttons (or Tab to choose a
+setting, Left/Right to change it, PgUp/PgDn ten steps, or the wheel), and
+OK (Enter) does it; Esc leaves the box. Each effect keeps its settings
+while the editor runs, so a change can be undone, tweaked and done again.
+
+| Effect | Settings | Does |
+|---|---|---|
+| Echo | Delay (10-2000 ms), Feedback (0-90 %), Level (0-100 %) | repeats of the sound a delay apart, each quieter by the feedback |
+| Reverb | Room (0-100 %), Damping (0-100 %), Level (0-100 %) | the sound of a room (a Freeverb: eight combs and four all-passes a side); a bigger room rings longer, more damping makes it darker |
+| Chorus | Depth (1-20 ms), Speed (0.1-5 Hz), Level (0-100 %) | a copy of the sound, delayed by a wavering 20 ms or so, mixed in: thicker and, in stereo, wider |
+| Flanger | Depth (1-10 ms), Speed (0.1-5 Hz), Feedback (0-90 %) | a copy delayed by a sweeping few ms, mixed back: the jet-plane sweep |
+| Tremolo | Speed (0.1-20 Hz), Depth (0-100 %) | the level going up and down |
+| Low-pass | Cutoff (50-20000 Hz) | takes out the high notes above the cutoff (a 12 dB an octave filter) |
+| High-pass | Cutoff (20-10000 Hz) | takes out the low notes below it |
+| Distortion | Drive (1-50), Level (0-100 %) | overdrive: the louder parts rounded off (a tanh curve), mixed with the sound as it was by the level |
+
+Echo, reverb, chorus and flanger go on after the sound ends: their tail
+(an echo's until its repeats are 60 dB down, a reverb's 0.5 to 3 seconds
+by the room, at most 10 seconds) is mixed into whatever follows the
+selection, and if it runs past the end of the sound, the sound gets that
+much longer. Samples that would go past full scale are held at it, so
+lower the level (or use Gain first) if an effect clips.
 
 ### Undo
 
@@ -180,6 +211,7 @@ Help (or F1) shows them in the editor too.
 | G | gain |
 | N | normalize |
 | I / O | fade in / fade out |
+| E | effects |
 | + - Up Down, Z, A | zoom in / out, to the selection, all |
 | Left Right PgUp PgDn | move the view |
 | Home / End | the start / the end |
@@ -243,7 +275,8 @@ leaves and enters.
 
 `tools/wavtest/uitest.sh` builds the editor on a PC and works it with a
 simulated mouse and keys, checking loading, selecting, cut, copy, paste,
-delete, trim, every effect and their undo and redo, format changes,
+delete, trim, every level change and effect (an echo's repeats exactly,
+a reverb's tail, the filters' cutoffs) and their undo and redo, format changes,
 saving 8 and 16-bit files and reading them back, playing, the checksums
 catching a changed bit, and running out of memory (under ASan); it
 writes the pictures in this manual.
