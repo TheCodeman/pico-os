@@ -107,7 +107,8 @@ enum {
     HIT_ASK, HIT_ROW, HIT_FD_OK, HIT_FD_CANCEL, HIT_FD_UP,
     HIT_GAIN, HIT_GAIN_OK, HIT_GAIN_NORM, HIT_BOX_CANCEL,
     HIT_RATE, HIT_CHANS, HIT_BITS, HIT_RESAMPLE, HIT_FMT_OK,
-    HIT_FX, HIT_FXP, HIT_FX_OK, HIT_SWALLOW,
+    HIT_FX, HIT_FXP, HIT_FX_OK,
+    HIT_NW_WAVE, HIT_NW_VAL, HIT_NW_FREQ, HIT_NW_RATE, HIT_NW_CHANS, HIT_NW_OK, HIT_SWALLOW,
 };
 
 /// The buttons above the file buttons (HIT_TOOL).
@@ -123,7 +124,7 @@ enum { FB_NEW, FB_LOAD, FB_SAVE, FB_SAVEAS, FB_FORMAT, FB_UNDO, FB_REDO, FB_HELP
 enum { ACT_NONE, ACT_NEW, ACT_LOAD, ACT_QUIT, ACT_SAVE_THEN, ACT_WRITE };
 
 /// The boxes over the editor.
-enum { DLG_NONE, DLG_ASK, DLG_FILE, DLG_GAIN, DLG_FORMAT, DLG_EFFECTS, DLG_HELP };
+enum { DLG_NONE, DLG_ASK, DLG_FILE, DLG_GAIN, DLG_FORMAT, DLG_EFFECTS, DLG_NEW, DLG_HELP };
 /// What the file box is for.
 enum { FD_LOAD, FD_SAVE };
 
@@ -170,6 +171,12 @@ static const struct {
     [E_DISTORT] = {"Distortion", "overdrive: louder parts squashed round",
                    {{"Drive", "x", 1, 50, 1, 8}, {"Level", "%", 0, 100, 5, 100}, {NULL, NULL, 0, 0, 0, 0}}},
 };
+
+/// The waveforms New can start with.
+enum { NW_SILENCE, NW_SINE, NW_SQUARE, NW_TRIANGLE, NW_SAW, NW_NOISE, NW_COUNT };
+static const char *const nw_names[NW_COUNT] = {"Silence", "Sine", "Square", "Triangle", "Sawtooth", "Noise"};
+/// The New box's values (HIT_NW_VAL): frequency, length, level.
+enum { NV_FREQ, NV_LEN, NV_LEVEL, NV_COUNT };
 
 /// A place to click.
 typedef struct {
@@ -297,6 +304,11 @@ typedef struct {
     int fx;                ///< the effect chosen in the effects box
     int fxp[E_COUNT][3];   ///< each effect's settings
     int fxk;               ///< the setting the keys change
+    int nw;                ///< the New box's waveform (NW_*)
+    int nv[NV_COUNT];      ///< its frequency (Hz), length (tenths of a second) and level (%)
+    int nvk;               ///< the value the keys change
+    int n_rate;            ///< its rate
+    int n_ch;              ///< and channels
     char msg[96];          ///< a message for the title strip
     uint32_t msg_until;    ///< until when
     uint8_t io[4096];      ///< file reading and writing
@@ -1140,6 +1152,64 @@ static void draw_effects_box(void) {
     button(px + 128, y + FXB_H - 36, 120, 26, "Cancel (Esc)", false, HIT_BOX_CANCEL, 0);
 }
 
+/// The New box's size and place.
+#define NWB_W 576
+#define NWB_H 264               ///< its height
+#define NWB_X ((W - NWB_W) / 2) ///< its left
+#define NWB_Y 100               ///< its top
+
+/// The step for a click of - or + on one of the New box's values.
+/// @param k NV_*
+/// @param v the value stepped from (going up) or to (going down)
+/// @return it
+static int nv_step(int k, int v) {
+    if (k == NV_FREQ)
+        return v < 100 ? 1 : v < 1000 ? 10 : 100;
+    return k == NV_LEN ? (v < 20 ? 1 : 10) : 5;
+}
+
+/// Draws the New box: the waveform, its frequency, length and level, the rate and channels.
+static void draw_new_box(void) {
+    int x = NWB_X, y = NWB_Y;
+    box(x, y, NWB_W, NWB_H, "New sound");
+    text(x + 16, y + 39, "Wave", C_LABEL, C_FACE);
+    for (int i = 0; i < NW_COUNT; ++i)
+        button(x + 96 + i * 78, y + 36, 74, 22, nw_names[i], F->nw == i, HIT_NW_WAVE, i);
+    static const char *const labels[NV_COUNT] = {"Frequency", "Length", "Level"};
+    for (int k = 0; k < NV_COUNT; ++k) {
+        int ry = y + 68 + k * 28, v = F->nv[k];
+        bool off = F->nw == NW_SILENCE && k != NV_LEN;
+        text(x + 16, ry + 3, labels[k], off ? C_DIM : k == F->nvk ? C_YELLOW : C_LABEL, C_FACE);
+        button(x + 96, ry, 30, 22, "-", false, HIT_NW_VAL, k * 2);
+        bevel(x + 130, ry, 120, 22, false, C_FIELD);
+        if (k == NV_FREQ)
+            textf(x + 136, ry + 3, off ? C_DIM : C_CYAN, C_FIELD, "%d Hz", v);
+        else if (k == NV_LEN)
+            textf(x + 136, ry + 3, C_CYAN, C_FIELD, "%d.%d s", v / 10, v % 10);
+        else
+            textf(x + 136, ry + 3, off ? C_DIM : C_CYAN, C_FIELD, "%d %%", v);
+        button(x + 254, ry, 30, 22, "+", false, HIT_NW_VAL, k * 2 + 1);
+    }
+    static const int freqs[5] = {110, 220, 440, 880, 1000};
+    for (int i = 0; i < 5; ++i) {
+        char s[8];
+        snprintf(s, sizeof s, "%d", freqs[i]);
+        button(x + 296 + i * 54, y + 68, 50, 22, s, F->nv[NV_FREQ] == freqs[i], HIT_NW_FREQ, freqs[i]);
+    }
+    text(x + 16, y + 155, "Rate", C_LABEL, C_FACE);
+    for (int i = 0; i < NRATES; ++i) {
+        char s[8];
+        snprintf(s, sizeof s, "%lu", (unsigned long)rates[i]);
+        button(x + 96 + i * 66, y + 152, 62, 22, s, (uint32_t)F->n_rate == rates[i], HIT_NW_RATE, i);
+    }
+    text(x + 16, y + 183, "Sound", C_LABEL, C_FACE);
+    button(x + 96, y + 180, 62, 22, "Mono", F->n_ch == 1, HIT_NW_CHANS, 1);
+    button(x + 162, y + 180, 62, 22, "Stereo", F->n_ch == 2, HIT_NW_CHANS, 2);
+    text(x + 240, y + 183, "W: wave  Tab: value  Left Right: - +", C_DIM, C_FACE);
+    button(x + 16, y + NWB_H - 36, 120, 26, "OK (Enter)", true, HIT_NW_OK, 0);
+    button(x + 144, y + NWB_H - 36, 120, 26, "Cancel (Esc)", false, HIT_BOX_CANCEL, 0);
+}
+
 /// Draws the keys.
 static void draw_help(void) {
     int w = 608, h = 392, x = (W - w) / 2, y = 40;
@@ -1188,6 +1258,7 @@ static void draw(void) {
     case DLG_GAIN: draw_gain_box(); break;
     case DLG_FORMAT: draw_format_box(); break;
     case DLG_EFFECTS: draw_effects_box(); break;
+    case DLG_NEW: draw_new_box(); break;
     case DLG_HELP: draw_help(); break;
     }
     F->collect = false;
@@ -2418,6 +2489,85 @@ static void new_sound(void) {
     F->dirty = true;
 }
 
+/// Starts afresh with the New box's sound: a waveform at a frequency, or silence.
+static void generate(void) {
+    new_sound();
+    int ch = F->n_ch;
+    F->ch = ch;
+    F->cap /= ch;  // its room was counted in mono frames
+    F->rate = (uint32_t)F->n_rate;
+    uint32_t n = (uint32_t)((uint64_t)F->nv[NV_LEN] * F->rate / 10);
+    if (!reserve(n)) {
+        F->ch = 1;
+        F->cap *= ch;
+        F->rate = 44100;
+        message("Not enough memory for %d.%d s", F->nv[NV_LEN] / 10, F->nv[NV_LEN] % 10);
+        return;
+    }
+    float amp = F->nv[NV_LEVEL] / 100.0f * 32767, step = (float)F->nv[NV_FREQ] / F->rate, ph = 0;
+    uint32_t rnd = 0x12345678;
+    for (uint32_t i = 0; i < n; ++i) {
+        float v = 0;
+        switch (F->nw) {
+        case NW_SINE: v = sinf(2 * (float)M_PI * ph); break;
+        case NW_SQUARE: v = ph < 0.5f ? 1 : -1; break;
+        case NW_TRIANGLE: v = ph < 0.5f ? 4 * ph - 1 : 3 - 4 * ph; break;
+        case NW_SAW: v = 2 * ph - 1; break;
+        case NW_NOISE:
+            rnd ^= rnd << 13, rnd ^= rnd >> 17, rnd ^= rnd << 5;
+            v = (int32_t)rnd / 2147483648.0f;
+            break;
+        }
+        ph += step;
+        ph -= (float)(int)ph;
+        int16_t s = F->nw == NW_SILENCE ? 0 : (int16_t)lrintf(v * amp);
+        for (int c = 0; c < ch; ++c)
+            F->d[(size_t)i * ch + c] = s;
+    }
+    F->len = n;
+    gtouch(F->d, (size_t)n * ch * sizeof *F->d);
+    summ_update(0);
+    F->vlen = n;
+    view_fix();
+    F->modified = true;  // not saved yet
+    F->dirty = true;
+    if (F->nw == NW_SILENCE)
+        message("New: %d.%d s of silence", F->nv[NV_LEN] / 10, F->nv[NV_LEN] % 10);
+    else
+        message("New: %s at %d Hz, %d.%d s", nw_names[F->nw], F->nv[NV_FREQ], F->nv[NV_LEN] / 10,
+                F->nv[NV_LEN] % 10);
+}
+
+/// Changes one of the New box's values.
+/// @param k NV_*
+/// @param d steps (- down)
+static void nv_add(int k, int d) {
+    static const int lo[NV_COUNT] = {1, 1, 1}, hi[NV_COUNT] = {20000, 6000, 100};
+    int v = F->nv[k];
+    for (int n = d < 0 ? -d : d; n; --n)  // finer steps below 100 Hz, 1000 Hz and 2 s
+        v += d > 0 ? nv_step(k, v) : -nv_step(k, v - 1);
+    F->nv[k] = v < lo[k] ? lo[k] : v > hi[k] ? hi[k] : v;
+}
+
+/// A key while the New box is up.
+/// @param k the key
+static void new_key(int k) {
+    switch (k) {
+    case '\r': case '\n': F->dlg = DLG_NONE; generate(); break;
+    case KEY_ESC: F->dlg = DLG_NONE; break;
+    case 'w': case 'W': F->nw = (F->nw + 1) % NW_COUNT; break;
+    case '\t': F->nvk = (F->nvk + 1) % NV_COUNT; break;
+    case KEY_UP: F->nvk = (F->nvk + NV_COUNT - 1) % NV_COUNT; break;
+    case KEY_DOWN: F->nvk = (F->nvk + 1) % NV_COUNT; break;
+    case KEY_LEFT: case '-': nv_add(F->nvk, -1); break;
+    case KEY_RIGHT: case '+': case '=': nv_add(F->nvk, 1); break;
+    case KEY_PGDN: nv_add(F->nvk, -10); break;
+    case KEY_PGUP: nv_add(F->nvk, 10); break;
+    case 'm': case 'M': F->n_ch = 1; break;
+    case 's': case 'S': F->n_ch = 2; break;
+    }
+}
+
 // ---- The file box ---------------------------------------------------------------------------------
 
 /// Whether a name ends in an extension.
@@ -2572,7 +2722,7 @@ static void act(int a) {
     F->dlg = DLG_NONE;
     F->dirty = true;
     switch (a) {
-    case ACT_NEW: new_sound(); break;
+    case ACT_NEW: F->dlg = DLG_NEW; break;  // the New box
     case ACT_LOAD: fd_open(FD_LOAD); break;
     case ACT_QUIT: F->quit = true; break;
     case ACT_SAVE_THEN:
@@ -2783,6 +2933,7 @@ static void key(int k) {
     case DLG_GAIN: gain_key(k); return;
     case DLG_FORMAT: format_key(k); return;
     case DLG_EFFECTS: effects_key(k); return;
+    case DLG_NEW: new_key(k); return;
     case DLG_ASK:
         if (k == '\r' || k == '\n')
             act(F->ask_act[0]);
@@ -2894,6 +3045,12 @@ static void box_click(const hit_t *h) {
     case HIT_FX: F->fx = h->arg; F->fxk = 0; break;
     case HIT_FXP: F->fxk = h->arg / 2; fx_add(h->arg / 2, h->arg & 1 ? 1 : -1); break;
     case HIT_FX_OK: F->dlg = DLG_NONE; apply_effect(); break;
+    case HIT_NW_WAVE: F->nw = h->arg; break;
+    case HIT_NW_VAL: F->nvk = h->arg / 2; nv_add(h->arg / 2, h->arg & 1 ? 1 : -1); break;
+    case HIT_NW_FREQ: F->nv[NV_FREQ] = h->arg; F->nvk = NV_FREQ; break;
+    case HIT_NW_RATE: F->n_rate = (int)rates[h->arg]; break;
+    case HIT_NW_CHANS: F->n_ch = h->arg; break;
+    case HIT_NW_OK: F->dlg = DLG_NONE; generate(); break;
     }
 }
 
@@ -2923,6 +3080,9 @@ static void mouse(const mouse_event_t *e) {
         if (F->dlg == DLG_FILE) {
             F->fd_sel += d * 3;
             F->fd_sel = F->fd_sel < 0 ? 0 : F->fd_sel >= F->fd_n ? F->fd_n - 1 : F->fd_sel;
+            F->dirty = true;
+        } else if (F->dlg == DLG_NEW) {
+            nv_add(F->nvk, -d);
             F->dirty = true;
         } else if (F->dlg == DLG_EFFECTS) {
             fx_add(F->fxk, -d);
@@ -3028,6 +3188,12 @@ static bool start(void) {
         return false;
     }
     F->ph_x = F->hover_x = -1;
+    F->nw = NW_SINE;
+    F->nv[NV_FREQ] = 440;
+    F->nv[NV_LEN] = 20;
+    F->nv[NV_LEVEL] = 50;
+    F->n_rate = 44100;
+    F->n_ch = 1;
     for (int e = 0; e < E_COUNT; ++e)
         for (int k = 0; k < 3; ++k)
             F->fxp[e][k] = fx_defs[e].p[k].def;

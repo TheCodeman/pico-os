@@ -607,6 +607,45 @@ int main(void) {
     }
     CHECK(F->len == n && !memcmp(F->d, orig, n * 4), "the effects didn't all undo");
 
+    // New: asks about the changes, then the New box makes a square wave.
+    F->modified = true;
+    file_btn(FB_NEW);
+    CHECK(F->dlg == DLG_ASK, "New didn't ask about the changes");
+    click(W / 2 - 230 + 16 + 128 + 60, 180 + 52 + 12, MOUSE_LEFT);  // Don't save
+    CHECK(F->dlg == DLG_NEW, "Don't save didn't open the New box: %d", F->dlg);
+    click(NWB_X + 96 + NW_SQUARE * 78 + 30, NWB_Y + 36 + 10, MOUSE_LEFT);
+    press('+');                                                        // 450 Hz
+    click(NWB_X + 96 + 0 * 66 + 30, NWB_Y + 152 + 10, MOUSE_LEFT);    // 8000
+    click(NWB_X + 162 + 30, NWB_Y + 180 + 10, MOUSE_LEFT);            // stereo
+    press('\t');
+    press(KEY_LEFT);                                                   // 1.9 s
+    CHECK(F->nw == NW_SQUARE && F->nv[NV_FREQ] == 450 && F->nv[NV_LEN] == 19 && F->n_rate == 8000 && F->n_ch == 2,
+          "New box: wave %d %d Hz %d %d Hz %d ch", F->nw, F->nv[NV_FREQ], F->nv[NV_LEN], F->n_rate, F->n_ch);
+    snap("shot_new.raw", NWB_X + 162 + 30, NWB_Y + 180 + 10);
+    press('\r');
+    CHECK(F->len == 15200 && F->ch == 2 && F->rate == 8000 && F->modified && !F->path[0] && !F->nundo,
+          "square: %u frames %d ch %u Hz", F->len, F->ch, F->rate);
+    CHECK(F->d[0] == 16384 && F->d[1] == 16384 && F->d[9 * 2] == -16384 && F->d[9 * 2 + 1] == -16384 &&
+              peak(0, F->len, 0) == 16384, "square: %d %d %d", F->d[0], F->d[18], peak(0, F->len, 0));
+    // Frequency steps: down from 100 by 1, up from 990 by 10 then 100.
+    F->nv[NV_FREQ] = 100;
+    nv_add(NV_FREQ, -1);
+    CHECK(F->nv[NV_FREQ] == 99, "100 Hz down: %d", F->nv[NV_FREQ]);
+    F->nv[NV_FREQ] = 990;
+    nv_add(NV_FREQ, 2);
+    CHECK(F->nv[NV_FREQ] == 1100, "990 Hz up twice: %d", F->nv[NV_FREQ]);
+    // A sine and silence, mono at 44100.
+    F->nw = NW_SINE, F->nv[NV_FREQ] = 1000, F->nv[NV_LEN] = 5, F->nv[NV_LEVEL] = 100, F->n_rate = 44100, F->n_ch = 1;
+    generate();
+    CHECK(F->len == 22050 && F->ch == 1 && peak(0, F->len, 0) >= 32700 && abs(F->d[11]) > 32000,
+          "sine: %u frames, peak %d, d[11] %d", F->len, peak(0, F->len, 0), F->d[11]);
+    F->nw = NW_SILENCE;
+    generate();
+    CHECK(F->len == 22050 && peak(0, F->len, 0) == 0, "silence: %u frames, peak %d", F->len, peak(0, F->len, 0));
+    F->nw = NW_NOISE, F->n_ch = 2;
+    generate();
+    CHECK(F->ch == 2 && peak(0, F->len, 0) > 30000, "noise: peak %d", peak(0, F->len, 0));
+
     // The screenshots: the demo, part selected, playing.
     CHECK(load("/DEMO.WAV"), "DEMO.WAV");
     F->modified = false;

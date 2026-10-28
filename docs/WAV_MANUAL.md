@@ -170,6 +170,29 @@ or 48000 Hz; Left/Right), mono or stereo (M, S), and whether Save writes
 Stereo made mono mixes the two sides; mono made stereo puts the same on
 both. Format changes can be undone.
 
+### New
+
+![new](wav_new.png)
+
+**New** (Ctrl-N) asks about changes not saved, then opens the New box,
+which starts the sound as a waveform:
+
+- **Wave:** Silence, Sine, Square, Triangle, Sawtooth or Noise (W steps
+  through them).
+- **Frequency:** 1 to 20000 Hz, by 1 Hz below 100, 10 Hz below 1000 and
+  100 Hz above; or 110, 220, 440, 880 or 1000 at a click.
+- **Length:** 0.1 s to 10 minutes (as long as the memory allows).
+- **Level:** 1 to 100 % of full scale (50 % leaves room for effects).
+- **Rate** and **Mono** or **Stereo** (M, S): the sound's format.
+
+Tab (or Up/Down) chooses the value that Left/Right (or the wheel) change,
+PgUp/PgDn ten steps; Enter makes the sound, Esc keeps the one there.
+The box remembers its choices while the editor runs. Noise is white
+noise; the others start at the beginning of a cycle (the square and
+sawtooth with their jumps, as they are). Shape it with the effects and
+the fades: a sine through tremolo, a sawtooth through the low-pass, noise
+through the high-pass and a fade out for a hi-hat.
+
 ### Loading and saving
 
 ![load](wav_load.png)
@@ -220,7 +243,7 @@ Help (or F1) shows them in the editor too.
 | F | format |
 | Ctrl-S or F2 | save |
 | F3 or Ctrl-O | load |
-| Ctrl-N | new |
+| Ctrl-N | new (the New box: a waveform, its frequency and length) |
 | F1 | the keys |
 | Esc | stop playing; when not playing, quit (asks first if there are changes to save) |
 
@@ -275,7 +298,7 @@ leaves and enters.
 
 `tools/wavtest/uitest.sh` builds the editor on a PC and works it with a
 simulated mouse and keys, checking loading, selecting, cut, copy, paste,
-delete, trim, every level change and effect (an echo's repeats exactly,
+delete, trim, the New box's waveforms, every level change and effect (an echo's repeats exactly,
 a reverb's tail, the filters' cutoffs) and their undo and redo, format changes,
 saving 8 and 16-bit files and reading them back, playing, the checksums
 catching a changed bit, and running out of memory (under ASan); it

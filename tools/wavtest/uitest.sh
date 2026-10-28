@@ -9,7 +9,7 @@ T=$(mktemp -d)
 cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -fsanitize=address,undefined -Istubs \
     -I../si5351test/stubs -I../../src uitest.c dirstub.c -lm -o "$T/uitest"
 (cd "$T" && ./uitest)
-for s in main load ask gain format effects help; do
+for s in main load ask gain format effects new help; do
     python3 - "$T/shot_$s.raw" "$OUT/wav_$s.png" <<'P'
 import sys, zlib, struct
 d = open(sys.argv[1], 'rb').read()
