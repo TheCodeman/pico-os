@@ -38,7 +38,7 @@ EXCLUDE                = src/fatfs \
                          src/net/mbedtls_config.h src/net/lwipopts.h src/tusb_config.h \
                          src/genesis/genesis_fast_68k.h src/font8x16.h \
                          src/basic src/applesoft src/apple2e src/c64 src/genesis \
-                         src/mc src/mod src/radio src/si5351 src/fmradio src/smb src/xfer \
+                         src/mc src/mod src/radio src/si5351 src/fmradio src/sprite src/smb src/xfer \
                          src/editor.c src/editor.h src/term.c src/term.h \
                          src/ay38910.c src/ay38910.h \
                          src/net/telnet.c src/net/telnet_menu.c src/net/dialdir.c src/net/dialdir.h \

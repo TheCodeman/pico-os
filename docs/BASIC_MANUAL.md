@@ -435,11 +435,14 @@ Leaving BASIC returns to text mode.
 
 Up to 64 sprites move over the graphics in any SCREEN mode without
 disturbing them: each is drawn with its see-through pixels left alone, and
-what was behind it is put back when it moves. Pictures come from GET.
+what was behind it is put back when it moves. Pictures come from GET, or
+from .SPR files made with the sprite editor (`sprite`, see the *Sprite
+Editor* manual).
 
 | Statement / function | What it does |
 |---|---|
 | `SPRITE SHAPE s, a[(i)]` | Keeps the picture in array `a` (made by GET) as shape `s` (0-63). Colour 0 is see-through. The array can be used again afterwards. |
+| `SPRITE LOAD "file"[, s]` | Keeps the frames of a .SPR file (from the sprite editor) as shapes `s`, `s`+1, ... (`s` is 0 if left out), in their own RGB332 colours whatever the mode or PALETTE; their see-through pixels stay see-through. |
 | `SPRITE n, x, y[, s[, dx, dy]]` | Puts sprite `n` (0-63) at (x,y), in the mode's pixels (it may hang off the screen), with shape `s` (the one it had if left out) and a speed in pixels per update it keeps. |
 | `SPRITE n OFF`, `SPRITE CLEAR` | Hides one sprite, or all of them. |
 | `SPRITE UPDATE [f]` | Shows the changes: puts back what was behind every sprite, moves each by its speed times `f` (default 1; one that moves wholly off the screen turns off), and draws them all again, higher numbers on top. Call it once a frame, after drawing. |
@@ -724,6 +727,7 @@ run without music.
 | SPIFLASH.BAS | reads an SPI flash chip's JEDEC ID and first 16 bytes (SPI1 on GP8-11) |
 | FONTVIEW.BAS | shows every font sheet in /BFONTS (or /NET/bfonts) one at a time with the size FONT LOAD found: all the characters, a sentence and a big HELLO; arrows, Space or Backspace to go through them, Esc to quit |
 | FONTDEMO.BAS | text drawn with a font sheet (EXAMPLES/FONTS/16X16-F2.PNG, which must be there too): a big title, proportional spacing, the console font in colours, a scrolling message, and MUSIC in the background |
+| COINS.BAS | sixteen spinning coins bouncing over a sky: the eight frames of COIN.SPR (drawn in the sprite editor, next to it or in /EXAMPLES) loaded with SPRITE LOAD; any key quits |
 | NOVA.BAS | NOVA STRIKE, a space shooter: SCREEN 13 with SPRITE, waves of enemies, a mothership every fifth wave, power-ups, sound effects with SOUND after `PLAY "MB"`, its soundtrack NOVA.MOD through MUSIC, titles in the font sheet FONTS/16X16-F7.PNG the score display in FONTS/16X16-FA.PNG and the title screen's scrolling help in FONTS/16X16-FG.PNG (FONT LOAD, GPRINT), and a rendered ringed planet and moon on the title screen (NOVAPLAN.PNG, NOVAMOON.PNG, drawn with IMAGE; copy them all to /EXAMPLES too, or it falls back to /NET/bfonts and the console font). arrows or WASD move the ship while held (with KEYDOWN), the mouse steers too, Space/Z/click fire, F toggles auto-fire, B or right-click bombs, P pauses, Esc quits; it plays itself on the title screen after 20 seconds |
 
 Run one with `basic EXAMPLES/NAME.BAS`, or `RUN "EXAMPLES/NAME"` from inside

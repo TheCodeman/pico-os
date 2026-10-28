@@ -45,6 +45,7 @@
 #include "screenshot.h"
 #include "si4703_pico.h"
 #include "si5351_pico.h"
+#include "sprite.h"
 #include "usb_storage.h"
 
 #define LINE_MAX      255  ///< a command may wrap over several screen rows
@@ -343,6 +344,13 @@ static const help_t help_programs[] = {
      "si5351 status              the setup, PLLs and the chip's status\n"
      "  Also drive, pll, invert, phase, xtal, load, cal, iq, recall, i2c\n"
      "  (si5351 help). I2C1 on GP2/GP3 at 0x60; kept in /SI5351.INI."},
+    {"sprite", "spredit", "sprite editor (RGB332)",
+     "sprite [file.spr]          draw sprites with the mouse: 1x1 to 32x32,\n"
+     "                           all 256 colours and see-through, 64 frames\n"
+     "sprite info file.spr       its size and frames\n"
+     "sprite png file.spr [out]  the frames side by side as a PNG\n"
+     "  BASIC: SPRITE LOAD \"file.spr\", s makes its frames shapes s, s+1, ...\n"
+     "  F1 in the editor lists its keys."},
     {"view", NULL, "show a picture",
      "view file\n"
      "  Shows a BMP, PNG or JPEG; any key returns."},
@@ -1625,7 +1633,7 @@ static const struct {
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset},
-    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"screenshot", cmd_screenshot},
+    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"screenshot", cmd_screenshot},
 };  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.

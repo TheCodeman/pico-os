@@ -11,8 +11,8 @@ keyboard, mouse and flash drive, WiFi, and a set of programs to go with it.
 - **Shell** with history, Tab completion, wildcards, scripts and /AUTORUN;
   files on a USB drive (FAT/exFAT) and on Windows/Samba shares over WiFi.
 - **Programs:** a text editor, a Midnight Commander style file manager
-  (`mc`), a picture viewer, a MOD/XM music tracker, a serial terminal with
-  X/Y/ZMODEM, and an internet radio (MP3 and AAC).
+  (`mc`), a picture viewer, a MOD/XM music tracker, a sprite editor, a
+  serial terminal with X/Y/ZMODEM, and an internet radio (MP3 and AAC).
 - **Network:** WiFi, `wget` (HTTP/HTTPS), `telnet` with a BBS directory,
   `ssh` and `scp`, network shares (`mount`), NTP.
 - **BASIC:** a GW-BASIC style BASIC with graphics, sprites, font sheets,
@@ -24,7 +24,7 @@ keyboard, mouse and flash drive, WiFi, and a set of programs to go with it.
 
 PDFs in [manuals/](manuals/), one for the OS and one for each application
 (BASIC, the editor, mc, the tracker, the radio, the clock generator, the
-FM radio, the network tools, the serial terminal, the emulators). They are made from
+FM radio, the sprite editor, the network tools, the serial terminal, the emulators). They are made from
 [docs/](docs/) with `tools/make_manual.py`. The code's API documentation is
 made with `doxygen` (the `Doxyfile` here; it goes to `docs/api/html`, and
 the docs workflow publishes it at https://thecodeman.github.io/pico-os/).

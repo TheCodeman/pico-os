@@ -30,6 +30,7 @@
 #include "ff.h"
 #include "font8x16.h"
 #include "image.h"
+#include "spr.h"
 
 /// All of BASIC's memory comes from the port (on the Pico: PSRAM for big
 /// blocks, SRAM for small ones).
@@ -5724,7 +5725,8 @@ static void do_gput(void) {
 // ---- Sprites (an extension) -----------------------------------------------------
 //
 // SPRITE SHAPE s, a[(i)] keeps a picture made by GET as shape s (colour 0 is
-// see-through). SPRITE n, x, y[, s[, dx, dy]] puts sprite n at (x,y) in the
+// see-through); SPRITE LOAD "file"[, s] keeps the frames of a .SPR file (the
+// sprite editor's) as shapes s, s+1, .... SPRITE n, x, y[, s[, dx, dy]] puts sprite n at (x,y) in the
 // mode's pixels, with shape s and a speed it keeps; SPRITE n OFF hides it;
 // SPRITE CLEAR hides them all. Nothing is drawn until SPRITE UPDATE [f]: it
 // puts back what was behind every sprite (but not over drawing the program has
@@ -5923,11 +5925,73 @@ static void do_sprite_shape(void) {
     sh->mask = m;
 }
 
+/// SPRITE LOAD's progress: where the frames go and why it stopped.
+typedef struct {
+    int first;                ///< the first frame's shape
+    const spr_info_t *info;   ///< the file's size
+    int why;                  ///< the error that stopped it, or 0
+} sprite_load_t;
+
+/// For SPRITE LOAD: a frame of the file becomes a shape.
+/// @param ctx the sprite_load_t
+/// @param i the frame
+/// @param px its colours (RGB332)
+/// @param on 1 where it is drawn
+/// @return false to stop (no shape left, or no memory)
+static bool sprite_load_frame(void *ctx, int i, const uint8_t *px, const uint8_t *on) {
+    sprite_load_t *l = ctx;
+    int s = l->first + i, n = l->info->w * l->info->h;
+    if (s >= SHAPES) {
+        l->why = E_ILLEGAL_CALL;
+        return false;
+    }
+    uint8_t *p = malloc(n), *m = malloc(n);
+    if (!p || !m) {
+        free(p);
+        free(m);
+        l->why = E_OUT_OF_MEMORY;
+        return false;
+    }
+    memcpy(p, px, n);
+    memcpy(m, on, n);
+    shape_t *sh = &shapes[s];
+    free(sh->px);
+    free(sh->mask);
+    sh->w = l->info->w;
+    sh->h = l->info->h;
+    sh->px = p;
+    sh->mask = m;
+    return true;
+}
+
+/// SPRITE LOAD "file"[, s]: the frames of a .SPR file (the sprite editor's)
+/// become shapes s, s+1, ... (s is 0 if left out), in their own colours
+/// whatever the mode or PALETTE.
+static void do_sprite_load(void) {
+    char name[64];
+    file_name_arg(name, sizeof name, false);
+    int s = 0;
+    if (accept(",")) {
+        s = arg_int();
+        if (s < 0 || s >= SHAPES)
+            error(E_ILLEGAL_CALL);
+    }
+    spr_info_t info;
+    sprite_load_t l = {s, &info, 0};
+    const char *err;
+    if (!spr_load(name, &info, sprite_load_frame, &l, &err)) {
+        FILINFO fi;
+        error(l.why ? l.why : f_stat(name, &fi) != FR_OK ? E_FILE_NOT_FOUND : E_BAD_FILE_MODE);
+    }
+}
+
 /// SPRITE n, ON / OFF / x, y / MOVE dx, dy and the like.
 static void do_sprite(void) {
     need_graphics();
     if (accept_word("SHAPE")) {
         do_sprite_shape();
+    } else if (accept_word("LOAD")) {
+        do_sprite_load();
     } else if (accept_word("UPDATE")) {
         double f = 1;
         skip_spaces();
