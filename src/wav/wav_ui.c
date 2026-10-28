@@ -1372,8 +1372,9 @@ static void play_stop(void) {
     F->dirty = true;
 }
 
-/// Plays the selection, or from the cursor to the end (looping if Loop is on).
-/// @param from where to start (-1: the selection or the cursor)
+/// Plays the selection, or all of the sound from the start (looping if Loop is on).
+/// The middle button plays from a point.
+/// @param from where to start (-1: the selection, or the start)
 static void play_start(int64_t from) {
     play_stop();
     if (!F->len)
@@ -1383,7 +1384,7 @@ static void play_start(int64_t from) {
         a = loop0 = F->sel0;
         end = F->sel1;
     } else {
-        a = from < 0 ? F->sel0 : (uint32_t)from;
+        a = from < 0 ? 0 : (uint32_t)from;
         if (a >= F->len)
             a = 0;
         end = F->len;

@@ -424,7 +424,16 @@ int main(void) {
     press(KEY_HOME);
     CHECK(F->view0 == 0 && F->sel0 == 0, "Home");
 
-    // Playing: 22050 Hz at 48 kHz, the selection, once then looping.
+    // Playing: with nothing selected, from the start whatever the cursor; the middle button from there.
+    F->sel0 = F->sel1 = 30000;
+    press(' ');
+    CHECK(F->pl_on && F->pl_pos == 0 && F->pl_end == n, "play with no selection: from %u to %u", F->pl_pos,
+          F->pl_end);
+    press(' ');
+    click(fx(n / 8), WV_Y + 40, MOUSE_MIDDLE);
+    CHECK(F->pl_on && F->pl_pos > n / 8 - 100 && F->pl_pos < n / 8 + 100, "middle button: from %u", F->pl_pos);
+    press(' ');
+    // 22050 Hz at 48 kHz, the selection, once then looping.
     F->sel0 = 22050, F->sel1 = 22050 + 100;
     press(' ');
     CHECK(F->pl_on && source == play_src && F->pl_step == (22050u << 16) / 48000, "play: on %d step %u", F->pl_on,

@@ -53,8 +53,9 @@ From the top:
 
 ### Playing
 
-**Play** (or Space) plays the selection, or with none selected from the
-cursor to the end; Space or **Stop** stops it, and so does Esc. With
+**Play** (or Space) plays the selection, or with none selected the whole
+sound from the start; the middle button plays from wherever it is
+clicked. Space or **Stop** stops it, and so does Esc. With
 **Loop** on (L), the selection plays round and round (with none, the
 whole sound from the start each time). The view follows the play
 position a page at a time. The sound goes out through the HDMI sound at
