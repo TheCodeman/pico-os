@@ -208,7 +208,7 @@ static int32_t value(const field_t *f, const uint8_t *data, size_t len) {
 static volatile int16_t pos_x = DVI_WIDTH / 2, pos_y = DVI_HEIGHT / 2;
 ///@}
 /// The arrow's mode (MOUSE_POINTER_...), set on core 0.
-static volatile int mode;
+static volatile int pointer_mode;
 /// The buttons held.
 static volatile uint8_t held;
 /// The wheel's movement so far.
@@ -284,7 +284,7 @@ static void moved(int dx, int dy, int dw, uint8_t buttons) {
     pos_y = y;
     // The arrow follows the mouse at once, however long the program takes
     // to call mouse_pointer_update() (a full redraw can take 100 ms).
-    if (mode == MOUSE_POINTER_ARROW) {
+    if (pointer_mode == MOUSE_POINTER_ARROW) {
         dvi_arrow_x = (int16_t)x;
         dvi_arrow_y = (int16_t)y;
     }
@@ -458,23 +458,23 @@ void mouse_warp(int x, int y) {
 
 // ---- The arrow ---------------------------------------------------------------------------------------------
 
-/// The arrow itself is drawn by the scanout over the picture (dvi.c), so
-/// nothing here touches the framebuffer: no save-under to get out of step
-/// with what is drawn beneath it, and no flicker from taking it off and
-/// putting it back around each redraw.
+// The arrow itself is drawn by the scanout over the picture (dvi.c), so
+// nothing here touches the framebuffer: no save-under to get out of step
+// with what is drawn beneath it, and no flicker from taking it off and
+// putting it back around each redraw.
 
-void mouse_pointer(int m) {
-    if (m == mode)
+void mouse_pointer(int mode) {
+    if (mode == pointer_mode)
         return;
-    int was = mode;
-    mode = m;
+    int was = pointer_mode;
+    pointer_mode = mode;
     mouse_pointer_update();
     if (was == MOUSE_POINTER_TEXT)
         console_pointer_off();
 }
 
 int mouse_pointer_mode(void) {
-    return mode;
+    return pointer_mode;
 }
 
 /// Hiding and showing are no longer needed around drawing; kept so callers
@@ -487,7 +487,7 @@ void mouse_pointer_show(void) {
 }
 
 void mouse_pointer_update(void) {
-    bool on = mode == MOUSE_POINTER_ARROW && count;
+    bool on = pointer_mode == MOUSE_POINTER_ARROW && count;
     if (on && (dvi_arrow_x != pos_x || dvi_arrow_y != pos_y)) {
         dvi_arrow_x = pos_x;
         dvi_arrow_y = pos_y;

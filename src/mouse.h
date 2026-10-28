@@ -79,8 +79,9 @@ void mouse_load_config(void);
 ///   MOUSE_POINTER_OFF: none (the default).
 ///   MOUSE_POINTER_ARROW: an arrow that the video output (dvi.c) draws over
 ///     the picture as it sends each line, so it never touches the
-///     framebuffer. Programs call mouse_pointer_update() in their loop to
-///     move it.
+///     framebuffer. It follows each mouse report; programs still call
+///     mouse_pointer_update() in their loop (it shows or hides the arrow as
+///     mice come and go).
 ///   MOUSE_POINTER_TEXT: the text cell under it in reversed colours, kept up
 ///     to date by the console (the shell, mc, BASIC's text screen).
 enum { MOUSE_POINTER_OFF, MOUSE_POINTER_ARROW, MOUSE_POINTER_TEXT };
