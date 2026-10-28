@@ -190,6 +190,9 @@ typedef struct {
     uint8_t *wf;            ///< the waterfall's rows (PSRAM), newest at wf_top
     int wf_top;             ///< the newest row
     int8_t col[SP_W];       ///< the spectrum's columns (dB)
+    uint8_t *sp_base;       ///< the spectrum's columns' background (SP_W bytes, SRAM)
+    uint8_t *sp_row;        ///< a row of it being built (SP_W bytes, SRAM)
+    int16_t *sp_top;        ///< each column's top row (SP_W, SRAM)
     float floor_db;         ///< the noise floor, for the scale
     bool have_spec;         ///< col has something
     uint32_t next_spec;     ///< when the next spectrum line is due
@@ -544,23 +547,29 @@ static uint32_t chan_half(void) {
     return S->mode == DSP_WFM ? 100000 : S->mode == DSP_NFM ? 7500 : 5000;
 }
 
-/// The spectrum: the grid, the channel's band, the levels and the scale.
-static void draw_spectrum(void) {
-    fill(SP_X, SP_Y, SP_W, SP_H, C_FIELD);
-    int a = freq_x(S->freq - chan_half()), b = freq_x(S->freq + chan_half());
-    if (a < SP_X) a = SP_X;
-    if (b > SP_X + SP_W) b = SP_X + SP_W;
+/// The spectrum: the grid, the channel's band, the levels, the channel's
+/// line, and the scale under it. Built a row at a time in SRAM and copied,
+/// so each pixel is written once (no flicker on the screen, and quick into
+/// PSRAM).
+/// @param scale draw the frequency scale too (it only changes with the tuning)
+static void draw_spectrum(bool scale) {
+    uint8_t *base = S->sp_base, *row = S->sp_row;
+    int16_t *top = S->sp_top;
+    memset(base, C_FIELD, SP_W);
+    int a = freq_x(S->freq - chan_half()) - SP_X, b = freq_x(S->freq + chan_half()) - SP_X;
+    if (a < 0) a = 0;
+    if (b > SP_W) b = SP_W;
     if (b > a)
-        fill(a, SP_Y, b - a, SP_H, C_CHAN);
-    for (int k = 1; k < 6; ++k)
-        fill(SP_X, SP_Y + k * SP_H / 6, SP_W, 1, C_GRID);  // every 10 dB
-    // The scale: a line every 25 kHz, labels every 50 (40 kHz at 288 kS/s... same).
+        memset(base + a, C_CHAN, b - a);
+    // A line every 25 kHz, labels every 50.
     uint32_t lo = S->centre - S->rate / 2, hi = S->centre + S->rate / 2;
-    fill(SP_X, SCALE_Y, SP_W, 16, C_FIELD);
+    if (scale)
+        fill(SP_X, SCALE_Y, SP_W, 16, C_FIELD);
     for (uint32_t f = (lo + 24999) / 25000 * 25000; f < hi; f += 25000) {
         int x = freq_x(f);
-        fill(x, SP_Y, 1, SP_H, C_GRID);
-        if (f % 50000 == 0) {
+        if (x >= SP_X && x < SP_X + SP_W)
+            base[x - SP_X] = C_GRID;
+        if (scale && f % 50000 == 0) {
             char s[16];
             snprintf(s, sizeof s, "%lu.%03lu", (unsigned long)(f / 1000000), (unsigned long)(f / 1000 % 1000));
             int n = strlen(s);
@@ -568,18 +577,25 @@ static void draw_spectrum(void) {
                 text(x - n * 4, SCALE_Y, s, C_DIM, C_FIELD);
         }
     }
-    if (S->have_spec) {
+    for (int c = 0; c < SP_W; ++c)
+        top[c] = (int16_t)(S->have_spec ? spec_y(S->col[c]) - SP_Y : SP_H);
+    int cx = freq_x(S->freq) - SP_X;
+    for (int r = 0, k = 1; r < SP_H; ++r) {
+        bool grid = r == k * SP_H / 6 && k < 6;  // every 10 dB
+        if (grid)
+            ++k;
         for (int c = 0; c < SP_W; ++c) {
-            int y = spec_y(S->col[c]);
-            uint8_t *p = S->t + y * W + SP_X + c;
-            *p = C_CYAN;
-            for (p += W; p < S->t + (SP_Y + SP_H) * W; p += W)
-                *p = *p == C_FIELD ? C_SPEC : (uint8_t)(*p | C_SPEC);
+            uint8_t v = grid ? C_GRID : base[c];
+            if (r == top[c])
+                v = C_CYAN;
+            else if (r > top[c])
+                v = v == C_FIELD ? C_SPEC : (uint8_t)(v | C_SPEC);
+            row[c] = v;
         }
+        if (cx >= 0 && cx < SP_W)
+            row[cx] = C_RED;
+        memcpy(S->t + (SP_Y + r) * W + SP_X, row, SP_W);
     }
-    int cx = freq_x(S->freq);
-    if (cx >= SP_X && cx < SP_X + SP_W)
-        fill(cx, SP_Y, 1, SP_H, C_RED);
     hit(SP_X, SP_Y, SP_W, SCALE_Y + 16 - SP_Y, HIT_SPEC, 0);
 }
 
@@ -721,7 +737,7 @@ static void draw(void) {
     draw_meter();
     pump();
     bevel(4, SP_Y - 2, W - 8, SCALE_Y + 18 - SP_Y, false, C_FIELD);
-    draw_spectrum();
+    draw_spectrum(true);
     bevel(4, WF_Y - 2, W - 8, WF_H + 4, false, C_FIELD);
     draw_waterfall();
     pump();
@@ -1015,14 +1031,11 @@ static void meter_show(void) {
     copy_rows(DISP_Y + 26, 30);
 }
 
-/// Shows a new spectrum line on the screen: the spectrum (drawn off the
-/// screen, then copied, so it doesn't flicker), and the waterfall moved down
-/// a row (in the framebuffer itself, quicker than from PSRAM).
+/// Shows a new spectrum line on the screen: the spectrum, and the waterfall
+/// moved down a row (in the framebuffer itself, quicker than from PSRAM).
 static void spectrum_show(void) {
-    S->t = S->g;
-    draw_spectrum();
     S->t = dvi_framebuf;
-    copy_rows(SP_Y, SCALE_Y + 16 - SP_Y);
+    draw_spectrum(false);
     memmove(dvi_framebuf + (WF_Y + 1) * W, dvi_framebuf + WF_Y * W, (WF_H - 1) * W);
     memcpy(dvi_framebuf + WF_Y * W + SP_X, S->wf + S->wf_top * SP_W, SP_W);
 }
@@ -1598,7 +1611,8 @@ static bool start(void) {
     defaults();
     size_t ov;
     uint8_t *area = app_overlay_claim(APP_OV_SDR, &ov, NULL);  // stops the internet radio if it plays
-    size_t need = RTL_SLOTS * RTL_SLOT_BYTES + ((sizeof(dsp_t) + 7) & ~(size_t)7);
+    size_t dsp_room = (sizeof(dsp_t) + 7) & ~(size_t)7;
+    size_t need = RTL_SLOTS * RTL_SLOT_BYTES + dsp_room + 4 * SP_W;
     S->g = psram_malloc(W * H);
     S->wf = psram_malloc(WF_H * SP_W);
     aring = psram_malloc(AUD_N * sizeof *aring);
@@ -1613,6 +1627,9 @@ static bool start(void) {
     }
     S->ring = area;
     S->dsp = (dsp_t *)(area + RTL_SLOTS * RTL_SLOT_BYTES);
+    S->sp_top = (int16_t *)(area + RTL_SLOTS * RTL_SLOT_BYTES + dsp_room);
+    S->sp_base = (uint8_t *)(S->sp_top + SP_W);
+    S->sp_row = S->sp_base + SP_W;
     memset(S->wf, 0, WF_H * SP_W);
     dsp_spec_init(S->spec);
     make_palette();
