@@ -285,8 +285,8 @@ more untouched. So, as the text editor does with its text, every 8 KB of
 the sound, the clipboard and the undo steps has a checksum (kept in the
 Pico's own memory while the editor runs), and every 15 seconds each
 block is read from the chip, checked and written back, which renews it.
-If a block has changed by itself, the title strip says **MEMORY ERROR**
-in red, and Save won't write over the file it came from: Save as a new
+If a block has changed by itself, the title strip turns dark red and
+says **MEMORY ERROR**, and Save won't write over the file it came from: Save as a new
 file, and compare.
 
 Playing runs on core 1 in the sound mixer, at 48 kHz: each output sample

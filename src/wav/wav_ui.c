@@ -74,7 +74,7 @@
 #define C_YELLOW 0xfc  ///< titles, the cursor
 #define C_CYAN   0x1f  ///< typed text
 #define C_ORANGE 0xf0  ///< the play position
-#define C_RED    0xe0  ///< memory errors
+#define C_ALARM  0x80  ///< the title strip after a memory error (dark red)
 #define C_FIELD  0x00  ///< sunken fields
 #define C_SEL    0x2b  ///< pressed buttons, the selected row
 #define C_ROWALT 0x05  ///< every other row
@@ -1000,14 +1000,17 @@ static void draw_files(void) {
 
 /// Draws the title strip, with the message or the file, its format and length.
 static void draw_top(void) {
-    fill(0, 0, W, TOP_H, C_STRIP);
-    text(8, 4, "WAV Editor", C_YELLOW, C_STRIP);
+    uint8_t bg = F->damaged ? C_ALARM : C_STRIP;  // white on dark red after a memory error
+    fill(0, 0, W, TOP_H, bg);
+    text(8, 4, "WAV Editor", C_YELLOW, bg);
     if (F->msg[0] && now_ms() < F->msg_until) {
-        textf(104, 4, F->damaged ? C_RED : C_TEXT, C_STRIP, "%.66s", F->msg);
+        textf(104, 4, C_TEXT, bg, "%.66s", F->msg);
+    } else if (F->damaged) {
+        text(104, 4, "MEMORY ERROR in the sound: Save as a new file", C_TEXT, bg);
     } else {
         char t[20];
         fmt_time(t, sizeof t, F->len);
-        textf(104, 4, F->damaged ? C_RED : C_LABEL, C_STRIP, "%.24s%s  %lu Hz %d-bit %s  %s  F1 keys", file_name(),
+        textf(104, 4, C_LABEL, bg, "%.24s%s  %lu Hz %d-bit %s  %s  F1 keys", file_name(),
               F->modified ? "*" : "", (unsigned long)F->rate, F->bits, F->ch == 2 ? "stereo" : "mono", t);
     }
 }

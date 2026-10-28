@@ -508,6 +508,8 @@ int main(void) {
     F->d[12345] ^= 0x40;  // not through the editor
     refresh(-1);
     CHECK(F->damaged, "the changed bit wasn't found");
+    snap("shot_damaged.raw", -1, -1);
+    CHECK(F->g[10 * W + 300] == C_ALARM, "the title strip isn't dark red: %02x", F->g[10 * W + 300]);
     F->modified = true;
     file_btn(FB_SAVE);
     CHECK(F->dlg == DLG_FILE, "Save over the file when damaged: dlg %d", F->dlg);
