@@ -500,8 +500,26 @@ int main(void) {
     FILINFO fi;
     CHECK(f_stat("/OUT8.WAV", &fi) == FR_OK && fi.fsize == 44 + n * 2, "OUT8.WAV is %lu bytes", fi.fsize);
 
-    // The checksums: all well, then a bit that changed by itself.
+    // The checksums: an empty sound's spare room changing is no error (it holds nothing).
+    new_sound();
+    refresh(-1);
+    for (uint32_t i = 0; i < F->cap; ++i)
+        F->d[i] ^= 0x1234;  // not through the editor
+    F->sm[3] ^= 0x55;
+    refresh(-1);
+    CHECK(!F->damaged, "an empty sound's spare room counted as damage");
+    // Nor is the room left by deleting from the end, or what follows the sound.
     CHECK(load("/TONE.WAV"), "TONE.WAV again");
+    refresh(-1);
+    F->sel0 = n - 3000, F->sel1 = n;
+    press(KEY_DEL);
+    refresh(-1);
+    F->d[(n - 10) * 2] ^= 0x40;
+    refresh(-1);
+    CHECK(!F->damaged, "the room past the end counted as damage");
+    press('u');
+    CHECK(F->len == n && !memcmp(F->d, orig, n * 4), "undo of the delete from the end");
+    // All well, then a bit that changed by itself.
     refresh(-1);
     refresh(-1);
     CHECK(!F->damaged, "damaged with nothing wrong");

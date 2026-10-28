@@ -191,7 +191,9 @@ typedef struct {
 /// A block of PSRAM the checksums look after.
 typedef struct {
     uint8_t *p;      ///< it
-    uint32_t len;    ///< its bytes (a multiple of 4)
+    uint32_t len;    ///< its bytes (a multiple of 8)
+    uint32_t want;   ///< the bytes asked for (the rest is never written)
+    uint32_t live_was;  ///< the bytes in use when last checked
     uint32_t *sums;  ///< a checksum for each GBLOCK (SRAM)
     uint8_t *dirty;  ///< changed by the editor since its sum was taken (after sums)
 } region_t;
@@ -364,6 +366,7 @@ static bool undo_drop_oldest(void);
 static void *galloc(size_t n) {
     if (F->nreg == MAX_REGIONS)
         return NULL;
+    size_t want = n;
     n = (n + 7) & ~(size_t)7;
     if (!n)
         n = 8;
@@ -373,6 +376,8 @@ static void *galloc(size_t n) {
             return NULL;
     region_t *r = &F->reg[F->nreg++];
     r->p = p;
+    r->want = (uint32_t)want;
+    r->live_was = 0;
     r->len = (uint32_t)n;
     r->sums = NULL;
     region_sums(r);
@@ -398,6 +403,7 @@ static void gfree(void *p) {
 /// @return it (maybe moved), or NULL (p kept)
 static void *grealloc(void *p, size_t n) {
     region_t *r = region_of(p);
+    size_t want = n;
     n = (n + 7) & ~(size_t)7;
     void *np;
     while (!(np = psram_realloc(p, n)))
@@ -405,6 +411,8 @@ static void *grealloc(void *p, size_t n) {
             return NULL;
     r = region_of(p);  // the drops may have moved it in the table
     r->p = np;
+    r->want = (uint32_t)want;
+    r->live_was = 0;
     r->len = (uint32_t)n;
     region_sums(r);
     return np;
@@ -424,13 +432,40 @@ static void gtouch(const void *p, size_t n) {
         r->dirty[k] = 1;
 }
 
+/// The bytes of a region in use: the sound's and the summary's room past
+/// their ends, and the few bytes past what was asked for, hold whatever the
+/// memory had, which is never written and so not checked.
+/// @param r the region
+/// @return them
+static uint32_t live_bytes(const region_t *r) {
+    uint32_t n = r->want;
+    if (r->p == (const uint8_t *)F->d)
+        n = F->len * (uint32_t)F->ch * sizeof *F->d;
+    else if (r->p == (const uint8_t *)F->sm)
+        n = (F->len + SUMN - 1) / SUMN * 4 * sizeof *F->sm;
+    return n < r->len ? n : r->len;
+}
+
 /// One block: from the chip, summed and written back. False if a block the
-/// editor hasn't changed no longer matches its sum.
+/// editor hasn't changed no longer matches its sum. Only the bytes in use
+/// count; when that changes, the blocks at the end are summed afresh.
 /// @param r the region
 /// @param k the block
 /// @return it was all right
 static bool refresh_block(region_t *r, uint32_t k) {
-    uint32_t a = k * GBLOCK, n = r->len - a < GBLOCK ? r->len - a : GBLOCK;
+    uint32_t live = live_bytes(r);
+    if (live != r->live_was) {
+        uint32_t lo = live < r->live_was ? live : r->live_was, hi = live ^ r->live_was ^ lo;
+        for (uint32_t b = lo / GBLOCK; b <= (hi ? hi - 1 : 0) / GBLOCK && b * GBLOCK < r->len; ++b)
+            r->dirty[b] = 1;
+        r->live_was = live;
+    }
+    uint32_t a = k * GBLOCK;
+    if (a >= live) {  // nothing in use there
+        r->dirty[k] = 1;
+        return true;
+    }
+    uint32_t n = live - a < GBLOCK ? live - a : GBLOCK;
     volatile uint32_t *w = (volatile uint32_t *)(r->p + a + PSRAM_UNCACHED_OFFSET);
     uint32_t sum = 0;
     for (uint32_t i = 0; i < n / 4; ++i) {

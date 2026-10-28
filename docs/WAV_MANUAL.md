@@ -282,7 +282,8 @@ whole screen in PSRAM while it runs, and nothing at all once it ends.
 
 This board's PSRAM has had a few cells that forget after a minute or
 more untouched. So, as the text editor does with its text, every 8 KB of
-the sound, the clipboard and the undo steps has a checksum (kept in the
+the sound, the clipboard and the undo steps in use has a checksum (the
+room kept past the end of the sound, never written, isn't checked) (kept in the
 Pico's own memory while the editor runs), and every 15 seconds each
 block is read from the chip, checked and written back, which renews it.
 If a block has changed by itself, the title strip turns dark red and
