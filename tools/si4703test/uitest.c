@@ -1,6 +1,6 @@
 /**
  * @file uitest.c
- * @brief The fm panel drawn on a PC against the simulated Si4703, for screenshots and a check that its keys drive the chip.
+ * @brief The fm panel drawn on a PC against the simulated Si4703, for screenshots and a check that its keys drive the chip, and that every scan row plays when picked by key or click (even in another band).
  *
  *     ./uitest.sh  (builds this, writes fm_*.png into the folder given)
  *
@@ -98,6 +98,70 @@ static void run_for(int ms) {
     }
 }
 
+static int failures;  ///< checks that failed
+
+/// Reports a failed check.
+#define CHECK(cond, ...)                                \
+    do {                                                \
+        if (!(cond)) {                                  \
+            ++failures;                                 \
+            printf("FAIL uitest.c:%d: ", __LINE__);     \
+            printf(__VA_ARGS__);                        \
+            printf("\n");                               \
+        }                                               \
+    } while (0)
+
+/// A left click, then the redraw the panel's loop would do.
+/// @param x where
+/// @param y where
+static void click(int x, int y) {
+    mouse_event_t e = {MOUSE_DOWN, MOUSE_LEFT, MOUSE_LEFT, 0, (int16_t)x, (int16_t)y, false};
+    mouse(&e);
+    e.type = MOUSE_UP;
+    e.buttons = 0;
+    mouse(&e);
+    draw();
+}
+
+/// A key, then the redraw.
+/// @param k the key
+static void press(int k) {
+    key(k);
+    draw();
+}
+
+/// Every one of 16 scan rows plays when picked, by Down and Enter and by a
+/// click, though the band was changed to 76-90 after the scan (on the board
+/// only the two rows below 90 MHz played).
+static void test_scan_rows(void) {
+    F->asking_quit = false;
+    F->nscan = 16;
+    for (int i = 0; i < 16; ++i)
+        F->scan[i] = (station_t){88100 + (uint32_t)i * 1200, (uint8_t)(20 + i), "ROW"};
+    F->tab = 1;
+    for (int pass = 0; pass < 2; ++pass) {
+        F->cfg.band = SI4703_BAND_JP;
+        apply(true);
+        F->sel[1] = F->top[1] = 0;
+        draw();
+        for (int i = 0; i < 16; ++i) {
+            if (pass == 0) {  // the keys
+                if (i)
+                    press(KEY_DOWN);
+                press('\r');
+            } else {  // the mouse, Down scrolling the list when the row is below it
+                while (i >= F->top[1] + ROWS)
+                    press(KEY_DOWN);
+                click(100, LIST_Y + 30 + (i - F->top[1]) * ROW_H + ROW_H / 2);
+            }
+            CHECK(F->sel[1] == i && F->khz == F->scan[i].khz, "%s row %d: selected %d, playing %lu (want %lu)",
+                  pass ? "click" : "key", i, F->sel[1], (unsigned long)F->khz, (unsigned long)F->scan[i].khz);
+        }
+        CHECK(F->cfg.band == SI4703_BAND_EU, "band %u after 107.9", F->cfg.band);
+    }
+    printf("scan rows: %s\n", failures ? "FAILED" : "all 16 play by key and click");
+}
+
 int main(void) {
     remove("FMRADIO.INI");
     sim_set_stations(air, sizeof air / sizeof *air);
@@ -175,5 +239,6 @@ int main(void) {
     draw();
     snap("shot_quit.raw");
     save_ini();
-    return 0;
+    test_scan_rows();
+    return failures != 0;
 }

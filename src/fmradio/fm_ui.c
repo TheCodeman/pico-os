@@ -375,6 +375,14 @@ static void draw_display(void) {
 /// @def DX(k)
 /// A frequency's x on the dial (inside draw_dial).
 
+/// The band's name.
+/// @param band SI4703_BAND_*
+/// @return e.g. "87-108"
+static const char *band_name(uint8_t band) {
+    static const char *const bands[3] = {"87-108", "76-108", "76-90"};
+    return bands[band < 3 ? band : 0];
+}
+
 /// Draws the band dial: the scale, the stations found, the favourites, the needle.
 static void draw_dial(void) {
     bevel(4, DIAL_Y, W - 8, DIAL_H, true, C_FACE);
@@ -497,9 +505,8 @@ static void draw_settings(void) {
     button(vx + vw + 4, y, 20, 22, "+", false, HIT_VOL_UP, 0);
     y += 28;
     text(x, y + 3, "Band", C_LABEL, C_FACE);
-    static const char *const bands[3] = {"87-108", "76-108", "76-90"};
     for (int b = 0; b < 3; ++b)
-        button(x + 40 + b * 58, y, 56, 22, bands[b], F->cfg.band == b, HIT_BAND, b);
+        button(x + 40 + b * 58, y, 56, 22, band_name((uint8_t)b), F->cfg.band == b, HIT_BAND, b);
     y += 26;
     text(x, y + 3, "Step", C_LABEL, C_FACE);
     static const int spaces[3] = {200, 100, 50};
@@ -723,6 +730,34 @@ static void tune(uint32_t khz) {
     F->dirty = true;
 }
 
+/// Whether a band has a frequency.
+/// @param band SI4703_BAND_*
+/// @param khz the frequency
+/// @return it does
+static bool in_band(uint8_t band, uint32_t khz) {
+    return khz >= si4703_band_bottom(band) && khz <= si4703_band_top(band);
+}
+
+/// Tunes to a station chosen (from a list, or typed), first switching to a
+/// band that has it if this one doesn't: a scan made on 87-108 still plays
+/// after a change to 76-90, where the chip would stop at 90.
+/// @param khz the frequency
+static void tune_station(uint32_t khz) {
+    if (!in_band(F->cfg.band, khz)) {
+        uint8_t b = in_band(SI4703_BAND_EU, khz)   ? SI4703_BAND_EU
+                    : in_band(SI4703_BAND_JP, khz) ? SI4703_BAND_JP
+                    : in_band(SI4703_BAND_WIDE, khz) ? SI4703_BAND_WIDE
+                                                     : F->cfg.band;
+        if (b != F->cfg.band) {
+            F->cfg.band = b;
+            if (F->found && F->dev.on)
+                si4703_configure(&F->dev, &F->cfg);
+            message("Band %s MHz for %.2f", band_name(b), khz / 1000.0);
+        }
+    }
+    tune(khz);
+}
+
 /// Steps a channel up or down (wrapping round the band).
 /// @param dir +1 or -1
 static void step(int dir) {
@@ -933,7 +968,7 @@ static void key(int k) {
         if (k == '\r' || k == '\n') {
             uint32_t khz;
             if (si4703_parse_freq(F->typed, &khz))
-                tune(khz);
+                tune_station(khz);
             else
                 message("%s: give MHz, e.g. 101.1", F->typed);
             F->typed[0] = 0;
@@ -962,7 +997,7 @@ static void key(int k) {
     case KEY_PGDN: seek(false); break;
     case KEY_UP: if (*sel > 0) --*sel; break;
     case KEY_DOWN: if (*sel < ln - 1) ++*sel; break;
-    case '\r': if (*sel < ln) tune(l[*sel].khz); break;
+    case '\r': if (*sel < ln) tune_station(l[*sel].khz); break;
     case '\t': F->tab ^= 1; break;
     case '+': case '=': set_volume(F->cfg.volume + 1); break;
     case '-': set_volume(F->cfg.volume - 1); break;
@@ -1071,7 +1106,7 @@ static void mouse(const mouse_event_t *e) {
         station_t *l = list_of(F->tab, &n);
         F->sel[F->tab] = h->arg;
         if (h->arg < n && (e->double_click || l[h->arg].khz != F->khz))
-            tune(l[h->arg].khz);
+            tune_station(l[h->arg].khz);
         if (e->button == MOUSE_RIGHT && F->tab == 0)
             del_fav();
         break;
@@ -1299,7 +1334,7 @@ static bool subcommand(int argc, char **argv) {
                 printf("fm: %s: give MHz, e.g. 101.1\n", argv[2]);
                 return true;
             }
-            tune(khz);
+            tune_station(khz);
         }
     } else if (!strcmp(c, "seek")) {
         bool up = argc < 3 || strcmp(argv[2], "down");
@@ -1325,7 +1360,7 @@ static bool subcommand(int argc, char **argv) {
             printf("fm: no favourite %s\n", argv[2]);
             return true;
         }
-        tune(F->favs[n].khz);
+        tune_station(F->favs[n].khz);
     } else if (!strcmp(c, "band") && argc > 2) {
         F->cfg.band = !strcmp(argv[2], "wide") ? SI4703_BAND_WIDE : !strcmp(argv[2], "jp") ? SI4703_BAND_JP
                                                                                           : SI4703_BAND_EU;
