@@ -52,6 +52,13 @@ extern volatile bool dvi_arrow_on;
 extern volatile int16_t dvi_arrow_x, dvi_arrow_y;
 ///@}
 
+/// Counts pictures: goes up by one as the vertical sync starts, while the
+/// lines being sent are blank. The first framebuffer row is read about 1 ms
+/// later and each row after it 32 us (64 us when lines are doubled) after
+/// the one before, so a program drawing in a buffer of its own can wait for
+/// the count to change and copy its picture in without tearing.
+extern volatile uint32_t dvi_frames;
+
 /// Starts scanning out dvi_framebuf. Expects clk_sys (and so clk_hstx) at
 /// 126 MHz, which gives the exact 25.2 MHz pixel clock for 640x480.
 void dvi_init(void);
