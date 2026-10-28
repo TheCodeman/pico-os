@@ -78,6 +78,9 @@ static struct { bool configured; uint8_t dev_addr, ep_addr, transfer_type, next_
 static struct { bool set, setup; uint8_t dev_addr, ep_addr; uint8_t *buf; uint16_t len; uint8_t packet[8]; } ctrl_wait;
 static struct { struct hw_endpoint *ep; uint8_t *buf; uint16_t len; } bulk_wait;
 static void epx_next(void);
+// pico-os patch: EPX finished in this interrupt; what waits for it starts
+// at the interrupt's end (see hcd_rp2040_irq).
+static volatile bool epx_next_due;
 static void start_bulk(struct hw_endpoint *ep, uint8_t *buffer, uint16_t buflen);
 
 // Flags we set by default in sie_ctrl (we add other bits on top)
@@ -135,7 +138,7 @@ static void __tusb_irq_path_func(hw_xfer_complete)(struct hw_endpoint *ep, xfer_
   }
   hcd_event_xfer_complete(dev_addr, ep_addr, xferred_len, xfer_result, true);
   if (ep == &epx)
-    epx_next();
+    epx_next_due = true;
 }
 
 static void __tusb_irq_path_func(_handle_buff_status_bit)(uint bit, struct hw_endpoint *ep)
@@ -289,6 +292,20 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
   if ( status ^ handled )
   {
     panic("Unhandled IRQ 0x%x\n", (uint) (status ^ handled));
+  }
+
+  // pico-os patch: start what waited for EPX only now. Started earlier (from
+  // the buffer-done handling above), a waiting SETUP would have SEND_SETUP in
+  // SIE_CTRL when the bulk transfer's own TRANS_COMPLETE is handled just
+  // after, which reads as the setup packet sent: TinyUSB then goes on to the
+  // data stage while the setup is still going out, and the control transfer
+  // (and EPX with it) is stuck. The finished transfer's TRANS_COMPLETE, if
+  // it is still pending, is cleared first for the same reason.
+  if ( epx_next_due )
+  {
+    epx_next_due = false;
+    usb_hw_clear->sie_status = USB_SIE_STATUS_TRANS_COMPLETE_BITS;
+    epx_next();
   }
 }
 
