@@ -1,7 +1,9 @@
-# Builds the Doxygen API documentation (docs/api/html) and publishes it to
-# GitHub Pages on each push to github-main (or by hand). Fails if doxygen
-# warns about our code. Pages must be set to "GitHub Actions" in the
-# repository's Settings > Pages once.
+# Builds the Doxygen API documentation (docs/api/html) on each push to
+# github-main (or by hand), and keeps it as the run's github-pages artifact.
+# Fails if doxygen warns about our code. Publishing it to GitHub Pages is
+# skipped unless the repository variable PAGES_ENABLED is "true" (Settings >
+# Secrets and variables > Actions > Variables), with Pages set to "GitHub
+# Actions" in Settings > Pages.
 name: docs
 on:
   push:
@@ -30,6 +32,7 @@ jobs:
           path: docs/api/html
   deploy:
     needs: build
+    if: vars.PAGES_ENABLED == 'true'
     runs-on: ubuntu-24.04
     environment:
       name: github-pages

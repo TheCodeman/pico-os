@@ -27,7 +27,8 @@ PDFs in [manuals/](manuals/), one for the OS and one for each application
 FM radio, the sprite editor, the WAV editor, the network tools, the serial terminal, the emulators). They are made from
 [docs/](docs/) with `tools/make_manual.py`. The code's API documentation is
 made with `doxygen` (the `Doxyfile` here; it goes to `docs/api/html`, and
-the docs workflow publishes it at https://thecodeman.github.io/pico-os/).
+the docs workflow builds it on each push; it can publish it to GitHub
+Pages too, once Pages is set up and the PAGES_ENABLED variable is "true").
 
 ## Hardware
 
