@@ -118,8 +118,8 @@ cyan, command names in white):
       si5351      Si5351A clock generator     mouse       mouse status and speed
       fm          FM radio (Si4703)           memtest     test the PSRAM
       sprite      sprite editor (RGB332)      reset       restart the board
-      view        show a picture              run         run a script
-                                              help        this list
+      wav         WAV sound editor            run         run a script
+      view        show a picture              help        this list
 
     Type help and a command name for how to use it, e.g. help wifi.
     Also: dir=ls del=rm copy=cp ren=mv type=cat clear=cls ed=edit reboot=reset
@@ -183,6 +183,7 @@ Esc or Ctrl-C stops between files. Copying a file onto itself is refused.
 | `fm [on \| off \| tune MHz \| seek \| scan \| status ...]` | `fmradio` | An FM radio on a Si4703 module: a graphical panel with RDS, seek, scan and favourites, or the shell (see the *FM Radio* manual). |
 | `si5351 [set N FREQ \| on N \| off N \| status ...]` | `clockgen` | A Si5351A clock generator on I2C: a graphical panel, or settings from the shell (see the *Clock Generator* manual). |
 | `sprite [file.spr \| info file \| png file [out]]` | `spredit` | A sprite editor: draw RGB332 sprites up to 32x32 with up to 64 animation frames with the mouse, for BASIC's `SPRITE LOAD` (see the *Sprite Editor* manual). |
+| `wav [file.wav \| info file]` | `wavedit` | A WAV sound editor: select, cut, copy, paste, trim, gain, normalize, fades, reverse, silence, rate and channels, undo, with the mouse, playing over HDMI (see the *WAV Editor* manual). |
 | `term [baud] [format]` | `serial` | Serial terminal on COM1 with a settings page (see the *Serial Terminal* manual). |
 | `applesoft [file]` | | An Apple IIe at the Applesoft BASIC prompt (see the *Emulators* manual). |
 | `apple2e [disk1 [disk2]]` | | An enhanced Apple IIe running its own ROMs, with disk drives (see the *Emulators* manual). |
@@ -547,6 +548,7 @@ Each manual is a PDF in the `manuals` folder (made from `docs/*.md` with
 | The Si5351A clock generator (`si5351`, `clockgen`) | `manuals/Pico 2 mini OS Clock Generator.pdf` |
 | The Si4703 FM radio (`fm`, `fmradio`) | `manuals/Pico 2 mini OS FM Radio.pdf` |
 | The sprite editor (`sprite`, `spredit`) | `manuals/Pico 2 mini OS Sprite Editor.pdf` |
+| The WAV sound editor (`wav`, `wavedit`) | `manuals/Pico 2 mini OS WAV Editor.pdf` |
 | `wget`, `telnet` and its BBS directory, `ssh`, `scp` | `manuals/Pico 2 mini OS Network Tools.pdf` |
 | The serial terminal (`term`) and XMODEM/YMODEM/ZMODEM | `manuals/Pico 2 mini OS Serial Terminal.pdf` |
 | Applesoft, the Apple IIe, the Commodore 64 and the Sega Genesis | `manuals/Pico 2 mini OS Emulators.pdf` |
