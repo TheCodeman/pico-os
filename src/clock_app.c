@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "chip_temp.h"
 #include "clock_setting.h"
 #include "console.h"
 #include "dvi.h"
@@ -42,7 +43,7 @@ static unsigned running_mhz(void) {
 
 static void status(void) {
     unsigned now = running_mhz(), saved = clock_setting_saved();
-    printf("Running at %u MHz; starts at %u MHz%s.\n", now, saved,
+    printf("Running at %u MHz (chip %d C); starts at %u MHz%s.\n", now, chip_temp_c(), saved,
            clock_setting_fell_back() ? " (it failed to start twice, so this start used the default)" : "");
     for (int i = 0; i < CLOCK_SETTING_COUNT; i++)
         printf("  %3u MHz: core %s, flash %s, PSRAM %s%s\n", speeds[i].mhz, speeds[i].volts, speeds[i].flash,
@@ -70,6 +71,14 @@ static void apply(unsigned mhz) {
 #define ROW_H  56
 #define STATUS_Y (DVI_HEIGHT - 18)
 
+/// The chip's temperature, top right of the panel (kept up to date).
+static void draw_temp(void) {
+    gfx_printf(BOX_X + BOX_W - 8 - 14 * 8, BOX_Y + 4, 14, C_YELLOW, C_FACE, "%10s", "");
+    char t[16];
+    snprintf(t, sizeof t, "chip %d C", chip_temp_c());
+    gfx_text(BOX_X + BOX_W - 8 - (int)strlen(t) * 8, BOX_Y + 4, t, -1, C_CYAN, C_FACE);
+}
+
 static void draw(int cur) {
     unsigned now = running_mhz(), saved = clock_setting_saved();
     gfx_target = dvi_framebuf;
@@ -81,6 +90,7 @@ static void draw(int cur) {
     gfx_text(BOX_X + 8, BOX_Y + 4, "Processor clock", -1, C_YELLOW, C_FACE);
     gfx_printf(LIST_X, BOX_Y + 30, 72, C_LABEL, C_FACE, "Running at %u MHz; the board starts at %u MHz.%s", now,
                saved, clock_setting_fell_back() ? " (Fell back.)" : "");
+    draw_temp();
     gfx_text(LIST_X, BOX_Y + 48, "All three give HDMI its 126 MHz. A new clock needs a restart.", -1, C_LABEL,
              C_FACE);
     gfx_bevel(LIST_X - 2, LIST_Y - 2, BOX_W - 2 * (LIST_X - BOX_X) + 4, CLOCK_SETTING_COUNT * ROW_H + 4, false,
@@ -154,8 +164,11 @@ static void menu(void) {
     for (;;) {
         draw(cur);
         int k;
-        while ((k = key()) < 0)
+        for (int t = 0; (k = key()) < 0; t++) {
+            if (t % 100 == 99)  // a second
+                draw_temp();
             sleep_ms(10);
+        }
         if (k == K_UP && cur > 0)
             --cur;
         else if (k == K_DOWN && cur < CLOCK_SETTING_COUNT - 1)

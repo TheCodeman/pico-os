@@ -15,6 +15,7 @@
 #include <stdlib.h>
 
 #include "audio.h"
+#include "chip_temp.h"
 #include "clock_setting.h"
 #include "console.h"
 #include "core1_job.h"
@@ -338,10 +339,12 @@ int main(void) {
     // console shows the same start-up screen as the HDMI one.
     char chip[48];
     unsigned real_mhz = (clock_get_hz(clk_sys) + MHZ / 2) / MHZ;  // what it really runs at
+    int temp = chip_temp_c();
     if (psram_size)
-        snprintf(chip, sizeof chip, "RP2350 @ %u MHz, %u MB PSRAM", real_mhz, (unsigned)(psram_size >> 20));
+        snprintf(chip, sizeof chip, "RP2350 @ %u MHz, %d C, %u MB PSRAM", real_mhz, temp,
+                 (unsigned)(psram_size >> 20));
     else
-        snprintf(chip, sizeof chip, "RP2350 @ %u MHz", real_mhz);
+        snprintf(chip, sizeof chip, "RP2350 @ %u MHz, %d C", real_mhz, temp);
     printf(TITLE "  Pico 2 mini OS%*s  " PLAIN "\n\n", CONSOLE_COLS - 18, chip);
     debug_printf("640x480 HDMI text console, %dx%d characters, 48 kHz stereo audio\n",
                  CONSOLE_COLS, CONSOLE_ROWS);

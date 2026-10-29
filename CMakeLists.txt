@@ -15,6 +15,7 @@ pico_sdk_init()
 add_executable(pico2_os
     src/main.c
     src/clock_setting.c
+    src/chip_temp.c
     src/clock_app.c
     src/dvi.c
     src/editor.c
