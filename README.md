@@ -647,7 +647,10 @@ HSTX's 126 MHz. The setting is kept in the flash's last sector
 (`src/clock_setting.c`), read before anything else starts; a board that
 fails to start at a saved clock twice in a row (a watchdog runs while it
 starts) starts at the default instead. `-DOS_CLOCK_MHZ=` sets the default
-(252). The title bar shows the clock the chip really runs at.
+(252). The title bar shows the clock the chip really runs at, and its
+temperature (`src/chip_temp.c`: the on-chip sensor, plus the 25 C it reads
+low on the test board, so roughly); the clock menu and `clock status` show
+it too.
 
 ## Flash and run
 
