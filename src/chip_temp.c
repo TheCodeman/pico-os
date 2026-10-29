@@ -33,3 +33,8 @@ int chip_temp_c(void) {
     float c = 27 - (volts - 0.706f) / 0.001721f + CHIP_TEMP_OFFSET;
     return (int)(c + (c < 0 ? -0.5f : 0.5f));
 }
+
+int chip_temp_f(void) {
+    int c = chip_temp_c();
+    return c * 9 / 5 + 32;
+}
