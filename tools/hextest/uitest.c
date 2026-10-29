@@ -10,6 +10,7 @@
  */
 #include <sys/stat.h>
 
+#define PSRAM_UNCACHED_OFFSET 0  ///< no second window on a PC
 #include "../../src/hex/hex_ui.c"
 
 uint8_t dvi_framebuf[DVI_WIDTH * DVI_HEIGHT];  ///< the screen
@@ -17,6 +18,7 @@ stdio_driver_t console_stdio_driver;          ///< the console's driver
 static uint64_t now_us = 1000000;             ///< the clock
 static uint8_t mods;                          ///< the modifier keys held
 static long heap = 1L << 30;                  ///< SRAM free, as the editor sees it
+bool pc_psram_full;                           ///< PSRAM has run out
 
 void console_freeze(bool on) { (void)on; }
 void stdio_set_driver_enabled(stdio_driver_t *d, bool on) { (void)d, (void)on; }
@@ -403,6 +405,11 @@ int main(void) {
         mn = n0;
         for (int i = 0; i < 40; ++i) {
             random_edit(&r);
+            refresh(-1);  // every edit's changes marked, so no false memory errors
+            if (F->damaged) {
+                CHECK(false, "round %d edit %d op %d: a false memory error", round, i, last_op);
+                goto out;
+            }
             {
                 uint8_t *cb = calloc(1, F->cliplen + 1);
                 for (int j = 0, o = 0; j < F->nclip; o += F->clip[j++].len)
@@ -663,11 +670,35 @@ out:
     move_to(0, false);
     F->typing = false;
     heap = RESERVE;
+    pc_psram_full = true;
+    while (F->nundo)  // or they'd make way
+        undo_drop_oldest();
     uint8_t b0 = doc_byte(0);
     F->ins = false;  // overwriting needs memory for the undo step
     type("12");
     CHECK(F->size == nd && doc_byte(0) == b0, "an edit with no memory changed the document");
     heap = 1L << 30;
+    pc_psram_full = false;
+    F->ins = false;
+
+    // A memory error: a byte of the edits changes by itself; the refresh sees it, and Save won't write
+    // over the file.
+    F->ins = true;
+    type("ab");
+    refresh(-1);
+    CHECK(!F->damaged, "a false memory error");
+    refresh(-1);
+    CHECK(!F->damaged, "a false memory error on the second pass");
+    F->add[F->addlen - 1] ^= 0x10;
+    refresh(-1);
+    CHECK(F->damaged, "the changed byte wasn't seen");
+    settle();
+    press(CTRL('s'));
+    CHECK(F->dlg == DLG_FILE, "Save after a memory error: dlg %d", F->dlg);
+    press(KEY_ESC);
+    CHECK(write_file(F->path) == false, "writing over the file after a memory error");
+    snap("shot_memerr.raw", -1, -1);
+    F->damaged = false;
     F->ins = false;
 
     // A bigger file: the end, the scroll bar, a search across chunks.

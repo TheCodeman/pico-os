@@ -38,6 +38,7 @@
 #include "dvi.h"
 #include "ff.h"
 #include "font8x16.h"
+#include "hardware/xip_cache.h"
 #include "hexedit.h"
 #include "mc.h"
 #include "mouse.h"
@@ -51,9 +52,16 @@
 #define PAGE 512               ///< the file is read in pages of this size
 #define NPAGES 8               ///< pages kept
 #define MAX_UNDO 64            ///< edits kept for undo (and as many for redo)
-#define MAX_PIECES 16384       ///< the most pieces the document may be cut into
-#define ADD_MAX (192 * 1024)   ///< the most bytes typed between saves
-#define CLIP_KEEP (32 * 1024)  ///< the clipboard is kept over a save or load up to this size
+#define MAX_PIECES 65536       ///< the most pieces the document may be cut into
+#define ADD_MAX (1024 * 1024)  ///< the most bytes typed between saves
+#define CLIP_KEEP (256 * 1024) ///< the clipboard is kept over a save or load up to this size
+#define MAX_REGIONS (2 * MAX_UNDO + 8)  ///< blocks of PSRAM the checksums look after
+#define GBLOCK 4096            ///< the bytes each checksum covers
+#define REFRESH_MS 10000       ///< every block is checked and rewritten this often
+#ifndef PSRAM_UNCACHED_OFFSET
+/// From the PSRAM's cached address to its uncached one.
+#define PSRAM_UNCACHED_OFFSET (0x15000000u - 0x11000000u)
+#endif
 #define RESERVE (16 * 1024)    ///< SRAM left for everything else (mem warns below this)
 #define CHUNK 4096             ///< bytes at a time when saving or searching
 #define MAX_FILES 128          ///< entries the file box lists
@@ -80,6 +88,7 @@
 #define C_ROWALT 0x05  ///< every other row
 #define C_STRIP  0x0b  ///< the title strip
 #define C_CUR2   0x49  ///< the cursor in the other column
+#define C_ALARM  0x80  ///< the status line after a memory error
 
 /// Layout.
 #define BAR_H  16      ///< the menu bar
@@ -191,6 +200,16 @@ typedef struct {
     piece_t *pc;   ///< them (malloc; NULL when none)
 } undo_t;
 
+/// A block of PSRAM the checksums look after (as the WAV editor's).
+typedef struct {
+    uint8_t *p;         ///< it
+    uint32_t len;       ///< its bytes (a multiple of 8)
+    uint32_t want;      ///< the bytes asked for (the rest is never written)
+    uint32_t live_was;  ///< the bytes in use when last checked
+    uint32_t *sums;     ///< a checksum for each GBLOCK (SRAM; NULL: none, only kept fresh)
+    uint8_t *dirty;     ///< changed since its sum was taken (after sums)
+} region_t;
+
 /// An entry in the file box.
 typedef struct {
     uint16_t name;  ///< its name, in the pool
@@ -228,6 +247,13 @@ typedef struct {
     uint32_t cuse[NPAGES]; ///< when each was last used
     uint32_t ctick;        ///< the clock for that
     bool read_err;         ///< a read failed
+    // PSRAM: the pieces, the bytes typed, the undo steps' and the clipboard's pieces.
+    region_t reg[MAX_REGIONS];  ///< the blocks
+    int nreg;              ///< how many
+    int rnext;             ///< the refresh's next region,
+    uint32_t rblock;       ///< and block in it
+    uint32_t refresh_at;   ///< when the next pass starts
+    bool damaged;          ///< a block changed by itself
     // The document.
     piece_t *pc;           ///< its pieces
     int np;                ///< how many
@@ -344,6 +370,201 @@ static void *srealloc(void *p, size_t n) {
     return realloc(p, n ? n : 1);
 }
 
+static bool undo_drop_oldest(void);
+static uint32_t now_ms(void);
+static void message(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+
+// ---- PSRAM, kept fresh ----------------------------------------------------------------------------
+// The board's PSRAM loses bits when it holds data for minutes, so, as in the
+// text and WAV editors, every block is read and written back every
+// REFRESH_MS through the uncached window, and its checksum compared: a block
+// that changed by itself is a MEMORY ERROR, and Save then won't write over
+// the file.
+
+/// The region a pointer is in.
+/// @param p the pointer
+/// @return it, or NULL (SRAM, or none)
+static region_t *region_of(const void *p) {
+    const uint8_t *b = p;
+    for (int i = 0; i < F->nreg; ++i)
+        if (b >= F->reg[i].p && b < F->reg[i].p + F->reg[i].len)
+            return &F->reg[i];
+    return NULL;
+}
+
+/// Gives a region its checksums, all to be taken.
+/// @param r the region
+static void region_sums(region_t *r) {
+    uint32_t nb = (r->len + GBLOCK - 1) / GBLOCK;
+    free(r->sums);
+    r->sums = salloc(nb * 5);
+    r->dirty = r->sums ? (uint8_t *)(r->sums + nb) : NULL;
+    if (r->dirty)
+        memset(r->dirty, 1, nb);
+}
+
+/// Memory for the edits: PSRAM the checksums look after (SRAM if there is no PSRAM); when there isn't room,
+/// the oldest undo steps make way.
+/// @param n bytes
+/// @return it, or NULL
+static void *galloc(size_t n) {
+    size_t want = n;
+    n = (n + 7) & ~(size_t)7;
+    if (!n)
+        n = 8;
+    if (!psram_present())
+        return salloc(n);
+    void *p;
+    while (F->nreg == MAX_REGIONS || !(p = psram_malloc(n)))
+        if (!undo_drop_oldest())
+            return NULL;
+    region_t *r = &F->reg[F->nreg++];
+    *r = (region_t){p, (uint32_t)n, (uint32_t)want, 0, NULL, NULL};
+    region_sums(r);
+    return p;
+}
+
+/// Frees memory from galloc.
+/// @param p it (NULL is fine)
+static void gfree(void *p) {
+    if (!p)
+        return;
+    region_t *r = region_of(p);
+    if (!r) {
+        free(p);
+        return;
+    }
+    free(r->sums);
+    psram_free(r->p);
+    *r = F->reg[--F->nreg];
+    if (F->rnext >= F->nreg)
+        F->rnext = 0, F->rblock = 0;
+}
+
+/// Makes memory from galloc bigger (or NULL: new), the oldest undo steps making way if need be.
+/// @param p it, or NULL
+/// @param n the bytes wanted
+/// @return it (maybe moved), or NULL (p kept)
+static void *grealloc(void *p, size_t n) {
+    if (!p)
+        return galloc(n);
+    if (!psram_present())
+        return srealloc(p, n);
+    size_t want = n;
+    n = (n + 7) & ~(size_t)7;
+    void *np;
+    while (!(np = psram_realloc(p, n)))
+        if (!undo_drop_oldest())
+            return NULL;
+    region_t *r = region_of(p);
+    r->p = np;
+    r->want = (uint32_t)want;
+    r->live_was = 0;
+    r->len = (uint32_t)n;
+    region_sums(r);
+    return np;
+}
+
+/// Marks bytes the editor changed, so their checksums are taken again.
+/// @param p the first
+/// @param n how many
+static void gtouch(const void *p, size_t n) {
+    region_t *r = n ? region_of(p) : NULL;
+    if (!r || !r->dirty)
+        return;
+    uint32_t a = (uint32_t)((const uint8_t *)p - r->p), b = a + (uint32_t)n - 1;
+    if (b >= r->len)
+        b = r->len - 1;
+    for (uint32_t k = a / GBLOCK; k <= b / GBLOCK; ++k)
+        r->dirty[k] = 1;
+}
+
+/// The bytes of a region in use (the room past the ends of the pieces and of the bytes typed is never
+/// written, so not checked).
+/// @param r the region
+/// @return them
+static uint32_t live_bytes(const region_t *r) {
+    uint32_t n = r->want;
+    if (r->p == (const uint8_t *)F->pc)
+        n = (uint32_t)F->np * sizeof *F->pc;
+    else if (r->p == F->add)
+        n = F->addlen;
+    return n < r->len ? n : r->len;
+}
+
+/// One block: from the chip, summed and written back. False if a block the editor hasn't changed no
+/// longer matches its sum.
+/// @param r the region
+/// @param k the block
+/// @return it was all right
+static bool refresh_block(region_t *r, uint32_t k) {
+    uint32_t live = live_bytes(r);
+    if (live != r->live_was && r->dirty) {  // what came into use, or went, is summed afresh
+        uint32_t lo = live < r->live_was ? live : r->live_was, hi = live ^ r->live_was ^ lo;
+        for (uint32_t b = lo / GBLOCK; b <= (hi ? hi - 1 : 0) / GBLOCK && b * GBLOCK < r->len; ++b)
+            r->dirty[b] = 1;
+    }
+    r->live_was = live;
+    uint32_t a = k * GBLOCK;
+    if (a >= live) {
+        if (r->dirty)
+            r->dirty[k] = 1;
+        return true;
+    }
+    uint32_t n = live - a < GBLOCK ? live - a : GBLOCK;
+    volatile uint32_t *w = (volatile uint32_t *)(r->p + a + PSRAM_UNCACHED_OFFSET);
+    uint32_t sum = 0;
+    for (uint32_t i = 0; i < n / 4; ++i) {
+        uint32_t v = w[i];
+        w[i] = v;
+        sum = (sum << 5 | sum >> 27) ^ v;
+    }
+    for (uint32_t i = n & ~3u; i < n; ++i)  // the odd bytes at the end
+        sum = (sum << 5 | sum >> 27) ^ ((volatile uint8_t *)w)[i];
+    if (!r->sums)
+        return true;
+    if (r->dirty[k]) {
+        r->sums[k] = sum;
+        r->dirty[k] = 0;
+        return true;
+    }
+    return r->sums[k] == sum;
+}
+
+/// Checks (and renews) n blocks, going round all the regions.
+/// @param n blocks (-1: a whole pass)
+/// @return false when the pass is over
+static bool refresh(int n) {
+    xip_cache_clean_all();  // the editor's writes out to the chip first
+    for (int done = 0; n < 0 || done < n; ++done) {
+        if (F->rnext >= F->nreg) {
+            F->rnext = 0;
+            F->rblock = 0;
+            return false;
+        }
+        region_t *r = &F->reg[F->rnext];
+        if (F->rblock * GBLOCK >= r->len) {  // a region freed or made smaller meanwhile
+            F->rblock = 0, ++F->rnext;
+            continue;
+        }
+        if (!refresh_block(r, F->rblock) && !F->damaged) {
+            F->damaged = true;
+            message("MEMORY ERROR: the edits changed by themselves; save as a new file");
+        }
+        if (++F->rblock * GBLOCK >= r->len)
+            F->rblock = 0, ++F->rnext;
+    }
+    return true;
+}
+
+/// While the editor waits: four blocks at a time, a pass every REFRESH_MS.
+static void refresh_step(void) {
+    if ((int32_t)(now_ms() - F->refresh_at) < 0)
+        return;
+    if (!refresh(4))
+        F->refresh_at = now_ms() + REFRESH_MS;
+}
+
 /// Milliseconds since boot.
 /// @return them
 static uint32_t now_ms(void) {
@@ -351,6 +572,7 @@ static uint32_t now_ms(void) {
 }
 
 static void message(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static uint32_t now_ms(void);
 static void progress(const char *what, uint32_t done, uint32_t total);
 
 // ---- The file, a page at a time --------------------------------------------------------------------
@@ -480,9 +702,8 @@ static bool pieces_room(int n) {
     if (cap > MAX_PIECES)
         cap = MAX_PIECES;
     piece_t *p;
-    while (!(p = srealloc(F->pc, cap * sizeof *p)))
-        if (!undo_drop_oldest())
-            return false;
+    if (!(p = grealloc(F->pc, cap * sizeof *p)))
+        return false;
     F->pc = p;
     F->pcap = cap;
     return true;
@@ -502,9 +723,8 @@ static bool add_room(uint32_t n) {
     if (cap > ADD_MAX)
         cap = ADD_MAX;
     uint8_t *a;
-    while (!(a = srealloc(F->add, cap)))
-        if (!undo_drop_oldest())
-            return false;
+    if (!(a = grealloc(F->add, cap)))
+        return false;
     F->add = a;
     F->addcap = cap;
     return true;
@@ -524,6 +744,7 @@ static int split_at(uint32_t pos) {
     F->pc[i + 1] = (piece_t){p->off + o, p->len - o, p->src};
     p->len = o;
     ++F->np;
+    gtouch(&F->pc[i], (F->np - i) * sizeof *p);
     F->hint_i = i + 1, F->hint_s = pos;
     return i + 1;
 }
@@ -548,6 +769,8 @@ static void merge(int lo, int hi) {
         memmove(&F->pc[drop], &F->pc[drop + 1], (F->np - drop - 1) * sizeof *p);
         --F->np, --hi;
     }
+    if (lo < F->np)
+        gtouch(&F->pc[lo], (F->np - lo) * sizeof *F->pc);
 }
 
 /// The total length of some pieces.
@@ -577,7 +800,7 @@ static bool replace(uint32_t pos, uint32_t len, const piece_t *ins, int nins, pi
     if (out) {
         *out = NULL;
         *nout = nold;
-        if (nold && !(*out = salloc(nold * sizeof **out)))
+        if (nold && !(*out = galloc(nold * sizeof **out)))
             return false;  // the cuts change nothing
         if (nold)
             memcpy(*out, &F->pc[a], nold * sizeof **out);
@@ -586,6 +809,8 @@ static bool replace(uint32_t pos, uint32_t len, const piece_t *ins, int nins, pi
     if (nins)
         memcpy(&F->pc[a], ins, nins * sizeof *F->pc);
     F->np += nins - nold;
+    if (a < F->np)
+        gtouch(&F->pc[a], (F->np - a) * sizeof *F->pc);
     F->size = F->size - len + inslen;
     merge(a - 1, a + nins);
     F->hint_i = 0, F->hint_s = 0;
@@ -603,7 +828,7 @@ static piece_t *pieces_of(uint32_t pos, uint32_t len, int *n) {
     uint32_t s0 = s, end = pos + len;
     for (*n = 0; i < F->np && s < end; s += F->pc[i++].len)
         ++*n;
-    piece_t *p = *n ? salloc(*n * sizeof *p) : NULL;
+    piece_t *p = *n ? galloc(*n * sizeof *p) : NULL;
     if (!p)
         return NULL;
     memcpy(p, &F->pc[i0], *n * sizeof *p);
@@ -621,14 +846,14 @@ static void doc_reset(void);
 /// Forgets the redo steps.
 static void redo_clear(void) {
     while (F->nredo)
-        free(F->redo[--F->nredo].pc);
+        gfree(F->redo[--F->nredo].pc);
 }
 
 /// Forgets every step.
 static void undo_forget(void) {
     redo_clear();
     while (F->nundo)
-        free(F->undo[--F->nundo].pc);
+        gfree(F->undo[--F->nundo].pc);
     F->typing = false;
 }
 
@@ -639,7 +864,7 @@ static bool undo_drop_oldest(void) {
     int *n = F->nundo ? &F->nundo : &F->nredo;
     if (!*n)
         return false;
-    free(u[0].pc);
+    gfree(u[0].pc);
     memmove(&u[0], &u[1], (*n - 1) * sizeof *u);
     if (!--*n)
         F->typing = false;
@@ -665,14 +890,14 @@ static bool edit(uint32_t pos, uint32_t len, const piece_t *ins, int nins, bool 
     redo_clear();
     uint32_t inslen = pieces_len(ins, nins);
     piece_t *p = NULL;
-    if (join && (!nold || (p = srealloc(u->pc, (u->n + nold) * sizeof *p)))) {
+    if (join && (!nold || (p = grealloc(u->pc, (u->n + nold) * sizeof *p)))) {
         if (nold) {
             memcpy(p + u->n, old, nold * sizeof *p);
             u->pc = p;
             u->n += nold;
         }
         u->len += inslen;
-        free(old);
+        gfree(old);
     } else {
         if (F->nundo == MAX_UNDO)
             undo_drop_oldest();
@@ -703,12 +928,12 @@ static void undo_step(bool redo) {
     }
     --*nfrom;
     if (*nto == MAX_UNDO) {
-        free(to[0].pc);
+        gfree(to[0].pc);
         memmove(&to[0], &to[1], (MAX_UNDO - 1) * sizeof *to);
         --*nto;
     }
     to[(*nto)++] = (undo_t){u->pos, pieces_len(u->pc, u->n), nnow, now};
-    free(u->pc);
+    gfree(u->pc);
     F->cur = u->pos;
     F->sel = F->lo = false;
     F->modified = true;
@@ -911,9 +1136,12 @@ static void draw_bar(void) {
 
 /// Draws the status line: a message, or the size and the mode.
 static void draw_status(void) {
-    fill(0, STAT_Y, W, H - STAT_Y, C_STRIP);
+    uint8_t bg = F->damaged ? C_ALARM : C_STRIP;  // white on dark red after a memory error
+    fill(0, STAT_Y, W, H - STAT_Y, bg);
     if (F->msg[0] && now_ms() < F->msg_until)
-        textf(8, STAT_Y + 4, C_TEXT, C_STRIP, "%.78s", F->msg);
+        textf(8, STAT_Y + 4, C_TEXT, bg, "%.78s", F->msg);
+    else if (F->damaged)
+        text(8, STAT_Y + 4, "MEMORY ERROR in the edits: Save as a new file, and check it", C_TEXT, bg);
     else
         textf(8, STAT_Y + 4, C_LABEL, C_STRIP, "%lu bytes  %s  %s column    F1 keys  F10 menus", (unsigned long)F->size,
               F->ins ? "Insert" : "Overwrite", F->text ? "text" : "hex");
@@ -1637,6 +1865,7 @@ static bool put_byte(uint32_t pos, uint8_t b, bool over) {
         return false;
     }
     F->add[F->addlen] = b;
+    gtouch(&F->add[F->addlen], 1);
     piece_t p = {F->addlen++, 1, SRC_ADD};
     if (!edit(pos, over && pos < F->size ? 1 : 0, &p, 1, true)) {
         --F->addlen;
@@ -1658,6 +1887,7 @@ static void type_hex(int d) {
         if (i < F->np && F->pc[i].src == SRC_ADD && F->pc[i].off + (c - s) == F->addlen - 1) {
             uint8_t *b = &F->add[F->addlen - 1];
             *b = (uint8_t)((*b & 0xf0) | d);
+            gtouch(b, 1);
             F->nib = F->lo = false;
             F->cur = c + 1;
             show_cursor();
@@ -1750,7 +1980,7 @@ static bool copy_selection(void) {
         message("Not enough memory to copy that");
         return false;
     }
-    free(F->clip);
+    gfree(F->clip);
     F->clip = p;
     F->nclip = n;
     F->cliplen = hi - lo;
@@ -1780,14 +2010,14 @@ static void paste(void) {
 /// @param len set to its length
 /// @return them (malloc), or NULL: the clipboard is emptied
 static uint8_t *clip_detach(uint32_t *len) {
-    uint8_t *b = F->cliplen && F->cliplen <= CLIP_KEEP ? salloc(F->cliplen) : NULL;
+    uint8_t *b = F->cliplen && F->cliplen <= CLIP_KEEP ? psram_buffer_alloc(F->cliplen) : NULL;  // moments
     *len = 0;
     if (b) {
         for (int i = 0, o = 0; i < F->nclip; o += F->clip[i++].len)
             piece_read(&F->clip[i], 0, b + o, F->clip[i].len);
         *len = F->cliplen;
     }
-    free(F->clip);
+    gfree(F->clip);
     F->clip = NULL;
     F->nclip = 0;
     F->cliplen = 0;
@@ -1798,14 +2028,15 @@ static uint8_t *clip_detach(uint32_t *len) {
 /// @param b them (freed)
 /// @param len their length
 static void clip_attach(uint8_t *b, uint32_t len) {
-    if (b && add_room(len) && (F->clip = salloc(sizeof *F->clip))) {
+    if (b && add_room(len) && (F->clip = galloc(sizeof *F->clip))) {
         memcpy(F->add + F->addlen, b, len);
+        gtouch(F->add + F->addlen, len);
         *F->clip = (piece_t){F->addlen, len, SRC_ADD};
         F->addlen += len;
         F->nclip = 1;
         F->cliplen = len;
     }
-    free(b);
+    psram_buffer_free(b);
 }
 
 // ---- Files ----------------------------------------------------------------------------------------
@@ -1817,6 +2048,7 @@ static void doc_reset(void) {
     F->size = 0;
     if (F->file_open && F->fsize && pieces_room(1)) {
         F->pc[0] = (piece_t){0, F->fsize, SRC_FILE};
+        gtouch(F->pc, sizeof *F->pc);
         F->np = 1;
         F->size = F->fsize;
     }
@@ -1825,6 +2057,7 @@ static void doc_reset(void) {
     F->sel = F->lo = F->nib = false;
     F->read_err = false;
     F->modified = false;
+    F->damaged = false;
 }
 
 /// Closes the file the document is made from.
@@ -1925,6 +2158,10 @@ static bool write_file(const char *name) {
     const char *slash = strrchr(path, '/');
     snprintf(tmp, sizeof tmp, "%.*s%s", slash ? (int)(slash - path + 1) : 0, path, TMP_NAME);
     const char *out = same ? tmp : path;
+    if (same && F->damaged) {
+        message("The edits may be damaged: save as a new file");
+        return false;
+    }
     FIL o;
     if (f_open(&o, out, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) {
         message("Can't write %.50s", out);
@@ -2368,7 +2605,7 @@ static void act(int a) {
     case ACT_LOAD: fd_open(FD_LOAD); break;
     case ACT_QUIT: F->quit = true; break;
     case ACT_SAVE_THEN:
-        if (!F->path[0]) {
+        if (!F->path[0] || F->damaged) {
             fd_open(FD_SAVE);  // then F->then, after the save
             return;
         }
@@ -2813,6 +3050,7 @@ static bool start(void) {
     memset(F, 0, sizeof *F);
     F->menu = -1;
     F->t = dvi_framebuf;
+    F->refresh_at = now_ms() + REFRESH_MS;
     return true;
 }
 
@@ -2820,9 +3058,9 @@ static bool start(void) {
 static void stop(void) {
     close_source();
     undo_forget();
-    free(F->clip);
-    free(F->pc);
-    free(F->add);
+    gfree(F->clip);
+    gfree(F->pc);
+    gfree(F->add);
     if (F->fd_psram)
         psram_free(F->fd);
     else
@@ -2850,6 +3088,7 @@ static void editor(void) {
         while (!F->quit && mouse_event(&e))
             mouse(&e);
         drag_scroll();
+        refresh_step();
         mouse_pointer_update();
         if (F->read_err) {
             F->read_err = false;

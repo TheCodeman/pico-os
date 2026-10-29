@@ -69,7 +69,7 @@ Cut (Ctrl-X) and Copy (Ctrl-C) put the selection on the clipboard; Paste
 bytes there in overwrite mode, in front of them in insert mode. A cut or
 paste of any size is quick, as nothing is copied (see *How it works*).
 The clipboard stays while the editor runs, from one file to another;
-Save, Open and New keep it if it is up to 32 KB, and empty it if it is
+Save, Open and New keep it if it is up to 256 KB, and empty it if it is
 bigger.
 
 The right button on the bytes opens the Edit menu there.
@@ -161,12 +161,20 @@ bytes to that buffer; a delete, cut or paste only changes the list, which
 is why they are quick for any size, and the clipboard is pieces too. An
 undo step keeps the pieces it replaced.
 
-All of that is in SRAM, taken when the editor starts and given back when
-it quits (the OS keeps no memory for it otherwise). It has room for about
-16,000 pieces and up to 192 KB typed between saves, as SRAM allows; when
-it runs short the oldest undo steps make way, and if that isn't enough
-the editor says so: save, and it goes on from there. Only the picture
-drawn off the screen is in PSRAM.
+The pieces, the bytes typed, the undo steps and the clipboard are in
+PSRAM, taken when the editor starts and given back when it quits (the OS
+keeps no memory for it otherwise); only the editor's own few kilobytes of
+state are in SRAM. There is room for about 65,000 pieces and up to 1 MB
+typed between saves; when it runs short the oldest undo steps make way,
+and if that isn't enough the editor says so: save, and it goes on from
+there.
+
+This board's PSRAM can lose a bit when it holds data for minutes, so, as
+in the text and WAV editors, every 4 KB of it is read and written back
+every 10 seconds and its checksum compared. If a block has changed by
+itself the status line turns red with **MEMORY ERROR**: the edits may be
+damaged, so Save won't write over the file and asks for a new name;
+check the new file before using it.
 
 **Save** writes the whole file anew, to `HEXEDIT.TMP` in the same folder,
 then deletes the old file and renames the new one to its name, so a save
