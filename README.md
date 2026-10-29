@@ -14,7 +14,7 @@ keyboard, mouse and flash drive, WiFi, and a set of programs to go with it.
   (`mc`), a picture viewer, a MOD/XM music tracker, a sprite editor, a
   WAV sound editor, a serial terminal with X/Y/ZMODEM, an internet radio (MP3 and AAC),
   a radio receiver for RTL-SDR dongles (wide and narrow FM, AM, with a waterfall),
-  and Swarm, an arcade space shooter.
+  Swarm, an arcade space shooter, and `say`, text to speech over HDMI.
 - **Network:** WiFi, `wget` (HTTP/HTTPS), `telnet` with a BBS directory,
   `ssh` and `scp`, network shares (`mount`), NTP.
 - **BASIC:** a GW-BASIC style BASIC with graphics, sprites, font sheets,
