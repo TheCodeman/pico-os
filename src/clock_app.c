@@ -43,7 +43,7 @@ static unsigned running_mhz(void) {
 
 static void status(void) {
     unsigned now = running_mhz(), saved = clock_setting_saved();
-    printf("Running at %u MHz (chip %d C); starts at %u MHz%s.\n", now, chip_temp_c(), saved,
+    printf("Running at %u MHz (chip %d\xf8" "F); starts at %u MHz%s.\n", now, chip_temp_f(), saved,
            clock_setting_fell_back() ? " (it failed to start twice, so this start used the default)" : "");
     for (int i = 0; i < CLOCK_SETTING_COUNT; i++)
         printf("  %3u MHz: core %s, flash %s, PSRAM %s%s\n", speeds[i].mhz, speeds[i].volts, speeds[i].flash,
@@ -75,7 +75,7 @@ static void apply(unsigned mhz) {
 static void draw_temp(void) {
     gfx_printf(BOX_X + BOX_W - 8 - 14 * 8, BOX_Y + 4, 14, C_YELLOW, C_FACE, "%10s", "");
     char t[16];
-    snprintf(t, sizeof t, "chip %d C", chip_temp_c());
+    snprintf(t, sizeof t, "chip %d\xf8" "F", chip_temp_f());  // \xf8: the degree sign (CP437)
     gfx_text(BOX_X + BOX_W - 8 - (int)strlen(t) * 8, BOX_Y + 4, t, -1, C_CYAN, C_FACE);
 }
 

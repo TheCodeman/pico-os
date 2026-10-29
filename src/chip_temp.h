@@ -13,3 +13,7 @@
 /// CHIP_TEMP_OFFSET. Core 0; takes about 50 us.
 /// @return degrees C
 int chip_temp_c(void);
+
+/// The same in degrees F (what the banner and the clock menu show).
+/// @return degrees F
+int chip_temp_f(void);
