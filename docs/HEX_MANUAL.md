@@ -91,6 +91,19 @@ through a big file shows how far it has got; Esc stops it.
 counts from the cursor. Home and End go to the row's start and end, and
 pressed again to the file's start and end.
 
+### Checksums and CRCs
+
+![sums](hex_sums.png)
+
+**Checksums and CRCs** (Ctrl-K, in the Search menu) works them out for
+the selection, or for the whole file with nothing selected, in hex and
+decimal: the bytes added up (8, 16 and 32 bits), XORed, and the 8-bit
+two's complement of their sum (the checksum of an Intel HEX record);
+CRC-8/SMBUS, CRC-16/CCITT-FALSE, CRC-16/XMODEM, CRC-16/ARC,
+CRC-16/MODBUS and CRC-32 (the one zip and PNG use), with their usual
+names from the CRC catalogue; and Adler-32 and Fletcher-16. For a big
+file it shows how far it has got; Esc stops it. Any key closes the box.
+
 ### Undo
 
 Ctrl-Z undoes and Ctrl-Y redoes up to 64 steps: typing in one place is
@@ -131,6 +144,7 @@ Help, Keys (F1) shows them in the editor too.
 | Ctrl-A, C, X, V | select all, copy, cut, paste |
 | Ctrl-Z, Ctrl-Y | undo, redo |
 | Ctrl-F, F3, Ctrl-G | find, find next, go to |
+| Ctrl-K | checksums and CRCs |
 | Ctrl-S or F2, Ctrl-O, Ctrl-N | save, open, new |
 | F10, F9, Alt-letter | the menus |
 | F1 | the keys |

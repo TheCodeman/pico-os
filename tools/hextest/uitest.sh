@@ -9,7 +9,7 @@ T=$(mktemp -d)
 cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -fsanitize=address,undefined -DHEX_PC_TEST \
     -Istubs -I../si5351test/stubs -I../../src uitest.c dirstub.c -o "$T/uitest"
 (cd "$T" && ./uitest)
-for s in main menu find save help big; do
+for s in main menu find sums save help big; do
     python3 - "$T/shot_$s.raw" "$OUT/hex_$s.png" <<'P'
 import sys, zlib, struct
 d = open(sys.argv[1], 'rb').read()

@@ -108,7 +108,7 @@ enum {
 enum {
     CMD_NEW = 1, CMD_LOAD, CMD_SAVE, CMD_SAVEAS, CMD_QUIT,
     CMD_UNDO, CMD_REDO, CMD_CUT, CMD_COPY, CMD_PASTE, CMD_DELETE, CMD_SELALL, CMD_INSERT, CMD_TEXT,
-    CMD_FIND, CMD_NEXT, CMD_GOTO, CMD_HELP, CMD_ABOUT,
+    CMD_FIND, CMD_NEXT, CMD_GOTO, CMD_SUMS, CMD_HELP, CMD_ABOUT,
 };
 
 /// A menu item.
@@ -141,6 +141,7 @@ static const hitem_t edit_items[] = {
 /// The Search menu.
 static const hitem_t search_items[] = {
     {"Find...", CMD_FIND, "Ctrl-F"}, {"Find next", CMD_NEXT, "F3"}, {"Go to offset...", CMD_GOTO, "Ctrl-G"},
+    {"-", 0, NULL},                  {"Checksums and CRCs...", CMD_SUMS, "Ctrl-K"},
     {NULL, 0, NULL},
 };
 /// The Help menu.
@@ -158,7 +159,7 @@ static const hmenu_t menus[] = {
 enum { ACT_NONE, ACT_NEW, ACT_LOAD, ACT_QUIT, ACT_SAVE_THEN, ACT_WRITE };
 
 /// The boxes over the editor.
-enum { DLG_NONE, DLG_ASK, DLG_FILE, DLG_FIND, DLG_GOTO, DLG_HELP, DLG_ABOUT };
+enum { DLG_NONE, DLG_ASK, DLG_FILE, DLG_FIND, DLG_GOTO, DLG_HELP, DLG_ABOUT, DLG_SUMS };
 /// What the file box is for.
 enum { FD_LOAD, FD_SAVE };
 
@@ -196,6 +197,24 @@ typedef struct {
     bool dir;       ///< a folder
     uint32_t size;  ///< its size
 } fd_entry_t;
+
+/// Checksums and CRCs of a range of bytes (CRCs as their catalogue gives them, each with its check value
+/// for "123456789").
+typedef struct {
+    uint32_t lo, hi;      ///< the range
+    uint8_t sum8;         ///< the bytes added up, 8 bits
+    uint16_t sum16;       ///< 16 bits
+    uint32_t sum32;       ///< 32 bits
+    uint8_t xor8;         ///< the bytes XORed
+    uint8_t crc8;         ///< CRC-8/SMBUS (0x07; check F4)
+    uint16_t ccitt;       ///< CRC-16/CCITT-FALSE (0x1021, init FFFF; check 29B1)
+    uint16_t xmodem;      ///< CRC-16/XMODEM (0x1021, init 0; check 31C3)
+    uint16_t arc;         ///< CRC-16/ARC (0x8005 reflected, init 0; check BB3D)
+    uint16_t modbus;      ///< CRC-16/MODBUS (0x8005 reflected, init FFFF; check 4B37)
+    uint32_t crc32;       ///< CRC-32 as in zip and PNG (check CBF43926)
+    uint32_t adler;       ///< Adler-32 (check 091E01DE)
+    uint16_t fletcher;    ///< Fletcher-16 (check 1EDE)
+} sums_t;
 
 /// Everything the editor keeps (SRAM, while it runs).
 typedef struct {
@@ -257,6 +276,8 @@ typedef struct {
     int msel;              ///< its item chosen (-1: none)
     bool marmed;           ///< opened by a button still down: letting go on an item runs it
     int popx, popy;        ///< where the right button's menu is
+    // Checksums.
+    sums_t sums;           ///< the last ones worked out
     // The boxes.
     int dlg;               ///< DLG_*
     char ask[96];          ///< the question
@@ -329,6 +350,7 @@ static uint32_t now_ms(void) {
 }
 
 static void message(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static void progress(const char *what, uint32_t done, uint32_t total);
 
 // ---- The file, a page at a time --------------------------------------------------------------------
 
@@ -1351,6 +1373,7 @@ static void draw_help(void) {
         "Ctrl-Z, Y   undo, redo (64 steps; a save forgets them)",
         "Ctrl-F      find hex bytes or text      F3  find the next",
         "Ctrl-G      go to an offset (hex; + or - from the cursor)",
+        "Ctrl-K      checksums and CRCs of the selection (or the file)",
         "Ctrl-S, F2  save   Ctrl-O open   Ctrl-N new   Esc quit",
         "F10, F9     the menus (Alt and a letter opens one)",
         "Mouse: click a byte to put the cursor there, drag to select;",
@@ -1360,6 +1383,114 @@ static void draw_help(void) {
     };
     for (unsigned i = 0; i < sizeof lines / sizeof *lines; ++i)
         text(x + 16, y + 36 + (int)i * 20, lines[i], C_TEXT, C_FACE);
+}
+
+/// Draws the checksums box.
+static void draw_sums(void) {
+    int w = 520, h = 330, x = (W - w) / 2, y = 70;
+    const sums_t *k = &F->sums;
+    box(x, y, w, h, "Checksums and CRCs");
+    uint32_t n = k->hi - k->lo;
+    if (n)
+        textf(x + 16, y + 34, C_LABEL, C_FACE, "%s %08lX-%08lX, %lu byte%s", k->lo || k->hi != F->size ? "Bytes" : "The file",
+              (unsigned long)k->lo, (unsigned long)k->hi - 1, (unsigned long)n, n == 1 ? "" : "s");
+    else
+        text(x + 16, y + 34, "No bytes", C_LABEL, C_FACE);
+    static const char *const names[] = {
+        "Sum-8", "Sum-16", "Sum-32", "XOR-8", "Two's complement (Intel HEX)", "CRC-8/SMBUS", "CRC-16/CCITT-FALSE",
+        "CRC-16/XMODEM", "CRC-16/ARC", "CRC-16/MODBUS", "CRC-32 (zip, PNG)", "Adler-32", "Fletcher-16",
+    };
+    uint32_t v[] = {k->sum8, k->sum16, k->sum32, k->xor8, (uint8_t)-k->sum8, k->crc8, k->ccitt, k->xmodem,
+                    k->arc, k->modbus, k->crc32, k->adler, k->fletcher};
+    static const uint8_t digits[] = {2, 4, 8, 2, 2, 2, 4, 4, 4, 4, 8, 8, 4};
+    for (int i = 0; i < 13; ++i) {
+        int ry = y + 58 + i * 18;
+        text(x + 16, ry, names[i], C_LABEL, C_FACE);
+        textf(x + 256, ry, C_YELLOW, C_FACE, "%0*lX", digits[i], (unsigned long)v[i]);
+        textf(x + 344, ry, C_DIM, C_FACE, "%lu", (unsigned long)v[i]);
+    }
+    text(x + 16, y + h - 26, "(any key or click closes this)", C_DIM, C_FACE);
+}
+
+/// Works out the checksums of the selection (or of the whole file) and shows them; Esc stops a long one.
+static void checksums(void) {
+    uint32_t lo, hi;
+    if (!sel_range(&lo, &hi))
+        lo = 0, hi = F->size;
+    // Byte-at-a-time tables for the CRCs, while they are worked out.
+    typedef struct {
+        uint32_t c32[256];
+        uint16_t c16[256], r16[256];
+        uint8_t c8[256];
+        uint8_t buf[CHUNK];
+    } work_t;
+    work_t *t = salloc(sizeof *t);
+    if (!t) {
+        message("Not enough memory for that");
+        return;
+    }
+    for (int i = 0; i < 256; ++i) {
+        uint32_t c = i, r = i, f = (uint32_t)i << 8, e = i;
+        for (int b = 0; b < 8; ++b) {
+            c = c & 1 ? 0xedb88320u ^ c >> 1 : c >> 1;
+            r = r & 1 ? 0xa001 ^ r >> 1 : r >> 1;
+            f = f & 0x8000 ? (f << 1 ^ 0x1021) & 0xffff : f << 1 & 0xffff;
+            e = e & 0x80 ? (e << 1 ^ 0x07) & 0xff : e << 1 & 0xff;
+        }
+        t->c32[i] = c, t->r16[i] = (uint16_t)r, t->c16[i] = (uint16_t)f, t->c8[i] = (uint8_t)e;
+    }
+    sums_t k = {lo, hi, 0, 0, 0, 0, 0, 0xffff, 0, 0, 0xffff, 0xffffffffu, 1, 0};
+    uint32_t a = 1, b = 0, f1 = 0, f2 = 0;
+    bool stopped = false;
+    F->read_err = false;
+    uint32_t next_show = now_ms() + 300;
+    for (uint32_t pos = lo; pos < hi && !stopped; pos += CHUNK) {
+        uint32_t n = hi - pos < CHUNK ? hi - pos : CHUNK;
+        doc_read(pos, t->buf, NULL, n);
+        for (uint32_t i = 0; i < n; ++i) {
+            uint8_t c = t->buf[i];
+            k.sum32 += c;
+            k.xor8 ^= c;
+            k.crc8 = t->c8[k.crc8 ^ c];
+            k.ccitt = (uint16_t)(k.ccitt << 8 ^ t->c16[(k.ccitt >> 8 ^ c) & 0xff]);
+            k.xmodem = (uint16_t)(k.xmodem << 8 ^ t->c16[(k.xmodem >> 8 ^ c) & 0xff]);
+            k.arc = (uint16_t)(k.arc >> 8 ^ t->r16[(k.arc ^ c) & 0xff]);
+            k.modbus = (uint16_t)(k.modbus >> 8 ^ t->r16[(k.modbus ^ c) & 0xff]);
+            k.crc32 = k.crc32 >> 8 ^ t->c32[(k.crc32 ^ c) & 0xff];
+            a += c;
+            if (a >= 65521)
+                a -= 65521;
+            b += a;
+            if (b >= 65521)
+                b -= 65521;
+            f1 += c;
+            if (f1 >= 255)
+                f1 -= 255;
+            f2 += f1;
+            if (f2 >= 255)
+                f2 -= 255;
+        }
+        if ((int32_t)(now_ms() - next_show) >= 0) {
+            progress("Checksums", pos - lo, hi - lo);
+            next_show = now_ms() + 300;
+            stopped = key_stop();
+        }
+    }
+    free(t);
+    F->dirty = true;
+    if (stopped) {
+        message("Checksums stopped");
+        return;
+    }
+    if (F->read_err)
+        message("Reading the file failed: these take those bytes as 00");
+    k.sum8 = (uint8_t)k.sum32;
+    k.sum16 = (uint16_t)k.sum32;
+    k.crc32 ^= 0xffffffffu;
+    k.adler = b << 16 | a;
+    k.fletcher = (uint16_t)(f2 << 8 | f1);
+    F->sums = k;
+    F->dlg = DLG_SUMS;
 }
 
 /// Draws the About box.
@@ -1398,6 +1529,7 @@ static void draw(void) {
     case DLG_GOTO: draw_input_box(); break;
     case DLG_HELP: draw_help(); break;
     case DLG_ABOUT: draw_about(); break;
+    case DLG_SUMS: draw_sums(); break;
     }
     if (F->menu >= 0)
         draw_menu();
@@ -2291,6 +2423,7 @@ static void command(int id) {
     case CMD_GOTO: input_open(DLG_GOTO); break;
     case CMD_HELP: F->dlg = DLG_HELP; break;
     case CMD_ABOUT: F->dlg = DLG_ABOUT; break;
+    case CMD_SUMS: checksums(); break;
     }
     F->dirty = true;
 }
@@ -2366,7 +2499,7 @@ static void key(int k) {
         return;
     }
     switch (F->dlg) {
-    case DLG_HELP: case DLG_ABOUT: F->dlg = DLG_NONE; F->dirty = true; return;
+    case DLG_HELP: case DLG_ABOUT: case DLG_SUMS: F->dlg = DLG_NONE; F->dirty = true; return;
     case DLG_FILE: fd_key(k); F->dirty = true; return;
     case DLG_FIND: case DLG_GOTO: input_key(k); F->dirty = true; return;
     case DLG_ASK:
@@ -2416,6 +2549,7 @@ static void key(int k) {
     case CTRL('n'): command(CMD_NEW); break;
     case CTRL('f'): command(CMD_FIND); break;
     case CTRL('g'): command(CMD_GOTO); break;
+    case CTRL('k'): command(CMD_SUMS); break;
     case KEY_F3: command(CMD_NEXT); break;
     case KEY_F1: command(CMD_HELP); break;
     case KEY_F9: case KEY_F10: menu_open(0, false); break;
@@ -2607,7 +2741,7 @@ static void mouse(const mouse_event_t *e) {
     case HIT_IN_MODE: F->in_text = h->arg; F->dirty = true; break;
     case HIT_IN_CASE: F->match_case = !F->match_case; F->dirty = true; break;
     case HIT_SWALLOW:
-        if (F->dlg == DLG_HELP || F->dlg == DLG_ABOUT)
+        if (F->dlg == DLG_HELP || F->dlg == DLG_ABOUT || F->dlg == DLG_SUMS)
             F->dlg = DLG_NONE, F->dirty = true;
         break;
     }

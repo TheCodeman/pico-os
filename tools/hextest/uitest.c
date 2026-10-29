@@ -613,6 +613,38 @@ out:
     CHECK(t && nf == 5000 && !memcmp(t, orig, 5000), "TEST.BIN untouched by Save as");
     free(t);
 
+    // Checksums: of "123456789" selected, against the catalogue's check values; then of the file.
+    move_to(F->size, false);
+    F->ins = true;
+    if (!F->text)
+        press('\t');
+    uint32_t at9 = F->cur;
+    type("123456789");
+    move_to(at9, false);
+    mods = SHIFT_BITS;
+    move_to(at9 + 9, true);
+    mods = 0;
+    press(CTRL('k'));
+    {
+        const sums_t *k = &F->sums;
+        CHECK(F->dlg == DLG_SUMS && k->hi - k->lo == 9, "Ctrl-K: dlg %d, %lu bytes", F->dlg,
+              (unsigned long)(k->hi - k->lo));
+        CHECK(k->crc32 == 0xcbf43926 && k->ccitt == 0x29b1 && k->xmodem == 0x31c3 && k->arc == 0xbb3d &&
+                  k->modbus == 0x4b37 && k->crc8 == 0xf4 && k->adler == 0x091e01de && k->fletcher == 0x1ede,
+              "check values: %08x %04x %04x %04x %04x %02x %08x %04x", k->crc32, k->ccitt, k->xmodem, k->arc,
+              k->modbus, k->crc8, k->adler, k->fletcher);
+        CHECK(k->sum32 == 477 && k->sum8 == (477 & 255) && k->xor8 == 0x31, "sums %u %02x xor %02x", k->sum32,
+              k->sum8, k->xor8);
+    }
+    snap("shot_sums.raw", -1, -1);
+    press(' ');
+    F->sel = false;
+    menu_click(2, 4);  // Search, Checksums: the whole file
+    CHECK(F->dlg == DLG_SUMS && F->sums.lo == 0 && F->sums.hi == F->size, "Checksums of the file");
+    press(KEY_ESC);
+    F->ins = false;
+    press(CTRL('z'));
+
     // Help and About.
     press(KEY_F1);
     snap("shot_help.raw", -1, -1);
