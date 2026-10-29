@@ -473,6 +473,11 @@ static int run_game(const char *path, const options *o, void (*progress)(const c
     // One frame at a time, paced to real time.
     uint64_t frames = 0, drawn = 0, busy_us = 0, worst_us = 0, late = 0;
     uint64_t sched_us = time_us_64(), sched_frames = 0;
+    // NTSC frames start as the scanout's vertical sync does (see below).
+    uint32_t frame_vsync = dvi_frames;
+    while (dvi_frames == frame_vsync)
+        __wfi();
+    frame_vsync = dvi_frames;
     // The XIP cache's (flash and PSRAM) accesses and hits, counted by the
     // hardware (32-bit saturating counters, so they're taken each frame).
     uint64_t xip_acc = 0, xip_hit = 0;
@@ -517,7 +522,33 @@ static int run_game(const char *path, const options *o, void (*progress)(const c
             }
             continue;
         }
-        uint32_t frame_ns = genesis_pal() ? FRAME_NS_PAL : FRAME_NS_NTSC;
+        // Behind: the next frame isn't drawn, but only if drawing held
+        // core 0 up (more than a millisecond waiting for core 1). Otherwise
+        // the CPUs are the slow part, and drawing on core 1 costs them little.
+        bool held_up = o->one_core || genesis_time.wait_us - waited > 1000;
+        if (!genesis_pal()) {
+            // NTSC: in step with the HDMI picture (59.94 Hz, 0.03% faster than
+            // the Genesis's 59.92, which the sound takes up): each frame starts
+            // as the scanout's vertical sync does, about 1.5 ms before it reads
+            // the picture's first line and 64 us a line after that, so the
+            // lines are drawn ahead of it and the picture doesn't tear. A frame
+            // that ran past the next sync starts at once (and may tear) and
+            // the one after it at the sync after that.
+            uint32_t next = frame_vsync + 1;
+            if ((int32_t)(dvi_frames - next) < 0) {
+                skip = 0;
+                while ((int32_t)(dvi_frames - next) < 0)
+                    __wfi();
+                frame_vsync = next;
+            } else {
+                if ((int32_t)(dvi_frames - next) >= 6)  // 100 ms behind
+                    ++late;
+                frame_vsync = dvi_frames;
+                skip = held_up && skip < MAX_SKIP ? skip + 1 : 0;
+            }
+            continue;
+        }
+        uint32_t frame_ns = FRAME_NS_PAL;
         uint64_t due = sched_us + (frames - sched_frames) * frame_ns / 1000;
         if (now > due + 100000) {
             // Far behind: start the schedule again.
@@ -526,10 +557,6 @@ static int run_game(const char *path, const options *o, void (*progress)(const c
             sched_frames = frames;
             due = now;
         }
-        // Behind: the next frame isn't drawn, but only if drawing held
-        // core 0 up (more than a millisecond waiting for core 1). Otherwise
-        // the CPUs are the slow part, and drawing on core 1 costs them little.
-        bool held_up = o->one_core || genesis_time.wait_us - waited > 1000;
         if (due > now) {
             skip = 0;
             sleep_until(from_us_since_boot(due));
