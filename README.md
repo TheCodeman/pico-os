@@ -36,6 +36,7 @@ Captured with `screenshot` on the board, or drawn by the PC tests in
 | <img src="docs/sdr_main.png" width="400" alt="SDR receiver (sdr)"><br>SDR receiver (`sdr`) | <img src="docs/fm_main.png" width="400" alt="FM radio (fm)"><br>FM radio (`fm`) |
 | <img src="screenshots/Si5351A.png" width="400" alt="Clock generator (on the board)"><br>Clock generator (on the board) | <img src="docs/si5351_main.png" width="400" alt="Clock generator (si5351)"><br>Clock generator (`si5351`) |
 | <img src="docs/sprite_main.png" width="400" alt="Sprite editor (sprite)"><br>Sprite editor (`sprite`) | <img src="docs/wav_main.png" width="400" alt="WAV editor (wav)"><br>WAV editor (`wav`) |
+| <img src="docs/hex_main.png" width="400" alt="Hex editor (hex)"><br>Hex editor (`hex`) | <img src="docs/hex_sums.png" width="400" alt="Hex editor: checksums and CRCs"><br>Hex editor: checksums and CRCs |
 | <img src="docs/wav_effects.png" width="400" alt="WAV editor effects"><br>WAV editor effects | <img src="docs/swarm_title.png" width="400" alt="Swarm (swarm)"><br>Swarm (`swarm`) |
 | <img src="docs/swarm_beam.png" width="400" alt="Swarm: the tractor beam"><br>Swarm: the tractor beam | <img src="docs/swarm_dual.png" width="400" alt="Swarm: the twin fighter"><br>Swarm: the twin fighter |
 | <img src="docs/swarm_challenge.png" width="400" alt="Swarm: a challenging stage"><br>Swarm: a challenging stage | <img src="docs/term.png" width="400" alt="Serial terminal (term)"><br>Serial terminal (`term`) |
