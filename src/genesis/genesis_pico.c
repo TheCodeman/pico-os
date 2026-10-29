@@ -101,6 +101,7 @@ static volatile uint32_t sound_head, sound_tail;
 static uint32_t sound_pos;   ///< core 1: the next sample's position, 16.16 past sound_tail
 static uint32_t sound_step0;  ///< core 1: Genesis samples a 48 kHz sample, 16.16
 static bool sound_playing;    ///< core 1: once the ring has filled to half
+static int32_t sound_fill;    ///< core 1: how full the ring is, averaged (x 256)
 /// Samples lost to a full ring, and 48 kHz samples with none ready.
 ///@{
 static volatile uint32_t sound_dropped, sound_short;
@@ -133,6 +134,7 @@ static bool __attribute__((section("genesis_fast"))) genesis_sound(int32_t *left
     uint32_t tail = sound_tail, have = __atomic_load_n(&sound_head, __ATOMIC_ACQUIRE) - tail;
     if (!sound_playing) {  // silent until the ring is half full
         sound_playing = have >= SOUND_RING / 2;
+        sound_fill = (int32_t)have * 256;
         *left = *right = 0;
         return true;
     }
@@ -147,8 +149,12 @@ static bool __attribute__((section("genesis_fast"))) genesis_sound(int32_t *left
     *left = *right = last * 2;  // the mixer halves sources
     // The step follows how full the ring is, up to about 6% either way: when
     // a busy game falls behind, the sound slows down with it (a little lower
-    // and slower) instead of running dry and breaking up.
-    int32_t off = (int32_t)have - SOUND_RING / 2;
+    // and slower) instead of running dry and breaking up. The fill is
+    // averaged over about 43 ms: it rises by a whole frame's samples at once
+    // and falls in between, and followed as it is that made the pitch wobble
+    // by almost 3% sixty times a second (now about 0.3%).
+    sound_fill += ((int32_t)have * 256 - sound_fill) >> 11;
+    int32_t off = sound_fill / 256 - SOUND_RING / 2;
     sound_pos += sound_step0 + (int32_t)((int64_t)sound_step0 * off / (SOUND_RING * 8));
     uint32_t whole = sound_pos >> 16;
     if (whole) {
