@@ -113,6 +113,8 @@ add_executable(pico2_os
     src/swarm/swarm_snd.c
     src/say/say.c
     src/say/tts.c
+    src/lancer/lancer.c
+    src/lancer/lancer_snd.c
     src/net/tls.c
     src/net/wifi.c
     src/psram_heap.c
@@ -127,7 +129,7 @@ add_executable(pico2_os
 )
 
 # tusb_config.h lives in src/; FatFs R0.15 (with our ffconf.h) in src/fatfs/.
-target_include_directories(pico2_os PRIVATE src src/fatfs src/basic src/net src/image src/applesoft src/xfer src/apple2e src/c64 src/smb src/mc src/mod src/radio src/radio/helix src/si5351 src/fmradio src/sprite src/wav src/hex src/sdr src/swarm src/say
+target_include_directories(pico2_os PRIVATE src src/fatfs src/basic src/net src/image src/applesoft src/xfer src/apple2e src/c64 src/smb src/mc src/mod src/radio src/radio/helix src/si5351 src/fmradio src/sprite src/wav src/hex src/sdr src/swarm src/say src/lancer
     src/genesis src/genesis/core/bus src/genesis/core/cpus/M68K src/genesis/core/cpus/Z80
     src/genesis/core/io src/genesis/core/savestate src/genesis/core/sound src/genesis/core/vdp)
 
