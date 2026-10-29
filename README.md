@@ -4,7 +4,7 @@ A small command-line operating system for the Raspberry Pi RP2350 (on a
 Pimoroni Pico Plus 2): an 80x30 text console on HDMI with sound, a USB
 keyboard, mouse and flash drive, WiFi, and a set of programs to go with it.
 
-![Pico 2 mini OS](docs/radio.png)
+![Pico 2 mini OS just after boot](screenshots/boot.png)
 
 ## Features
 
