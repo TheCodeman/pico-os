@@ -33,8 +33,7 @@ typedef struct {
 static const speed speeds[CLOCK_SETTING_COUNT] = {
     {126, "1.10 V", "42 MHz", "42 MHz", "Slow and cool: everything works, emulators run behind."},
     {252, "1.20 V", "84 MHz", "42 MHz", "The default. Most things keep up; Batman & Robin doesn't."},
-    {378, "1.30 V", "94.5 MHz", "47 MHz",
-     "An overclock, on trial: half as fast again, for the heaviest Genesis games."},
+    {378, "1.30 V", "94.5 MHz", "47 MHz", "Overclock (trial): 50% faster, for the heaviest Genesis games."},
 };
 
 static unsigned running_mhz(void) {
