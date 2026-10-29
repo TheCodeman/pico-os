@@ -228,9 +228,10 @@ direct commands at the `Ok` prompt.
   - `SERVO pin, angle` drives a hobby servo, 0-180 degrees (0.5-2.5 ms pulses
     at 50 Hz).
   - `ADC(pin)` reads GP40-46, 0-4095 for 0-3.3 V; `TEMP()` is the chip's
-    temperature in C, using the datasheet's formula. It is uncalibrated: on
-    the test board it reads some 25 C low, probably because the board's ADC
-    reference isn't exactly 3.3 V.
+    temperature in C, using the datasheet's formula. It is uncalibrated, so
+    within a few degrees; it varies a little between readings. (On the test
+    board it reads about 38 C at 126 MHz and 43 C at 378 with everything
+    running; the ADC's reference checks out against VSYS.)
   - `PAUSE ms` waits (Ctrl-C still stops the program); `PINS` lists every
     pin and what it is doing.
   - Pins the system uses are refused with what uses them: GP0-1 (debug
@@ -649,8 +650,8 @@ HSTX's 126 MHz. The setting is kept in the flash's last sector
 fails to start at a saved clock twice in a row (a watchdog runs while it
 starts) starts at the default instead. `-DOS_CLOCK_MHZ=` sets the default
 (252). The title bar shows the clock the chip really runs at, and its
-temperature in degrees F (`src/chip_temp.c`: the on-chip sensor, plus the
-25 C it reads low on the test board, so roughly); the clock menu and
+temperature in degrees F (`src/chip_temp.c`: the on-chip sensor by the
+datasheet's formula, within a few degrees); the clock menu and
 `clock status` show it too.
 
 <img src="screenshots/clock.png" width="480" alt="The clock menu"><br>

@@ -694,8 +694,8 @@ error`.
 
 ## 10. Known problems
 
-- `TEMP()` is uncalibrated: on the test board it reads about 25 °C low and
-  varies by a few degrees between readings.
+- `TEMP()` is uncalibrated, so within a few degrees, and varies a little
+  between readings.
 
 ## 11. Example programs (EXAMPLES folder on the drive)
 
