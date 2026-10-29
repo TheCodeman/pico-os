@@ -49,6 +49,7 @@
 #include "sprite.h"
 #include "usb_storage.h"
 #include "wav.h"
+#include "hexedit.h"
 #include "sdr.h"
 #include "swarm.h"
 
@@ -362,6 +363,12 @@ static const help_t help_programs[] = {
      "                           flanger, filters..., undo; plays over HDMI\n"
      "wav info file.wav          its rate, bits, channels and length\n"
      "  F1 in the editor lists its keys."},
+    {"hex", "hexedit", "hex editor",
+     "hex [file]                 edit any file's bytes in hex or as text:\n"
+     "                           overwrite, insert, delete, cut, copy, paste,\n"
+     "                           find, go to, undo; menus and the mouse.\n"
+     "                           Big files are read from the drive as needed\n"
+     "  F1 in the editor lists its keys, F10 opens the menus."},
     {"sdr", NULL, "radio receiver (RTL-SDR)",
      "sdr [MHz] [wfm|nfm|am]     the receiver: spectrum, waterfall, wide and\n"
      "                           narrow FM and AM, squelch, favourites, scan\n"
@@ -1666,7 +1673,7 @@ static const struct {
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset}, {"clock", cmd_clock},
-    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"screenshot", cmd_screenshot},
+    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"screenshot", cmd_screenshot},
 };  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.
