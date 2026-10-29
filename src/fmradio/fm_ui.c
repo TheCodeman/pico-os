@@ -165,6 +165,8 @@ static void fill(int x, int y, int w, int h, uint8_t c) {
     if (y < 0) h += y, y = 0;
     if (x + w > W) w = W - x;
     if (y + h > H) h = H - y;
+    if (w <= 0 || h <= 0)  // off the screen
+        return;
     for (int r = 0; r < h; ++r)
         memset(F->g + (y + r) * W + x, c, w);
 }
