@@ -29,7 +29,7 @@ Captured with `screenshot` on the board, or drawn by the PC tests in
 
 | | |
 |---|---|
-| <img src="screenshots/TEST1.PNG" width="400" alt="The shell (on the board)"><br>The shell (on the board) | <img src="docs/help.png" width="400" alt="help"><br>help |
+| <img src="docs/help.png" width="400" alt="help"><br>help | <img src="docs/hex_menu.png" width="400" alt="Hex editor: the menus"><br>Hex editor: the menus |
 | <img src="docs/editor.png" width="400" alt="Text editor (edit)"><br>Text editor (`edit`) | <img src="docs/mc.png" width="400" alt="File manager (mc)"><br>File manager (`mc`) |
 | <img src="screenshots/tracker.png" width="400" alt="MOD tracker (on the board)"><br>MOD tracker (on the board) | <img src="docs/tracker_xm.png" width="400" alt="XM in the tracker"><br>XM in the tracker |
 | <img src="docs/radio.png" width="400" alt="Internet radio (radio)"><br>Internet radio (`radio`) | <img src="screenshots/sdr.png" width="400" alt="SDR receiver (on the board)"><br>SDR receiver (on the board) |
