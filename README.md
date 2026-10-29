@@ -43,6 +43,7 @@ Captured with `screenshot` on the board, or drawn by the PC tests in
 | <img src="docs/basic_house.png" width="400" alt="BASIC graphics"><br>BASIC graphics | <img src="docs/basic_lissa.png" width="400" alt="BASIC: Lissajous figures"><br>BASIC: Lissajous figures |
 | <img src="docs/basic_fontdemo.png" width="400" alt="BASIC font sheets"><br>BASIC font sheets | <img src="docs/basic_chart.png" width="400" alt="BASIC: a chart"><br>BASIC: a chart |
 | <img src="screenshots/APPLE2E.PNG" width="400" alt="Apple IIe (on the board)"><br>Apple IIe (on the board) | <img src="screenshots/c64.png" width="400" alt="Commodore 64 (on the board)"><br>Commodore 64 (on the board) |
+| <img src="screenshots/genesis_launcher.png" width="400" alt="Genesis game launcher (on the board)"><br>Genesis game launcher (on the board) | <img src="screenshots/clock.png" width="400" alt="Processor clock (clock, on the board)"><br>Processor clock (`clock`, on the board) |
 
 ## Manuals
 
@@ -651,6 +652,11 @@ starts) starts at the default instead. `-DOS_CLOCK_MHZ=` sets the default
 temperature in degrees F (`src/chip_temp.c`: the on-chip sensor, plus the
 25 C it reads low on the test board, so roughly); the clock menu and
 `clock status` show it too.
+
+<img src="screenshots/clock.png" width="480" alt="The clock menu"><br>
+The clock menu at 378 MHz: each clock with its core voltage and flash and
+PSRAM speeds, which one is running, saved and the default, and the chip's
+temperature.
 
 ## Flash and run
 
