@@ -51,6 +51,7 @@
 #include "wav.h"
 #include "hexedit.h"
 #include "sdr.h"
+#include "say.h"
 #include "swarm.h"
 
 #define LINE_MAX      255  ///< a command may wrap over several screen rows
@@ -265,6 +266,14 @@ static const help_t help_screen[] = {
      "modplay file\n"
      "  Plays a .MOD or .XM (FastTracker 2) song once through HDMI audio;\n"
      "  any key stops."},
+    {"say", NULL, "text to speech over HDMI",
+     "say text                   speaks the text (Esc stops); numbers are read\n"
+     "                           out and short words in capitals spelled\n"
+     "say                        type lines to hear them (Up repeats one)\n"
+     "say -f file.txt            reads a text file aloud\n"
+     "say -w file.wav text       saves the speech as a WAV file (16 kHz)\n"
+     "  -p Hz pitch (110), -s % speed (100), -x shows the phonemes;\n"
+     "  [HH AX L OW1] in the text is phonemes."},
     {"screenshot", NULL, "save the screen (PNG/BMP)",
      "screenshot [file]\n"
      "  .PNG or .BMP by the name; default the next /SCREENSHOTS/SHOTnnnn.PNG.\n"
@@ -1673,7 +1682,7 @@ static const struct {
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset}, {"clock", cmd_clock},
-    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"screenshot", cmd_screenshot},
+    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"say", say_command}, {"screenshot", cmd_screenshot},
 };  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.

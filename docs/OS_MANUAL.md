@@ -100,28 +100,29 @@ cyan, command names in white):
       pwd         show the current folder     colors      show the 16 colours
       mkdir       make a folder               beep        play a tone
       rm          delete file/empty folder    modplay     play a MOD or XM song
-      cp          copy a file                 screenshot  save the screen (PNG/BMP)
-      mv          rename or move
-      cat         show a text file          Network
-      df          size and free space         wifi        WiFi status and setup
-                                              radio       internet radio
-    Programs                                  wget        download a file
-      edit        text editor                 telnet      remote terminal
-      basic       GW-BASIC style BASIC        ssh         remote shell (SSH)
-      applesoft   Applesoft BASIC (Apple II)  scp         copy files over SSH
-      term        serial terminal (COM1)      mount       network share (SMB)
-      apple2e     Apple IIe emulator          ntp         set the clock (NTP)
-      c64         Commodore 64 emulator
-      genesis     Sega Genesis emulator     System
-      mc          file manager                clock       processor clock (MHz)
-                                              date        show or set the clock
-      tracker     MOD music tracker           mem         memory use
-      si5351      Si5351A clock generator     mouse       mouse status and speed
-      fm          FM radio (Si4703)           memtest     test the PSRAM
-      sprite      sprite editor (RGB332)      reset       restart the board
-      wav         WAV sound editor            run         run a script
-      sdr         radio receiver (RTL-SDR)    help        this list
-      view        show a picture
+      cp          copy a file                 say         text to speech over HDMI
+      mv          rename or move              screenshot  save the screen (PNG/BMP)
+      cat         show a text file
+      df          size and free space       Network
+                                              wifi        WiFi status and setup
+    Programs                                  radio       internet radio
+      edit        text editor                 wget        download a file
+      basic       GW-BASIC style BASIC        telnet      remote terminal
+      applesoft   Applesoft BASIC (Apple II)  ssh         remote shell (SSH)
+      term        serial terminal (COM1)      scp         copy files over SSH
+      apple2e     Apple IIe emulator          mount       network share (SMB)
+      c64         Commodore 64 emulator       ntp         set the clock (NTP)
+      genesis     Sega Genesis emulator
+      mc          file manager              System
+                                              clock       processor clock (MHz)
+      tracker     MOD music tracker           date        show or set the clock
+      si5351      Si5351A clock generator     mem         memory use
+      fm          FM radio (Si4703)           mouse       mouse status and speed
+      sprite      sprite editor (RGB332)      memtest     test the PSRAM
+      wav         WAV sound editor            reset       restart the board
+      sdr         radio receiver (RTL-SDR)    run         run a script
+      view        show a picture              help        this list
+
 
     Type help and a command name for how to use it, e.g. help wifi.
     Also: dir=ls del=rm copy=cp ren=mv type=cat clear=cls ed=edit reboot=reset
@@ -204,6 +205,7 @@ Esc or Ctrl-C stops between files. Copying a file onto itself is refused.
 | `beep [hz]` | | Plays a 300 ms tone, 20-20000 Hz (default 880 Hz). |
 | `screenshot [file]` | | Saves the screen as a PNG or BMP (by the name; default the next free `/SCREENSHOTS/SHOTnnnn.PNG`). |
 | `modplay file` | | Plays a MOD or XM (FastTracker 2) song once through HDMI audio, showing the position, tempo, voices and CPU load; any key stops. |
+| `say [-p Hz] [-s %] [-x] [text]` | | Speaks the text through HDMI audio with a small built-in speech synthesizer (Esc stops). Numbers are read out and short words in capitals spelled (`USB`). With no text it asks for lines and speaks each (Up repeats one; an empty line or Esc ends). `-f file` reads a text file aloud, `-w file.wav` saves the speech as a 16 kHz WAV instead, `-p` sets the pitch (50-300 Hz, normally 110), `-s` the speed (40-250 %), `-x` shows the phonemes, and `[HH AX L OW1]` in the text is taken as phonemes. |
 
 ### System
 
@@ -431,6 +433,7 @@ default). Both are saved in `/MOUSE.CFG` and read when the drive appears.
 Sound plays through the HDMI monitor's speakers (48 kHz HDMI audio); no
 extra pin or speaker is needed. The shell has `beep [hz]` and Ctrl-G. BASIC
 has `BEEP`, `SOUND` and `PLAY`. `modplay` and the tracker play MOD music.
+`say` speaks text (`SHELL "say hello"` from BASIC).
 
 ## 9. Messages
 
