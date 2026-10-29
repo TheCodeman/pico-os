@@ -33,6 +33,8 @@ static const char *const words[][2] = {
     {"3.5", "TH R IY1 / P OY1 N T / F AY1 V / ."},
     {"is it on?", "IH Z / IH T / AA N / ?"},
     {"yes, no.", "Y EH1 S / , N OW1 / ."},
+    {"people", "P IY1 P AX L / ."},
+    {"apple", "AE1 P AX L / ."},
 };
 
 /// Writes 16 kHz mono samples as a WAV file.
@@ -168,6 +170,7 @@ int main(int argc, char **argv) {
         "Is the USB keyboard plugged in?",
         "I can count: one, two, three, four, five, 1024, and 3.14.",
         "Sixty-six shiny sheep, chewing cheese in the sun.",
+        "People like simple little apples.",
     };
     char name[512];
     for (size_t i = 0; i < sizeof lines / sizeof lines[0]; ++i) {

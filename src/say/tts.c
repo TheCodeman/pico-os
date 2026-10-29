@@ -301,6 +301,10 @@ static void say_word(buf_t *b, const char *word) {
     size_t pl = 0;
     ph[0] = 0;
     for (int p = 1; p < n - 1;) {
+        if (p > 1 && w[p] == w[p - 1] && is_cons(w[p]) && w[p] != 'C') {
+            ++p;  // a doubled consonant says once ("apple")
+            continue;
+        }
         const tts_rule_t *r = tts_rules;
         for (; r->match; ++r) {
             int m = (int)strlen(r->match);
@@ -764,7 +768,7 @@ tts_t *tts_start(const char *phonemes, const tts_voice_t *voice, const char **ba
         switch (p->kind) {
         case K_VOWEL:
         case K_DIPH: {
-            if (!x->stress)
+            if (!x->stress && strcmp(p->name, "AX"))  // (a schwa is short already)
                 dur *= 0.72f;
             if (word_end)
                 dur *= 1.2f;
@@ -814,6 +818,10 @@ tts_t *tts_start(const char *phonemes, const tts_voice_t *voice, const char **ba
             s->tr = (uint16_t)((p->kind == K_NASAL ? 0.015f : 0.035f) * FS);
             if (p->kind == K_NASAL)
                 s->b[0] = 100, s->b[1] = 300, s->b[2] = 300;
+            if (!strcmp(p->name, "L") && (!np || np->kind > K_SONOR)) {
+                s->f[1] = 850;  // a dark L, at the end of a syllable ("people")
+                s->f[2] = 2600;
+            }
             break;
         }
         case K_FRIC: {
@@ -870,7 +878,7 @@ tts_t *tts_start(const char *phonemes, const tts_voice_t *voice, const char **ba
                 s->fc = f->fc, s->fb = f->fb;
             } else if (!st->voiced && next_sound &&
                        !(prev && !strcmp(phons[prev->ph].name, "S") && !word_end)) {
-                seg_t *a = seg_add(t, 45, speed);
+                seg_t *a = seg_add(t, next->stress ? 45 : 25, speed);
                 seg_formants(a, np->f);
                 a->ah = 0.45f;
                 a->af = 0.06f;
