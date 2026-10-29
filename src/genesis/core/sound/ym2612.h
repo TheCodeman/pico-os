@@ -25,6 +25,8 @@ extern int ym2612_clock;
 #define YM2612_SLOW_TABLES (128 * 8 * 16)
 extern void YM2612SetTables(void *fast, void *slow);
 extern int ym2612_half_rate; /* pico-os: see ym2612.c */
+extern int ym2612_timer_index; /* pico-os: set to 0 with ym2612_index; see ym2612.c */
+extern void ym2612_timers_to(int index);
 extern void YM2612Init(void);
 extern void YM2612Config(unsigned char dac_bits); //,unsigned int AUDIO_FREQ_DIVISOR);
 extern void YM2612ResetChip(void);

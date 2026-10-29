@@ -113,7 +113,8 @@ cyan, command names in white):
       apple2e     Apple IIe emulator          ntp         set the clock (NTP)
       c64         Commodore 64 emulator
       genesis     Sega Genesis emulator     System
-      mc          file manager                date        show or set the clock
+      mc          file manager                clock       processor clock (MHz)
+                                              date        show or set the clock
       tracker     MOD music tracker           mem         memory use
       si5351      Si5351A clock generator     mouse       mouse status and speed
       fm          FM radio (Si4703)           memtest     test the PSRAM

@@ -19,6 +19,7 @@
 
 #include "apple2e.h"
 #include "c64_app.h"
+#include "clock_app.h"
 #include "genesis_app.h"
 #include "applesoft.h"
 #include "app_overlay.h"
@@ -430,6 +431,12 @@ static const help_t help_network[] = {
 
 /// Help: system.
 static const help_t help_system[] = {
+    {"clock", NULL, "processor clock (MHz)",
+     "clock                  a menu: 126, 252 (the default) or 378 MHz\n"
+     "clock 126 | 252 | 378  start at that clock from now on (restarts)\n"
+     "clock status           the clock now and the one saved\n"
+     "  378 MHz is an overclock (core 1.30 V), on trial: if the board fails\n"
+     "  to start at it twice, it starts at 252 instead."},
     {"date", NULL, "show or set the clock",
      "date\n"
      "date YYYY-MM-DD HH:MM[:SS]\n"
@@ -1517,6 +1524,10 @@ static void cmd_colors(int argc, char **argv) {
 /// PC rather than to the hub.
 /// @param argc the argument count
 /// @param argv the arguments
+static void cmd_clock(int argc, char **argv) {
+    clock_main(argc, argv);
+}
+
 static void cmd_reset(int argc, char **argv) {
     bool bootsel = argc > 1 && (!strcmp(argv[1], "bootsel") || !strcmp(argv[1], "-b"));
     if (argc > 1 && !bootsel) {
@@ -1654,7 +1665,7 @@ static const struct {
     {"edit", cmd_edit},     {"ed", cmd_edit},     {"basic", cmd_basic},
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
-    {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset},
+    {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset}, {"clock", cmd_clock},
     {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"screenshot", cmd_screenshot},
 };  ///< the commands
 

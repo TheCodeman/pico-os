@@ -20,6 +20,9 @@
 #pragma once
 /// Puts a function in the genesis_fast section (run from the far end of the framebuffer).
 #define GWENESIS_FAST __attribute__((section("genesis_fast")))
+/// Code in the apps' shared SRAM area (src/app_overlay.h), copied in when the
+/// genesis command starts: for what doesn't fit in genesis_fast.
+#define GWENESIS_OV __attribute__((section("app_ov_genesis.code")))
 /// The core's big variables: in the apps' shared SRAM area (src/app_overlay.h),
 /// zeroed when the genesis command starts, so they hold no SRAM otherwise.
 #define GENESIS_RAM __attribute__((section("app_ov_genesis.data")))

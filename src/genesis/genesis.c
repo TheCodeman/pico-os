@@ -269,6 +269,7 @@ void genesis_run_frame(genesis_line_fn line, void *ctx) {
     zclk = z80_on ? 0 : 0x1000000;
     ym2612_clock = ym_on ? 0 : 0x1000000;
     ym2612_index = 0;
+    ym2612_timer_index = 0;
     sn76489_clock = sn_on ? 0 : 0x1000000;
     sn76489_index = 0;
 

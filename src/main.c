@@ -15,10 +15,14 @@
 #include <stdlib.h>
 
 #include "audio.h"
+#include "clock_setting.h"
 #include "console.h"
 #include "core1_job.h"
 #include "dvi.h"
 #include "hardware/clocks.h"
+#include "hardware/watchdog.h"
+#include "pico/flash.h"
+#include "hardware/sync.h"
 #include "hardware/vreg.h"
 #include "net.h"
 #include "pico/multicore.h"
@@ -65,6 +69,7 @@ void core1_job_stop(void) {
 
 /// Core 1: USB, the drive and the sound refill, then any job a program gives it.
 static void core1_main(void) {
+    flash_safe_execute_core_init();  // so core 0 can write the flash (clock_setting_save)
     usb_keyboard_start();
     bool refilled = audio_start_refill();
     for (;;) {
@@ -197,6 +202,7 @@ static int start_up(void) {
     bool kb_done = false, drive_done = false;
     int key = -1, frame = -1;
     for (;;) {
+        watchdog_update();  // running only while starting at a saved clock (clock_setting.h)
         int k = getchar_timeout_us(10000);
         if (k >= 0)
             key = k;
@@ -261,6 +267,11 @@ static int start_up(void) {
 static void main_loop(void *unused) {
     net_init();
     int key = start_up();
+    clock_setting_booted();
+    if (clock_setting_fell_back())
+        printf(WARN "The saved clock (%u MHz) failed to start twice: running at %u MHz."
+                    " Try clock again." PLAIN "\n",
+               clock_setting_saved(), (unsigned)OS_CLOCK_MHZ);
     if (shell_autorun(key) && (key == 0x1b || key == 3))
         key = -1;  // it was to skip /AUTORUN
     shell_start();
@@ -277,22 +288,32 @@ static void main_loop(void *unused) {
 }
 
 
+
 /// Clocks, PSRAM, video, audio and USB set up; then the shell on its own stack.
 /// @return never
 int main(void) {
-    // 126 MHz (or twice that, divided by 2 for HSTX) gives the exact 25.2 MHz
-    // 640x480 pixel clock.
-    // The boot ROM runs the flash at clk_sys / 3: 42 MHz, or 84 MHz at 252
-    // (well within the chip's 133 MHz; reading the whole image back at 84
-    // MHz while everything ran matched).
-#if OS_CLOCK_MHZ > 150
-    vreg_set_voltage(VREG_VOLTAGE_1_20);  // overclocked: more core voltage first
+    // The clock: 126, 252 or 378 MHz (clock_setting.h: saved by the clock
+    // command, OS_CLOCK_MHZ if none), all multiples of HSTX's 126 MHz, which
+    // gives the exact 25.2 MHz 640x480 pixel clock.
+    // - Above 150 MHz the core voltage goes up first: 1.20 V at 252, 1.30 V
+    //   (the most the SDK allows without lifting its limit) at 378.
+    // - The boot ROM runs the flash at clk_sys / 3: 42 MHz, or 84 MHz at 252
+    //   (well within the chip's 133 MHz; reading the whole image back at 84
+    //   MHz while everything ran matched); at 378 it would be 126, so it goes
+    //   to / 4 (clock_flash_timing).
+    // - Setting the PSRAM up puts the flash's timing back to the boot ROM's,
+    //   so the PSRAM goes first (timed for the new clock while the clock is
+    //   still the boot one), then the flash's, then the clock.
+    unsigned mhz = clock_setting_boot();
+    if (mhz > 300)
+        vreg_set_voltage(VREG_VOLTAGE_1_30);
+    else if (mhz > 150)
+        vreg_set_voltage(VREG_VOLTAGE_1_20);
     busy_wait_us(10000);
-#endif
-    set_sys_clock_khz(OS_CLOCK_MHZ * 1000, true);
-    clock_configure(clk_hstx, 0, CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLK_SYS, OS_CLOCK_MHZ * MHZ,
-                    126 * MHZ);
-    size_t psram_size = psram_setup();
+    size_t psram_size = psram_setup(mhz * MHZ);
+    clock_flash_timing(mhz);
+    set_sys_clock_khz(mhz * 1000, true);
+    clock_configure(clk_hstx, 0, CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLK_SYS, mhz * MHZ, 126 * MHZ);
 
     stdio_init_all();  // UART0 on GP0 (TX) / GP1 (RX), wired to the Debug Probe
     serial_console_init();
@@ -316,11 +337,11 @@ int main(void) {
     // A title bar across the screen. Colours are ANSI escapes, so the serial
     // console shows the same start-up screen as the HDMI one.
     char chip[48];
-    unsigned mhz = (clock_get_hz(clk_sys) + MHZ / 2) / MHZ;  // what it really runs at
+    unsigned real_mhz = (clock_get_hz(clk_sys) + MHZ / 2) / MHZ;  // what it really runs at
     if (psram_size)
-        snprintf(chip, sizeof chip, "RP2350 @ %u MHz, %u MB PSRAM", mhz, (unsigned)(psram_size >> 20));
+        snprintf(chip, sizeof chip, "RP2350 @ %u MHz, %u MB PSRAM", real_mhz, (unsigned)(psram_size >> 20));
     else
-        snprintf(chip, sizeof chip, "RP2350 @ %u MHz", mhz);
+        snprintf(chip, sizeof chip, "RP2350 @ %u MHz", real_mhz);
     printf(TITLE "  Pico 2 mini OS%*s  " PLAIN "\n\n", CONSOLE_COLS - 18, chip);
     debug_printf("640x480 HDMI text console, %dx%d characters, 48 kHz stereo audio\n",
                  CONSOLE_COLS, CONSOLE_ROWS);

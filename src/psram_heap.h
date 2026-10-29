@@ -19,10 +19,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/// Core 0, right after the system clock is set and before core 1 starts.
-/// Returns the PSRAM size in bytes, or 0 if there is none.
+/// Core 0, before core 1 starts: sets the PSRAM's timing up for a system
+/// clock of sys_hz (the one it runs at now, or the one it is about to be set
+/// to: setting the PSRAM up also sets the flash's timing back to the boot
+/// ROM's, which must not happen at 378 MHz). Returns the PSRAM size in
+/// bytes, or 0 if there is none.
+/// @param sys_hz the system clock the timing is for
 /// @return the PSRAM's size in bytes, or 0
-size_t psram_setup(void);
+size_t psram_setup(uint32_t sys_hz);
 
 /// Writes a pattern over [start, start + len) through the cached window and
 /// reads it back through the uncached one. Returns the first bad address, or

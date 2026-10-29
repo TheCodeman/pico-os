@@ -14,6 +14,7 @@
 #include "ff.h"
 #include "lwip/dns.h"
 #include "lwip/netif.h"
+#include "hardware/clocks.h"
 #include "net.h"
 #include "pico/cyw43_arch.h"
 #include "pico/cyw43_driver.h"
@@ -83,7 +84,8 @@ static bool start_radio(void) {
         ++start_attempts;
         // The dividers are for 126 MHz; scale them so the bus clock stays
         // the same at a faster system clock.
-        cyw43_set_pio_clkdiv_int_frac8((clock_divs[i] * OS_CLOCK_MHZ + 125) / 126, 0);
+        unsigned mhz = (clock_get_hz(clk_sys) + MHZ / 2) / MHZ;
+        cyw43_set_pio_clkdiv_int_frac8((clock_divs[i] * mhz + 125) / 126, 0);
         uint32_t pm;
         cyw43_arch_lwip_begin();
         int r = cyw43_wifi_get_pm(&cyw43_state, &pm);  // runs the power-up

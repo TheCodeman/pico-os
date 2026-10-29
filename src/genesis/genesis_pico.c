@@ -19,7 +19,7 @@
  * Sound: core 0 makes the YM2612's and SN76489's samples (about 53 kHz,
  * mono) as the CPUs write to them; after each frame they go into a ring in
  * SRAM, and core 1 takes them out at 48 kHz (genesis_sound, an audio
- * source), stretching or squeezing a little to keep the ring half full.
+ * source), stretching or squeezing (up to about 2%) to keep the ring half full.
  * The YM2612 works out every other sample (genesis_ym_half_rate) unless
  * -f: at its full rate it takes core 0 to the edge of a frame, and a busy
  * game then falls behind and the sound has gaps.
@@ -101,6 +101,7 @@ static volatile uint32_t sound_head, sound_tail;
 static uint32_t sound_pos;   ///< core 1: the next sample's position, 16.16 past sound_tail
 static uint32_t sound_step0;  ///< core 1: Genesis samples a 48 kHz sample, 16.16
 static bool sound_playing;    ///< core 1: once the ring has filled to half
+static int32_t sound_fill;    ///< core 1: how full the ring is, averaged (x 256)
 /// Samples lost to a full ring, and 48 kHz samples with none ready.
 ///@{
 static volatile uint32_t sound_dropped, sound_short;
@@ -133,6 +134,7 @@ static bool __attribute__((section("genesis_fast"))) genesis_sound(int32_t *left
     uint32_t tail = sound_tail, have = __atomic_load_n(&sound_head, __ATOMIC_ACQUIRE) - tail;
     if (!sound_playing) {  // silent until the ring is half full
         sound_playing = have >= SOUND_RING / 2;
+        sound_fill = (int32_t)have * 256;
         *left = *right = 0;
         return true;
     }
@@ -145,8 +147,16 @@ static bool __attribute__((section("genesis_fast"))) genesis_sound(int32_t *left
     uint32_t frac = sound_pos & 0xffff;
     last = s0 + (int32_t)(((s1 - s0) * (int32_t)frac) >> 16);
     *left = *right = last * 2;  // the mixer halves sources
-    int32_t off = (int32_t)have - SOUND_RING / 2;
-    sound_pos += sound_step0 + (int32_t)((int64_t)sound_step0 * off / (SOUND_RING * 64));
+    // The step follows how full the ring is, up to about 2% either way: a
+    // game that falls behind a little slows the sound with it (a touch lower
+    // and slower) instead of running dry; one that falls further behind gets
+    // short gaps rather than slowing the music right down. The fill is
+    // averaged over about 43 ms: it rises by a whole frame's samples at once
+    // and falls in between, and followed as it is that made the pitch wobble
+    // by almost 3% sixty times a second (now about 0.3%).
+    sound_fill += ((int32_t)have * 256 - sound_fill) >> 11;
+    int32_t off = sound_fill / 256 - SOUND_RING / 2;
+    sound_pos += sound_step0 + (int32_t)((int64_t)sound_step0 * off / (SOUND_RING * 24));
     uint32_t whole = sound_pos >> 16;
     if (whole) {
         sound_pos &= 0xffff;
@@ -304,7 +314,7 @@ static void set_view(int height) {
 // ---- Keys and pads ----
 
 /// What the keys ask for.
-enum { ACT_NONE, ACT_RESET, ACT_EXIT, ACT_MENU };
+enum { ACT_NONE, ACT_RESET, ACT_EXIT, ACT_MENU, ACT_START };
 
 /// F9, F10 and F11 from the console (USB keyboard or serial): ESC [ 20 ~,
 /// ESC [ 21 ~ and ESC [ 23 ~. Everything else typed is dropped.
@@ -319,8 +329,13 @@ static int console_keys(void) {
             seq[0] = 0x1b;
             continue;
         }
-        if (!len)
+        if (!len) {
+            // Return on the serial console taps Start (the USB keyboard's
+            // Return is Start already, as a held key).
+            if (c == '\r')
+                act = ACT_START;
             continue;
+        }
         if (len < (int)sizeof seq)
             seq[len++] = (char)c;
         if (c == '~') {
@@ -458,19 +473,28 @@ static int run_game(const char *path, const options *o, void (*progress)(const c
     // One frame at a time, paced to real time.
     uint64_t frames = 0, drawn = 0, busy_us = 0, worst_us = 0, late = 0;
     uint64_t sched_us = time_us_64(), sched_frames = 0;
+    // NTSC frames start as the scanout's vertical sync does (see below).
+    uint32_t frame_vsync = dvi_frames;
+    while (dvi_frames == frame_vsync)
+        __wfi();
+    frame_vsync = dvi_frames;
     // The XIP cache's (flash and PSRAM) accesses and hits, counted by the
     // hardware (32-bit saturating counters, so they're taken each frame).
     uint64_t xip_acc = 0, xip_hit = 0;
     xip_ctrl_hw->ctr_acc = 0;
     xip_ctrl_hw->ctr_hit = 0;
-    int skip = 0, act;
+    int skip = 0, act, start_tap = 0;
     for (;;) {
         act = console_keys();
         if (act == ACT_EXIT || act == ACT_MENU)
             break;
         if (act == ACT_RESET)
             genesis_reset();
-        genesis_set_pad(0, keyboard_pad() | gamepad(0));
+        if (act == ACT_START)
+            start_tap = 10;  // frames
+        genesis_set_pad(0, keyboard_pad() | gamepad(0) | (start_tap ? GENESIS_START : 0));
+        if (start_tap)
+            --start_tap;
         genesis_set_pad(1, gamepad(1));
 
         uint64_t start = time_us_64(), waited = genesis_time.wait_us;
@@ -498,7 +522,33 @@ static int run_game(const char *path, const options *o, void (*progress)(const c
             }
             continue;
         }
-        uint32_t frame_ns = genesis_pal() ? FRAME_NS_PAL : FRAME_NS_NTSC;
+        // Behind: the next frame isn't drawn, but only if drawing held
+        // core 0 up (more than a millisecond waiting for core 1). Otherwise
+        // the CPUs are the slow part, and drawing on core 1 costs them little.
+        bool held_up = o->one_core || genesis_time.wait_us - waited > 1000;
+        if (!genesis_pal()) {
+            // NTSC: in step with the HDMI picture (59.94 Hz, 0.03% faster than
+            // the Genesis's 59.92, which the sound takes up): each frame starts
+            // as the scanout's vertical sync does, about 1.5 ms before it reads
+            // the picture's first line and 64 us a line after that, so the
+            // lines are drawn ahead of it and the picture doesn't tear. A frame
+            // that ran past the next sync starts at once (and may tear) and
+            // the one after it at the sync after that.
+            uint32_t next = frame_vsync + 1;
+            if ((int32_t)(dvi_frames - next) < 0) {
+                skip = 0;
+                while ((int32_t)(dvi_frames - next) < 0)
+                    __wfi();
+                frame_vsync = next;
+            } else {
+                if ((int32_t)(dvi_frames - next) >= 6)  // 100 ms behind
+                    ++late;
+                frame_vsync = dvi_frames;
+                skip = held_up && skip < MAX_SKIP ? skip + 1 : 0;
+            }
+            continue;
+        }
+        uint32_t frame_ns = FRAME_NS_PAL;
         uint64_t due = sched_us + (frames - sched_frames) * frame_ns / 1000;
         if (now > due + 100000) {
             // Far behind: start the schedule again.
@@ -507,10 +557,6 @@ static int run_game(const char *path, const options *o, void (*progress)(const c
             sched_frames = frames;
             due = now;
         }
-        // Behind: the next frame isn't drawn, but only if drawing held
-        // core 0 up (more than a millisecond waiting for core 1). Otherwise
-        // the CPUs are the slow part, and drawing on core 1 costs them little.
-        bool held_up = o->one_core || genesis_time.wait_us - waited > 1000;
         if (due > now) {
             skip = 0;
             sleep_until(from_us_since_boot(due));

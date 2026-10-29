@@ -638,15 +638,16 @@ does not have it, add `-DPICO_BOARD=pico2`.
 
 The system clock is 252 MHz, an overclock: the core voltage goes up to
 1.20 V, the HDMI timing is unchanged and the flash runs at 84 MHz. BASIC
-runs about twice as fast as at the chip's usual speeds. `-DOS_CLOCK_MHZ=126`
-builds for 126 MHz instead (1.10 V, flash at 42 MHz). The title bar shows the
-clock the chip really runs at. For example, a second build folder:
-
-```sh
-cmake -S . -B build126 -G Ninja -DOS_CLOCK_MHZ=126
-cmake --build build126
-tools/flash.sh build126/pico2_os.elf
-```
+runs about twice as fast as at the chip's usual speeds. The `clock` command
+changes the clock the board starts at, from a menu or as `clock 126`,
+`clock 252` or `clock 378`, and restarts it: 126 MHz (1.10 V, flash at
+42 MHz) or 378 MHz, a further overclock on trial (1.30 V, flash at 94.5 MHz,
+PSRAM at 47 MHz) that the heaviest Genesis games need. All three divide to
+HSTX's 126 MHz. The setting is kept in the flash's last sector
+(`src/clock_setting.c`), read before anything else starts; a board that
+fails to start at a saved clock twice in a row (a watchdog runs while it
+starts) starts at the default instead. `-DOS_CLOCK_MHZ=` sets the default
+(252). The title bar shows the clock the chip really runs at.
 
 ## Flash and run
 

@@ -187,8 +187,12 @@
 
 #endif
 
-#define m68k_read_immediate_16(A) ( ( (A) & 0x800000) ? FETCH16RAM((A)) : FETCH16ROM((A)) )
-#define m68k_read_immediate_32(A) ( ( (A) & 0x800000) ? FETCH32RAM((A)) : FETCH32ROM((A)) )
+/* pico-os: the ROM side masked to the 8 MB of ROM, as the 68000's 24-bit bus
+   sees it: a PC with something in its top byte (an RTE or a JMP through an
+   address with data up there, which the real chip ignores) read far past
+   the ROM (Batman & Robin locked the board up so). */
+#define m68k_read_immediate_16(A) ( ( (A) & 0x800000) ? FETCH16RAM((A)) : FETCH16ROM((A) & 0x7FFFFF) )
+#define m68k_read_immediate_32(A) ( ( (A) & 0x800000) ? FETCH32RAM((A)) : FETCH32ROM((A) & 0x7FFFFF) )
 
 #define m68k_read_pcrelative_8(A) ( FETCH8ROM((A)) )
 #define m68k_read_pcrelative_16(A) ( FETCH16ROM((A)) )

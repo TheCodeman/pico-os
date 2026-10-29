@@ -45,7 +45,7 @@ __license__ = "GPLv3"
 
 #define GWENESIS_AUDIO_ACCURATE 1
 
-#define Z80_FREQ_DIVISOR 14     // Frequency divisor to Z80 clock
+#define Z80_FREQ_DIVISOR 15     // Frequency divisor to Z80 clock (pico-os: was 14; the Z80 runs at MCLK / 15)
 #define VDP_CYCLES_PER_LINE 3420// VDP Cycles per Line
 #define SCREEN_WIDTH 320
 

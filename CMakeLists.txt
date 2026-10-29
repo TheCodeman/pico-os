@@ -14,6 +14,8 @@ pico_sdk_init()
 
 add_executable(pico2_os
     src/main.c
+    src/clock_setting.c
+    src/clock_app.c
     src/dvi.c
     src/editor.c
     src/console.c
@@ -203,6 +205,8 @@ target_link_libraries(pico2_os
     pico_rand
     pico_stdlib
     pico_multicore
+    pico_flash
+    hardware_flash
     pico_cyw43_arch_lwip_threadsafe_background
     pico_lwip_sntp
     pico_mbedtls
@@ -224,9 +228,11 @@ pico_enable_stdio_uart(pico2_os 1)
 
 # The system clock: 252 MHz (the default, an overclock: the core voltage goes
 # up to 1.20 V) or 126 MHz; both give the HDMI 640x480 pixel clock exactly.
-set(OS_CLOCK_MHZ 252 CACHE STRING "System clock in MHz: 252 or 126")
-if(NOT OS_CLOCK_MHZ EQUAL 126 AND NOT OS_CLOCK_MHZ EQUAL 252)
-    message(FATAL_ERROR "OS_CLOCK_MHZ must be 126 or 252")
+# The clock the board starts at when none has been saved with the clock
+# command (src/clock_setting.c keeps that in the flash's last sector).
+set(OS_CLOCK_MHZ 252 CACHE STRING "Default system clock in MHz: 252, 126 or 378 (an overclock at 1.30 V, on trial)")
+if(NOT OS_CLOCK_MHZ EQUAL 126 AND NOT OS_CLOCK_MHZ EQUAL 252 AND NOT OS_CLOCK_MHZ EQUAL 378)
+    message(FATAL_ERROR "OS_CLOCK_MHZ must be 126, 252 or 378")
 endif()
 
 # Debug Probe UART: the board default, UART0 on GP0 (TX) and GP1 (RX).
