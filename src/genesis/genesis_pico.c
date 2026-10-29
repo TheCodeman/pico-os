@@ -19,7 +19,7 @@
  * Sound: core 0 makes the YM2612's and SN76489's samples (about 53 kHz,
  * mono) as the CPUs write to them; after each frame they go into a ring in
  * SRAM, and core 1 takes them out at 48 kHz (genesis_sound, an audio
- * source), stretching or squeezing (up to about 6%) to keep the ring half full.
+ * source), stretching or squeezing (up to about 2%) to keep the ring half full.
  * The YM2612 works out every other sample (genesis_ym_half_rate) unless
  * -f: at its full rate it takes core 0 to the edge of a frame, and a busy
  * game then falls behind and the sound has gaps.
@@ -147,15 +147,16 @@ static bool __attribute__((section("genesis_fast"))) genesis_sound(int32_t *left
     uint32_t frac = sound_pos & 0xffff;
     last = s0 + (int32_t)(((s1 - s0) * (int32_t)frac) >> 16);
     *left = *right = last * 2;  // the mixer halves sources
-    // The step follows how full the ring is, up to about 6% either way: when
-    // a busy game falls behind, the sound slows down with it (a little lower
-    // and slower) instead of running dry and breaking up. The fill is
+    // The step follows how full the ring is, up to about 2% either way: a
+    // game that falls behind a little slows the sound with it (a touch lower
+    // and slower) instead of running dry; one that falls further behind gets
+    // short gaps rather than slowing the music right down. The fill is
     // averaged over about 43 ms: it rises by a whole frame's samples at once
     // and falls in between, and followed as it is that made the pitch wobble
     // by almost 3% sixty times a second (now about 0.3%).
     sound_fill += ((int32_t)have * 256 - sound_fill) >> 11;
     int32_t off = sound_fill / 256 - SOUND_RING / 2;
-    sound_pos += sound_step0 + (int32_t)((int64_t)sound_step0 * off / (SOUND_RING * 8));
+    sound_pos += sound_step0 + (int32_t)((int64_t)sound_step0 * off / (SOUND_RING * 24));
     uint32_t whole = sound_pos >> 16;
     if (whole) {
         sound_pos &= 0xffff;
