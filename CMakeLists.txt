@@ -224,9 +224,9 @@ pico_enable_stdio_uart(pico2_os 1)
 
 # The system clock: 252 MHz (the default, an overclock: the core voltage goes
 # up to 1.20 V) or 126 MHz; both give the HDMI 640x480 pixel clock exactly.
-set(OS_CLOCK_MHZ 252 CACHE STRING "System clock in MHz: 252 or 126")
-if(NOT OS_CLOCK_MHZ EQUAL 126 AND NOT OS_CLOCK_MHZ EQUAL 252)
-    message(FATAL_ERROR "OS_CLOCK_MHZ must be 126 or 252")
+set(OS_CLOCK_MHZ 252 CACHE STRING "System clock in MHz: 252, 126 or 378 (an overclock at 1.30 V, on trial)")
+if(NOT OS_CLOCK_MHZ EQUAL 126 AND NOT OS_CLOCK_MHZ EQUAL 252 AND NOT OS_CLOCK_MHZ EQUAL 378)
+    message(FATAL_ERROR "OS_CLOCK_MHZ must be 126, 252 or 378")
 endif()
 
 # Debug Probe UART: the board default, UART0 on GP0 (TX) and GP1 (RX).

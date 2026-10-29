@@ -27,7 +27,13 @@
 /// its interrupt are running, whatever the RX delay or bus priority; with
 /// nothing else running they pass. Divider 3 passed every full-load test with
 /// RX delay 2 to 4, and the SDK picks 3, the middle of that range.
+#if OS_CLOCK_MHZ > 300
+/// At 378 MHz, / 8 (47.25 MHz): / 9 needs an RX delay of 9 half cycles, past
+/// the field's 7, and with 7 an 8 MB test failed.
+#define PSRAM_MAX_FREQ (48 * MHZ)
+#else
 #define PSRAM_MAX_FREQ (42 * MHZ)
+#endif
 
 /// First-fit allocator. Each block starts with a header; blocks tile the
 /// region with no gaps, so the next block is always at hdr + size.
@@ -51,17 +57,25 @@ static uint8_t *heap_start, *heap_end;
 static mutex_t lock;
 static size_t used_bytes;  ///< in allocated blocks, headers included
 
-size_t psram_setup(void) {
+size_t psram_setup(uint32_t sys_hz) {
     if (!psram_is_available())
         return 0;
 
     // The SDK set the PSRAM timing up for the 150 MHz boot clock. At 126 MHz
     // the same max-select count would hold chip select past the chip's 8 us
-    // refresh limit, so recalculate for the clock we run at now, and slow the
-    // PSRAM clock down (see PSRAM_MAX_FREQ).
+    // refresh limit, so recalculate for the clock it runs at, and slow the
+    // PSRAM clock down (see PSRAM_MAX_FREQ). This is the SDK's
+    // psram_configure_params with the clock given rather than read.
+    uint32_t divisor = (sys_hz + PSRAM_MAX_FREQ - 1) / PSRAM_MAX_FREQ;
+    uint32_t rxdelay = divisor + (sys_hz / divisor > 100000000);
+    if (rxdelay > 7)  // the field's most: 3.5 clk_sys cycles (divisor 9 at 378 MHz)
+        rxdelay = 7;
+    uint32_t period_fs = (uint32_t)(1000000000000000ull / sys_hz);
+    uint32_t max_select = (uint32_t)((uint64_t)PICO_DEFAULT_PSRAM_MAX_SELECT * 1000000ull / (64ull * period_fs));
+    uint32_t min_deselect =
+        (PICO_DEFAULT_PSRAM_MIN_DESELECT * 1000000 + (period_fs - 1)) / period_fs - (divisor + 1) / 2;
     uint32_t irq = save_and_disable_interrupts();
-    psram_configure_params(PSRAM_MAX_FREQ, PICO_DEFAULT_PSRAM_MAX_SELECT,
-                           PICO_DEFAULT_PSRAM_MIN_DESELECT);
+    psram_set_params(divisor, rxdelay, max_select, min_deselect);
     psram_reinitialize();
     restore_interrupts(irq);
 

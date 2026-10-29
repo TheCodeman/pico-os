@@ -19,6 +19,8 @@
 #include "core1_job.h"
 #include "dvi.h"
 #include "hardware/clocks.h"
+#include "hardware/structs/qmi.h"
+#include "hardware/sync.h"
 #include "hardware/vreg.h"
 #include "net.h"
 #include "pico/multicore.h"
@@ -277,6 +279,22 @@ static void main_loop(void *unused) {
 }
 
 
+#if OS_CLOCK_MHZ > 300
+/// Sets the flash's clock divider and read delay (in half clk_sys cycles),
+/// from SRAM with interrupts off: nothing may read the flash meanwhile.
+/// @param div clk_sys over the flash clock
+/// @param rxdelay when to sample the data, in half clk_sys cycles
+static void __no_inline_not_in_flash_func(flash_clock_div)(uint div, uint rxdelay) {
+    uint32_t irq = save_and_disable_interrupts();
+    uint32_t t = qmi_hw->m[0].timing;
+    t &= ~(QMI_M0_TIMING_CLKDIV_BITS | QMI_M0_TIMING_RXDELAY_BITS);
+    t |= div << QMI_M0_TIMING_CLKDIV_LSB | rxdelay << QMI_M0_TIMING_RXDELAY_LSB;
+    qmi_hw->m[0].timing = t;
+    __dsb();
+    restore_interrupts(irq);
+}
+#endif
+
 /// Clocks, PSRAM, video, audio and USB set up; then the shell on its own stack.
 /// @return never
 int main(void) {
@@ -285,14 +303,28 @@ int main(void) {
     // The boot ROM runs the flash at clk_sys / 3: 42 MHz, or 84 MHz at 252
     // (well within the chip's 133 MHz; reading the whole image back at 84
     // MHz while everything ran matched).
+#if OS_CLOCK_MHZ > 300
+    // 378 MHz (on trial): more core voltage still, the most the SDK allows
+    // without lifting its limit, and the flash at clk_sys / 4 (94.5 MHz) as
+    // the boot ROM's / 3 would be 126, too near the chip's 133. Setting the
+    // PSRAM up puts the flash's timing back to the boot ROM's, so the PSRAM
+    // goes first (timed for 378 MHz while the clock is still the boot one's),
+    // then the flash's divider, then the clock.
+    vreg_set_voltage(VREG_VOLTAGE_1_30);
+    busy_wait_us(10000);
+    size_t psram_size = psram_setup(OS_CLOCK_MHZ * MHZ);
+    flash_clock_div(4, 3);
+    set_sys_clock_khz(OS_CLOCK_MHZ * 1000, true);
+#else
 #if OS_CLOCK_MHZ > 150
     vreg_set_voltage(VREG_VOLTAGE_1_20);  // overclocked: more core voltage first
     busy_wait_us(10000);
 #endif
     set_sys_clock_khz(OS_CLOCK_MHZ * 1000, true);
+    size_t psram_size = psram_setup(clock_get_hz(clk_sys));
+#endif
     clock_configure(clk_hstx, 0, CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLK_SYS, OS_CLOCK_MHZ * MHZ,
                     126 * MHZ);
-    size_t psram_size = psram_setup();
 
     stdio_init_all();  // UART0 on GP0 (TX) / GP1 (RX), wired to the Debug Probe
     serial_console_init();
