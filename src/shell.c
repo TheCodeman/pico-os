@@ -51,6 +51,7 @@
 #include "wav.h"
 #include "sdr.h"
 #include "swarm.h"
+#include "lancer.h"
 
 #define LINE_MAX      255  ///< a command may wrap over several screen rows
 /// Lines of history kept.
@@ -374,6 +375,14 @@ static const help_t help_programs[] = {
      "                           a USB gamepad works too. High scores in /SWARM.HI\n"
      "swarm sprites [file.spr]   the game's sprites for the sprite editor;\n"
      "                           saved as /SWARM.SPR the game uses them"},
+    {"lancer", NULL, "side-scrolling space shooter",
+     "lancer                     play: arrows (or W A S D) move, Space/Z/Ctrl\n"
+     "                           fire (hold to charge the beam), X/C/Shift\n"
+     "                           launch or call back the pod, P pause, M sound,\n"
+     "                           N music, Esc back to the title / out; a USB\n"
+     "                           gamepad works too. High scores in /LANCER.HI\n"
+     "lancer sprites [file.spr]  the game's sprites for the sprite editor;\n"
+     "                           saved as /LANCER.SPR the game uses them"},
     {"view", NULL, "show a picture",
      "view file\n"
      "  Shows a BMP, PNG or JPEG; any key returns."},
@@ -1666,7 +1675,7 @@ static const struct {
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset}, {"clock", cmd_clock},
-    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"screenshot", cmd_screenshot},
+    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"lancer", lancer_command}, {"screenshot", cmd_screenshot},
 };  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.

@@ -14,7 +14,7 @@ keyboard, mouse and flash drive, WiFi, and a set of programs to go with it.
   (`mc`), a picture viewer, a MOD/XM music tracker, a sprite editor, a
   WAV sound editor, a serial terminal with X/Y/ZMODEM, an internet radio (MP3 and AAC),
   a radio receiver for RTL-SDR dongles (wide and narrow FM, AM, with a waterfall),
-  and Swarm, an arcade space shooter.
+  Swarm, an arcade space shooter, and Lancer, a side-scrolling shooter.
 - **Network:** WiFi, `wget` (HTTP/HTTPS), `telnet` with a BBS directory,
   `ssh` and `scp`, network shares (`mount`), NTP.
 - **BASIC:** a GW-BASIC style BASIC with graphics, sprites, font sheets,
@@ -39,6 +39,8 @@ Captured with `screenshot` on the board, or drawn by the PC tests in
 | <img src="docs/wav_effects.png" width="400" alt="WAV editor effects"><br>WAV editor effects | <img src="docs/swarm_title.png" width="400" alt="Swarm (swarm)"><br>Swarm (`swarm`) |
 | <img src="docs/swarm_beam.png" width="400" alt="Swarm: the tractor beam"><br>Swarm: the tractor beam | <img src="docs/swarm_dual.png" width="400" alt="Swarm: the twin fighter"><br>Swarm: the twin fighter |
 | <img src="docs/swarm_challenge.png" width="400" alt="Swarm: a challenging stage"><br>Swarm: a challenging stage | <img src="docs/term.png" width="400" alt="Serial terminal (term)"><br>Serial terminal (`term`) |
+| <img src="docs/lancer_title.png" width="400" alt="Lancer (lancer)"><br>Lancer (`lancer`) | <img src="docs/lancer_lance.png" width="400" alt="Lancer: a full lance"><br>Lancer: a full lance |
+| <img src="docs/lancer_blue.png" width="400" alt="Lancer: the blue pod in the Iron Citadel"><br>Lancer: the blue pod in the Iron Citadel | <img src="docs/lancer_beam.png" width="400" alt="Lancer: the Bastion fires its laser"><br>Lancer: the Bastion fires its laser |
 | <img src="docs/telnet.png" width="400" alt="telnet and its BBS list"><br>telnet and its BBS list | <img src="docs/basic_nova.png" width="400" alt="BASIC: the NOVA demo"><br>BASIC: the NOVA demo |
 | <img src="docs/basic_house.png" width="400" alt="BASIC graphics"><br>BASIC graphics | <img src="docs/basic_lissa.png" width="400" alt="BASIC: Lissajous figures"><br>BASIC: Lissajous figures |
 | <img src="docs/basic_fontdemo.png" width="400" alt="BASIC font sheets"><br>BASIC font sheets | <img src="docs/basic_chart.png" width="400" alt="BASIC: a chart"><br>BASIC: a chart |
@@ -49,7 +51,7 @@ Captured with `screenshot` on the board, or drawn by the PC tests in
 
 PDFs in [manuals/](manuals/), one for the OS and one for each application
 (BASIC, the editor, mc, the tracker, the radio, the clock generator, the
-FM radio, the sprite editor, the WAV editor, the SDR receiver, Swarm, the network tools, the serial terminal, the emulators). They are made from
+FM radio, the sprite editor, the WAV editor, the SDR receiver, Swarm, Lancer, the network tools, the serial terminal, the emulators). They are made from
 [docs/](docs/) with `tools/make_manual.py`. The code's API documentation is
 made with `doxygen` (the `Doxyfile` here; it goes to `docs/api/html`, and
 the docs workflow builds it on each push; it can publish it to GitHub
