@@ -651,6 +651,14 @@ out:
     press(' ');
     CHECK(!F->dlg, "help closes");
 
+    // Short of SRAM, the file box's list goes in PSRAM.
+    heap = RESERVE + 100;
+    fd_open(FD_LOAD);
+    CHECK(F->dlg == DLG_FILE && F->fd_psram && F->fd_n > 0, "the file box with little SRAM: dlg %d psram %d", F->dlg,
+          F->fd_psram);
+    press(KEY_ESC);
+    heap = 1L << 30;
+
     // No memory: edits say so and change nothing.
     move_to(0, false);
     F->typing = false;

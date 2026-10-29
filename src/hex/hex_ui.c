@@ -54,10 +54,10 @@
 #define MAX_PIECES 16384       ///< the most pieces the document may be cut into
 #define ADD_MAX (192 * 1024)   ///< the most bytes typed between saves
 #define CLIP_KEEP (32 * 1024)  ///< the clipboard is kept over a save or load up to this size
-#define RESERVE (32 * 1024)    ///< SRAM left for everything else
+#define RESERVE (16 * 1024)    ///< SRAM left for everything else (mem warns below this)
 #define CHUNK 4096             ///< bytes at a time when saving or searching
-#define MAX_FILES 200          ///< entries the file box lists
-#define POOL (8 * 1024)        ///< room for their names
+#define MAX_FILES 128          ///< entries the file box lists
+#define POOL (4 * 1024)        ///< room for their names
 #define PAT_MAX 64             ///< the longest search
 #define TMP_NAME "HEXEDIT.TMP" ///< what a save writes before it replaces the file
 
@@ -288,7 +288,8 @@ typedef struct {
     char fd_dir[200];      ///< the folder shown
     char fd_name[100];     ///< the name typed
     fd_entry_t *fd;        ///< its entries (MAX_FILES; malloc while the box is up)
-    char *fd_pool;         ///< their names (POOL)
+    char *fd_pool;         ///< their names (POOL; in the same block as fd)
+    bool fd_psram;         ///< that block is in PSRAM (SRAM was short)
     int fd_n;              ///< how many
     int fd_sel;            ///< the one chosen
     int fd_top;            ///< the first shown
@@ -1497,8 +1498,10 @@ static void checksums(void) {
 
 /// Draws the About box.
 static void draw_about(void) {
-    int w = 460, h = 150, x = (W - w) / 2, y = 150;
+    int w = 460, h = 170, x = (W - w) / 2, y = 150;
     box(x, y, w, h, "Hex Editor");
+    textf(x + 16, y + 120, C_DIM, C_FACE, "SRAM free %ld KB; edits %d pieces, %lu bytes typed", hex_heap_free() / 1024,
+          F->np, (unsigned long)F->addlen);
     static const char *const lines[] = {
         "Edits files of any size up to 4 GB: the file stays on",
         "the drive, read a page at a time; the changes are kept",
@@ -2243,8 +2246,10 @@ static void join(char *out, int size, const char *dir, const char *name) {
 
 /// Closes the file box.
 static void fd_close(void) {
-    free(F->fd);
-    free(F->fd_pool);
+    if (F->fd_psram)
+        psram_free(F->fd);
+    else
+        free(F->fd);
     F->fd = NULL;
     F->fd_pool = NULL;
     F->fd_n = 0;
@@ -2256,13 +2261,16 @@ static void fd_close(void) {
 /// Opens the file box.
 /// @param mode FD_*
 static void fd_open(int mode) {
-    F->fd = salloc(MAX_FILES * sizeof *F->fd);
-    F->fd_pool = salloc(POOL);
-    if (!F->fd || !F->fd_pool) {
-        fd_close();
-        message("Not enough memory for the file box");
+    // The list and its names: SRAM if there is room, else PSRAM (only while the box is up).
+    size_t need = MAX_FILES * sizeof *F->fd + POOL;
+    F->fd_psram = false;
+    if (!(F->fd = salloc(need)) && (F->fd = psram_malloc(need)))
+        F->fd_psram = true;
+    if (!F->fd) {
+        message("Not enough memory for the file box (%ld KB SRAM free)", hex_heap_free() / 1024);
         return;
     }
+    F->fd_pool = (char *)(F->fd + MAX_FILES);
     F->fd_mode = mode;
     F->dlg = DLG_FILE;
     // Start in the file's folder, or the shell's.
@@ -2815,8 +2823,10 @@ static void stop(void) {
     free(F->clip);
     free(F->pc);
     free(F->add);
-    free(F->fd);
-    free(F->fd_pool);
+    if (F->fd_psram)
+        psram_free(F->fd);
+    else
+        free(F->fd);
     psram_free(F->g);
     free(F);
     F = NULL;
