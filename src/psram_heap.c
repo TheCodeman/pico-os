@@ -27,13 +27,10 @@
 /// its interrupt are running, whatever the RX delay or bus priority; with
 /// nothing else running they pass. Divider 3 passed every full-load test with
 /// RX delay 2 to 4, and the SDK picks 3, the middle of that range.
-#if OS_CLOCK_MHZ > 300
+#define PSRAM_MAX_FREQ (42 * MHZ)
 /// At 378 MHz, / 8 (47.25 MHz): / 9 needs an RX delay of 9 half cycles, past
 /// the field's 7, and with 7 an 8 MB test failed.
-#define PSRAM_MAX_FREQ (48 * MHZ)
-#else
-#define PSRAM_MAX_FREQ (42 * MHZ)
-#endif
+#define PSRAM_MAX_FREQ_378 (48 * MHZ)
 
 /// First-fit allocator. Each block starts with a header; blocks tile the
 /// region with no gaps, so the next block is always at hdr + size.
@@ -66,7 +63,8 @@ size_t psram_setup(uint32_t sys_hz) {
     // refresh limit, so recalculate for the clock it runs at, and slow the
     // PSRAM clock down (see PSRAM_MAX_FREQ). This is the SDK's
     // psram_configure_params with the clock given rather than read.
-    uint32_t divisor = (sys_hz + PSRAM_MAX_FREQ - 1) / PSRAM_MAX_FREQ;
+    uint32_t max_freq = sys_hz > 300 * MHZ ? PSRAM_MAX_FREQ_378 : PSRAM_MAX_FREQ;
+    uint32_t divisor = (sys_hz + max_freq - 1) / max_freq;
     uint32_t rxdelay = divisor + (sys_hz / divisor > 100000000);
     if (rxdelay > 7)  // the field's most: 3.5 clk_sys cycles (divisor 9 at 378 MHz)
         rxdelay = 7;
