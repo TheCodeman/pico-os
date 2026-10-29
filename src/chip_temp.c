@@ -13,10 +13,12 @@
 
 #include "hardware/adc.h"
 
-/// The datasheet's formula reads about 25 C low on the test board (see
-/// BASIC's TEMP() in docs/BASIC_MANUAL.md: probably the board's ADC reference
-/// isn't exactly 3.3 V), so that much is added. It errs hot if anything.
-#define CHIP_TEMP_OFFSET 25
+/// No correction: the datasheet's formula is about right on the test board.
+/// (An earlier note said it read 25 C low, but the ADC's reference checks
+/// out: VSYS / 3 on GPIO 43 reads a steady 4.72 V, as USB's 5 V less the
+/// board's diode should; and the reading follows the clock, about 38 C at
+/// 126 MHz and 43 C at 378 with everything running.)
+#define CHIP_TEMP_OFFSET 0
 
 int chip_temp_c(void) {
     static bool started;
@@ -26,6 +28,8 @@ int chip_temp_c(void) {
     }
     adc_set_temp_sensor_enabled(true);
     adc_select_input(ADC_TEMPERATURE_CHANNEL_NUM);
+    for (int i = 0; i < 4; ++i)  // the first readings after a change of input are off
+        adc_read();
     uint32_t sum = 0;
     for (int i = 0; i < 16; ++i)
         sum += adc_read();

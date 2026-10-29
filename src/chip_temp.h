@@ -9,8 +9,9 @@
 #pragma once
 
 /// The chip's temperature in degrees C, roughly: the sensor through the ADC
-/// (16 readings averaged, as it is noisy), by the datasheet's formula, plus
-/// CHIP_TEMP_OFFSET. Core 0; takes about 50 us.
+/// (16 readings averaged, as it is noisy), by the datasheet's formula
+/// (within a few degrees: the sensor isn't calibrated). Core 0; takes about
+/// 60 us.
 /// @return degrees C
 int chip_temp_c(void);
 
