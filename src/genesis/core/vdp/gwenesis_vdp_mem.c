@@ -29,6 +29,17 @@ __license__ = "GPLv3"
 #include "gwenesis_sn76489.h"
 #include "gwenesis_savestate.h"
 
+/* pico-os: these warnings came out for every write some games make (Batman
+   & Robin writes the VDP's debug register all the time, which real
+   hardware and Genesis Plus GX ignore); on the board each went out of the
+   115200-baud serial port and stopped the emulation. Define
+   GWENESIS_VDP_WARN to see them. */
+#ifdef GWENESIS_VDP_WARN
+#define vdp_warn(...) printf(__VA_ARGS__)
+#else
+#define vdp_warn(...) do {} while (0)
+#endif
+
 #include <assert.h>
 
 #if GNW_TARGET_MARIO !=0 || GNW_TARGET_ZELDA!=0
@@ -469,7 +480,7 @@ void gwenesis_vdp_dma_fill(unsigned short value)
     } while (--dma_length);
     break;
   default:
-    printf("Invalid code during DMA fill\n");
+    vdp_warn("Invalid code during DMA fill\n");
   }
 
 
@@ -743,7 +754,7 @@ unsigned int gwenesis_vdp_read_data_port_16()
 
             return value;
         default:
-            printf("unhandled gwenesis_vdp_read_data_port_16(%x)\n", address_reg);
+            vdp_warn("unhandled gwenesis_vdp_read_data_port_16(%x)\n", address_reg);
             return 0xFF;
         }
    // }
@@ -884,7 +895,7 @@ void gwenesis_vdp_write_data_port_16(unsigned int value)
         case 0x9: // VDP FIFO TEST
             break;
         default:
-            printf("VDP Data Port invalid");
+            vdp_warn("VDP Data Port invalid");
         }
 
     /* if a DMA is scheduled, do it */
@@ -990,7 +1001,7 @@ void gwenesis_vdp_write_memory_16(unsigned int address, unsigned int value) {
     return;
   }
   // UNHANDLED
-  printf("unhandled gwenesis_vdp_write(%x, %x)\n", address, value);
+  vdp_warn("unhandled gwenesis_vdp_write(%x, %x)\n", address, value);
 
 }
 

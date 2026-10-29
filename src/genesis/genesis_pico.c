@@ -19,7 +19,7 @@
  * Sound: core 0 makes the YM2612's and SN76489's samples (about 53 kHz,
  * mono) as the CPUs write to them; after each frame they go into a ring in
  * SRAM, and core 1 takes them out at 48 kHz (genesis_sound, an audio
- * source), stretching or squeezing a little to keep the ring half full.
+ * source), stretching or squeezing (up to about 6%) to keep the ring half full.
  * The YM2612 works out every other sample (genesis_ym_half_rate) unless
  * -f: at its full rate it takes core 0 to the edge of a frame, and a busy
  * game then falls behind and the sound has gaps.
@@ -145,8 +145,11 @@ static bool __attribute__((section("genesis_fast"))) genesis_sound(int32_t *left
     uint32_t frac = sound_pos & 0xffff;
     last = s0 + (int32_t)(((s1 - s0) * (int32_t)frac) >> 16);
     *left = *right = last * 2;  // the mixer halves sources
+    // The step follows how full the ring is, up to about 6% either way: when
+    // a busy game falls behind, the sound slows down with it (a little lower
+    // and slower) instead of running dry and breaking up.
     int32_t off = (int32_t)have - SOUND_RING / 2;
-    sound_pos += sound_step0 + (int32_t)((int64_t)sound_step0 * off / (SOUND_RING * 64));
+    sound_pos += sound_step0 + (int32_t)((int64_t)sound_step0 * off / (SOUND_RING * 8));
     uint32_t whole = sound_pos >> 16;
     if (whole) {
         sound_pos &= 0xffff;
@@ -304,7 +307,7 @@ static void set_view(int height) {
 // ---- Keys and pads ----
 
 /// What the keys ask for.
-enum { ACT_NONE, ACT_RESET, ACT_EXIT, ACT_MENU };
+enum { ACT_NONE, ACT_RESET, ACT_EXIT, ACT_MENU, ACT_START };
 
 /// F9, F10 and F11 from the console (USB keyboard or serial): ESC [ 20 ~,
 /// ESC [ 21 ~ and ESC [ 23 ~. Everything else typed is dropped.
@@ -319,8 +322,13 @@ static int console_keys(void) {
             seq[0] = 0x1b;
             continue;
         }
-        if (!len)
+        if (!len) {
+            // Return on the serial console taps Start (the USB keyboard's
+            // Return is Start already, as a held key).
+            if (c == '\r')
+                act = ACT_START;
             continue;
+        }
         if (len < (int)sizeof seq)
             seq[len++] = (char)c;
         if (c == '~') {
@@ -463,14 +471,18 @@ static int run_game(const char *path, const options *o, void (*progress)(const c
     uint64_t xip_acc = 0, xip_hit = 0;
     xip_ctrl_hw->ctr_acc = 0;
     xip_ctrl_hw->ctr_hit = 0;
-    int skip = 0, act;
+    int skip = 0, act, start_tap = 0;
     for (;;) {
         act = console_keys();
         if (act == ACT_EXIT || act == ACT_MENU)
             break;
         if (act == ACT_RESET)
             genesis_reset();
-        genesis_set_pad(0, keyboard_pad() | gamepad(0));
+        if (act == ACT_START)
+            start_tap = 10;  // frames
+        genesis_set_pad(0, keyboard_pad() | gamepad(0) | (start_tap ? GENESIS_START : 0));
+        if (start_tap)
+            --start_tap;
         genesis_set_pad(1, gamepad(1));
 
         uint64_t start = time_us_64(), waited = genesis_time.wait_us;

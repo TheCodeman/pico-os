@@ -589,6 +589,16 @@ typedef struct
   UINT32  fc;           /* fnum,blk */
   UINT8   kcode;        /* key code */
   UINT32  block_fnum;   /* blk/fnum value (for LFO PM calculations) */
+
+  /* pico-os: the phase increments update_phase_lfo_channel last worked out,
+     and what for: they are the same until the frequency, the PM depth or
+     the LFO's step changes, or a DT/MUL write (set_det_mul clears lfo_ok) */
+  UINT8   lfo_ok;
+  UINT8   lfo_pm;
+  INT32   lfo_pms;
+  UINT32  lfo_fnum;
+  INT32   lfo_offset;
+  UINT32  lfo_inc[4];
 } FM_CH;
 
 
@@ -989,6 +999,7 @@ INLINE void set_det_mul(FM_CH *CH,FM_SLOT *SLOT,int v)
   SLOT->mul = (v&0x0f)? (v&0x0f)*2 : 1;
   SLOT->DT  = ym2612.OPN.ST.dt_tab[(v>>4)&7];
   CH->SLOT[SLOT1].Incr=-1;
+  CH->lfo_ok = 0;  /* pico-os: see FM_CH */
 }
 
 /* set total level */
@@ -1365,6 +1376,31 @@ INLINE void update_phase_lfo_channel(FM_CH *CH)
 {
   UINT32 block_fnum = CH->block_fnum;
 
+  /* pico-os: the same frequency, PM depth and LFO step as last time: the
+     same increments (see FM_CH) */
+  if (CH->lfo_ok && CH->lfo_fnum == block_fnum && CH->lfo_pms == CH->pms && CH->lfo_pm == ym2612.OPN.LFO_PM)
+  {
+    if (CH->lfo_offset)
+    {
+      CH->SLOT[SLOT1].phase += CH->lfo_inc[0];
+      CH->SLOT[SLOT2].phase += CH->lfo_inc[1];
+      CH->SLOT[SLOT3].phase += CH->lfo_inc[2];
+      CH->SLOT[SLOT4].phase += CH->lfo_inc[3];
+    }
+    else
+    {
+      CH->SLOT[SLOT1].phase += CH->SLOT[SLOT1].Incr;
+      CH->SLOT[SLOT2].phase += CH->SLOT[SLOT2].Incr;
+      CH->SLOT[SLOT3].phase += CH->SLOT[SLOT3].Incr;
+      CH->SLOT[SLOT4].phase += CH->SLOT[SLOT4].Incr;
+    }
+    return;
+  }
+  CH->lfo_ok = 1;
+  CH->lfo_fnum = block_fnum;
+  CH->lfo_pms = CH->pms;
+  CH->lfo_pm = ym2612.OPN.LFO_PM;
+
 #if GW_TARGET
     INT32 lfo_fn_table_index_offset = lfo_pm_table[(((block_fnum & 0x7f0) >> 4) << 7) + CH->pms + (ym2612.OPN.LFO_PM & 0xF)];
   if ( ym2612.OPN.LFO_PM & 0x10) lfo_fn_table_index_offset = - lfo_fn_table_index_offset;
@@ -1372,6 +1408,7 @@ INLINE void update_phase_lfo_channel(FM_CH *CH)
   INT32 lfo_fn_table_index_offset = lfo_pm_table[(((block_fnum & 0x7f0) >> 4) << 8) + CH->pms + ym2612.OPN.LFO_PM];
 
 #endif
+  CH->lfo_offset = lfo_fn_table_index_offset;
   if (lfo_fn_table_index_offset)  /* LFO phase modulation active */
 
   {
@@ -1392,16 +1429,20 @@ INLINE void update_phase_lfo_channel(FM_CH *CH)
 
     /* apply DETUNE & MUL operator specific values */
     finc = (fc + CH->SLOT[SLOT1].DT[kc]) & DT_MASK;
-    CH->SLOT[SLOT1].phase += (finc*CH->SLOT[SLOT1].mul) >> 1;
+    CH->lfo_inc[0] = (finc*CH->SLOT[SLOT1].mul) >> 1;
+    CH->SLOT[SLOT1].phase += CH->lfo_inc[0];
 
     finc = (fc + CH->SLOT[SLOT2].DT[kc]) & DT_MASK;
-    CH->SLOT[SLOT2].phase += (finc*CH->SLOT[SLOT2].mul) >> 1;
+    CH->lfo_inc[1] = (finc*CH->SLOT[SLOT2].mul) >> 1;
+    CH->SLOT[SLOT2].phase += CH->lfo_inc[1];
 
     finc = (fc + CH->SLOT[SLOT3].DT[kc]) & DT_MASK;
-    CH->SLOT[SLOT3].phase += (finc*CH->SLOT[SLOT3].mul) >> 1;
+    CH->lfo_inc[2] = (finc*CH->SLOT[SLOT3].mul) >> 1;
+    CH->SLOT[SLOT3].phase += CH->lfo_inc[2];
 
     finc = (fc + CH->SLOT[SLOT4].DT[kc]) & DT_MASK;
-    CH->SLOT[SLOT4].phase += (finc*CH->SLOT[SLOT4].mul) >> 1;
+    CH->lfo_inc[3] = (finc*CH->SLOT[SLOT4].mul) >> 1;
+    CH->SLOT[SLOT4].phase += CH->lfo_inc[3];
   }
   else  /* LFO phase modulation  = zero */
   {
@@ -2200,8 +2241,10 @@ GWENESIS_FAST static inline void YM2612Update(int16_t *buffer, int length)
     /* only if Timer A does not overflow again (i.e CSM Key ON not set again) */
     ym2612.OPN.SL3.key_csm <<= 1;
 
-    /* timer A control */
-    INTERNAL_TIMER_A();
+    /* timer A control (pico-os: only in CSM mode, where it keys channel 3 on
+       and so changes the sound; otherwise ym2612_timers_to runs the timers) */
+    if ((ym2612.OPN.ST.mode & 0xC0) == 0x80)
+      INTERNAL_TIMER_A();
 
     /* CSM Mode Key ON still disabled */
     if (ym2612.OPN.SL3.key_csm & 2)
@@ -2215,8 +2258,36 @@ GWENESIS_FAST static inline void YM2612Update(int16_t *buffer, int length)
     }
   }
 
-  /* timer B control */
-  INTERNAL_TIMER_B(length);
+  /* timer B control: pico-os: ym2612_timers_to runs it */
+}
+
+/* pico-os: the timers, run to sample index (of this frame, as
+   ym2612_index) without making any sound. A status read only needs them,
+   and making the sound up to each one took most of the time in games whose
+   Z80 polls the status to time its samples (Batman & Robin: over 1000 reads
+   a frame). The status changes at the same samples as before. */
+int ym2612_timer_index;
+
+GWENESIS_FAST void ym2612_timers_to(int index)
+{
+  int n = index - ym2612_timer_index;
+  if (n <= 0)
+    return;
+  ym2612_timer_index = index;
+  /* timer A, a sample at a time as INTERNAL_TIMER_A did (in CSM mode
+     YM2612Update still does that itself) */
+  if ((ym2612.OPN.ST.mode & 0x01) && (ym2612.OPN.ST.mode & 0xC0) != 0x80)
+  {
+    ym2612.OPN.ST.TAC -= n;
+    if (ym2612.OPN.ST.TAC <= 0)
+    {
+      if (ym2612.OPN.ST.mode & 0x04)
+        ym2612.OPN.ST.status |= 0x01;
+      while (ym2612.OPN.ST.TAC <= 0)
+        ym2612.OPN.ST.TAC += ym2612.OPN.ST.TAL;
+    }
+  }
+  INTERNAL_TIMER_B(n);
 }
 
 void ym2612_run( int target) {
@@ -2228,6 +2299,7 @@ void ym2612_run( int target) {
   ym2612_index += (target-ym2612_clock) / ym2612.divisor;
   if (ym2612_index > ym2612_prev_index) {
     YM2612Update(gwenesis_ym2612_buffer + ym2612_prev_index, ym2612_index-ym2612_prev_index);
+    ym2612_timers_to(ym2612_index);
     ym2612_clock = ym2612_index*ym2612.divisor;
 
   } else {
@@ -2293,9 +2365,13 @@ void YM2612Write(unsigned int a, unsigned int v,  int target)
 
 unsigned int YM2612Read(int target)
 {
-  // //Sync
-  if (GWENESIS_AUDIO_ACCURATE == 1)
-    ym2612_run(target);
+  // //Sync (pico-os: only the timers, unless in CSM mode; see ym2612_timers_to)
+  if (GWENESIS_AUDIO_ACCURATE == 1) {
+    if ((ym2612.OPN.ST.mode & 0xC0) == 0x80)
+      ym2612_run(target);
+    else if (ym2612_clock < target)
+      ym2612_timers_to(ym2612_index + (target - ym2612_clock) / ym2612.divisor);
+  }
   ym_log(__FUNCTION__, "%02x",ym2612.OPN.ST.status & 0xff);
   return ym2612.OPN.ST.status & 0xff;
 }

@@ -22,6 +22,9 @@
 #ifndef GWENESIS_FAST
 #define GWENESIS_FAST
 #endif
+#ifndef GWENESIS_OV
+#define GWENESIS_OV
+#endif
 
 #include "Z80.h"
 #include "Tables.h"
@@ -69,8 +72,12 @@ INLINE byte OpZ80(word A) { return(RAM[A>>13][A&0x1FFF]); }
 
 #ifdef GENESIS
 #define FAST_RDOP
-extern byte *Z80_RAM[];
-INLINE byte OpZ80(word A) { return(Z80_RAM[A>>13][A&0x1FFF]); }
+/* pico-os: Z80_RAM is one pointer to the 8 KB of RAM (z80inst.c), not a
+   table of 8 KB pages: read as one, an opcode fetched from $2000 up took
+   whatever came after the pointer as a page. The RAM is mirrored from $0000
+   to $3FFF; anything above that goes through the bus, as RdZ80 does. */
+extern byte *Z80_RAM;
+INLINE byte OpZ80(word A) { return A < 0x4000 ? Z80_RAM[A & 0x1FFF] : RdZ80(A); }
 #endif
 
 /** FAST_RDOP ************************************************/
@@ -343,7 +350,7 @@ enum CodesED
   DB_F8,DB_F9,DB_FA,DB_FB,DB_FC,DB_FD,DB_FE,DB_FF
 };
 
-GWENESIS_FAST static void CodesCB(register Z80 *R)
+GWENESIS_OV static void CodesCB(register Z80 *R)
 {
   register byte I;
 
@@ -362,7 +369,7 @@ GWENESIS_FAST static void CodesCB(register Z80 *R)
   }
 }
 
-static void CodesDDCB(register Z80 *R)
+GWENESIS_FAST static void CodesDDCB(register Z80 *R)
 {
   register pair J;
   register byte I;
@@ -430,7 +437,7 @@ static void CodesED(register Z80 *R)
   }
 }
 
-static void CodesDD(register Z80 *R)
+GWENESIS_FAST static void CodesDD(register Z80 *R)
 {
   register byte I;
   register pair J;
