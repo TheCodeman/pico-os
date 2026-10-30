@@ -3,8 +3,8 @@
 `www` (or `lynx`) is a text web browser in the manner of lynx: it loads
 pages over http and https (the same network and TLS code as `wget`) and
 shows them as text on the 80x30 screen, with their links and simple
-forms. Pictures are shown one at a time on the whole screen when chosen;
-there are no scripts or styles; most news, reference
+forms, and with its pictures drawn between the text; there are no scripts
+or styles; most news, reference
 and search pages read well. It needs WiFi (`wifi connect`), and for https
 the certificate file `CACERT.PEM` in the drive's root (as for `wget`).
 
@@ -62,6 +62,7 @@ the certificate file `CACERT.PEM` in the drive's root (as for `wget`).
 | s / p | Save the page's source / save it as text (as shown). |
 | = | About the page and the chosen link. |
 | i | Show the chosen picture, or the chosen link's picture, on the whole screen. |
+| \* | Pictures drawn in pages, or [alt text] only. |
 | Ctrl-Y | The history: pick a page to go back (or forward) to. |
 | h, F1 | Help (the keys). |
 | q, F10 | Quit. |
@@ -109,19 +110,34 @@ and sites that need a cookie work while it is open.
 
 ## Pictures
 
-Pages show a picture's alt text in `[brackets]`. A picture with alt text
-that isn't in a link is a link of its own (magenta): choose it and press
-Enter (or `i`) to see it on the whole screen, as the `view` command shows
-a file. A link with a picture in it says `(i: its picture)` on the status
-line: `i` shows the picture, Enter still follows the link. The right
-button's menu has **View image** for both. Any key or click goes back to
-the page.
+![Pictures in a page](www_pics.png)
 
-PNG, JPEG and BMP pictures can be shown (scaled to fit, dithered to the
-screen's 256 colours); GIF, WebP and SVG can't, and say so. The picture is
-loaded into PSRAM and written to `/WWW/IMAGE.TMP` on the drive for a
-moment while it is decoded. Pictures without alt text (often spacers and
-icons) aren't shown on the page.
+Pictures (PNG, JPEG and BMP) are drawn in the page, between the text, as
+they come onto the screen: each loads while no key is pressed (the status
+line says which; Esc stops it), scaled to fit the page's width and at most
+20 lines high, dithered to the screen's 256 colours, never made bigger. A
+picture whose size the page doesn't give gets a box of a guessed size
+first; once it has loaded, the page is laid out again around its real
+size (the place on the page is kept). The mouse pointer is an arrow while
+a page has pictures.
+
+A picture's box shows its `[alt text]` until it is drawn, and stays text
+if it can't be: GIF, WebP and SVG pictures, tiny icons (40 pixels or
+less), ones that fail to load, and very big ones. **\*** (or View >
+Pictures in pages) switches to text only, with every picture as its
+`[alt text]` on the line, and back.
+
+A picture in a link follows the link when clicked or chosen with Enter
+(a cyan frame shows it is chosen); one not in a link is a link of its own
+(magenta when it is text): Enter (or `i`) shows it on the whole screen, as
+the `view` command shows a file. A link with a picture in it says
+`(i: its picture)` on the status line: `i` shows the picture, Enter still
+follows the link. The right button's menu has **View image** for both. Any
+key or click goes back to the page.
+
+Pictures drawn are kept in PSRAM (up to 3 MB for the page shown; the ones
+furthest off the screen go first and load again when they come back), and
+their sizes are remembered while the browser is open.
 
 ## Bookmarks, saving and downloading
 
@@ -146,8 +162,8 @@ icons) aren't shown on the page.
   meta refreshes (as links), forms, entities and UTF-8 or Latin-1 text.
   Characters the screen's font (code page 437) lacks are shown as the
   nearest one (accents dropped, curly quotes straight) or `?`.
-- Not done: pictures in the page (they are shown on their own, see
-  Pictures), JavaScript, CSS, layout tables side by side, text
+- Not done: pictures beside the text (they are drawn between lines), GIF
+  and WebP and SVG pictures, JavaScript, CSS, layout tables side by side, text
   areas of more than one line, file uploads, compressed replies (the
   browser doesn't ask for them), HTTP/2.
 - Pages up to 4 MB are loaded; bigger ones are cut there.

@@ -35,7 +35,7 @@ static void resolve(const char *base, const char *rel, const char *want) {
 /// @param len its length
 /// @param html HTML rather than text
 static void check_layout(const char *src, size_t len, bool html) {
-    www_doc_t *d = www_layout(src, len, html, len & 1);
+    www_doc_t *d = www_layout(src, len, html, len & 1, len & 2, NULL);
     if (!d) {
         printf("FAIL: no page\n");
         ++failures;
@@ -121,7 +121,7 @@ int main(void) {
     }
     // No PSRAM at all: no page, and no crash.
     pc_psram_full = true;
-    if (www_layout("<p>x", 4, true, false)) {
+    if (www_layout("<p>x", 4, true, false, true, NULL)) {
         printf("FAIL: a page with no memory\n");
         ++failures;
     }

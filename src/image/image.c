@@ -327,9 +327,12 @@ static bool decode_png(const uint8_t *d, size_t len, image_t *img, const char **
 
 // ---- JPEG ---------------------------------------------------------------------
 
-/// TJpgDec's device: the file and the picture.
+/// TJpgDec's device: the file (or the bytes in memory) and the picture.
 typedef struct {
     FIL f;  ///< the file
+    const uint8_t *mem;  ///< or the bytes, if not NULL
+    size_t len;  ///< their count
+    size_t pos;  ///< where reading is
     image_t *img;  ///< the picture
 } jpeg_io_t;
 
@@ -340,6 +343,13 @@ typedef struct {
 /// @return how many were read
 static size_t jpeg_in(JDEC *jd, uint8_t *buf, size_t n) {
     jpeg_io_t *io = jd->device;
+    if (io->mem) {
+        size_t k = n < io->len - io->pos ? n : io->len - io->pos;
+        if (buf)
+            memcpy(buf, io->mem + io->pos, k);
+        io->pos += k;
+        return k;
+    }
     UINT got = 0;
     if (buf) {
         f_read(&io->f, buf, n, &got);
@@ -375,23 +385,17 @@ static int jpeg_out(JDEC *jd, void *bitmap, JRECT *r) {
 }
 
 /// Decodes a JPEG, scaled down (1/2, 1/4, 1/8) towards the size wanted.
-/// @param path the file
+/// @param io where its bytes come from, and the picture
 /// @param want_w the width wanted
 /// @param want_h the height wanted
-/// @param img the picture
 /// @param err set to why it failed
 /// @return decoded
-static bool decode_jpeg(const char *path, int want_w, int want_h, image_t *img,
-                        const char **err) {
-    jpeg_io_t io = {.img = img};
-    if (f_open(&io.f, path, FA_READ) != FR_OK) {
-        *err = "file not found";
-        return false;
-    }
+static bool decode_jpeg_io(jpeg_io_t *io, int want_w, int want_h, const char **err) {
+    image_t *img = io->img;
     const size_t work_size = 4096;
     void *work = malloc(work_size);
     JDEC jd;
-    JRESULT r = work ? jd_prepare(&jd, jpeg_in, work, work_size, &io) : JDR_MEM1;
+    JRESULT r = work ? jd_prepare(&jd, jpeg_in, work, work_size, io) : JDR_MEM1;
     bool ok = false;
     if (r == JDR_OK) {
         // Decode at the smallest scale (1/1 .. 1/8) that still covers the
@@ -420,6 +424,24 @@ static bool decode_jpeg(const char *path, int want_w, int want_h, image_t *img,
                : r == JDR_MEM1 || r == JDR_MEM2 ? "not enough memory"
                                                 : "not a JPEG file this can read";
     free(work);
+    return ok;
+}
+
+/// Decodes a JPEG file.
+/// @param path the file
+/// @param want_w the width wanted
+/// @param want_h the height wanted
+/// @param img the picture
+/// @param err set to why it failed
+/// @return decoded
+static bool decode_jpeg(const char *path, int want_w, int want_h, image_t *img,
+                        const char **err) {
+    jpeg_io_t io = {.img = img};
+    if (f_open(&io.f, path, FA_READ) != FR_OK) {
+        *err = "file not found";
+        return false;
+    }
+    bool ok = decode_jpeg_io(&io, want_w, want_h, err);
     f_close(&io.f);
     return ok;
 }
@@ -452,6 +474,21 @@ bool image_load(const char *path, int want_w, int want_h, image_t *img, const ch
     bool ok = png ? decode_png(data, len, img, err) : decode_bmp(data, len, img, err);
     big_free(data);
     return ok;
+}
+
+bool image_load_mem(const uint8_t *d, size_t len, int want_w, int want_h, image_t *img,
+                    const char **err) {
+    img->rgb = NULL;
+    if (len >= 3 && d[0] == 0xff && d[1] == 0xd8 && d[2] == 0xff) {
+        jpeg_io_t io = {.mem = d, .len = len, .img = img};
+        return decode_jpeg_io(&io, want_w, want_h, err);
+    }
+    if (len >= 8 && !memcmp(d, "\x89PNG\r\n\x1a\n", 8))
+        return decode_png(d, len, img, err);
+    if (len >= 2 && d[0] == 'B' && d[1] == 'M')
+        return decode_bmp(d, len, img, err);
+    *err = "not a BMP, PNG or JPEG file";
+    return false;
 }
 
 // ---- Drawing --------------------------------------------------------------------

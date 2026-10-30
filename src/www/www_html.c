@@ -50,6 +50,8 @@ typedef struct {
     const uint8_t *p;        ///< the next byte
     const uint8_t *end;      ///< the end of the bytes
     bool latin1;             ///< ISO-8859-1 / Windows-1252 rather than UTF-8
+    bool pictures;           ///< leave room for pictures in the page
+    www_size_fn size_of;     ///< the sizes of pictures already loaded, or NULL
     www_cell_t line[WWW_COLS + 1];  ///< the line being filled
     uint16_t lnk[WWW_COLS + 1];     ///< each cell's link
     bool brk[WWW_COLS + 1];         ///< a line may break at this cell (a space)
@@ -1124,6 +1126,88 @@ static bool in_list(const bld_t *b) {
     return false;
 }
 
+/// A number attribute in pixels ("120" or "120px"), or 0 (missing, or "50%").
+/// @param b the state
+/// @param name the attribute
+/// @return the pixels
+static int attr_px(const bld_t *b, const char *name) {
+    const char *v = attr(b, name);
+    if (!v || !isdigit((unsigned char)*v))
+        return 0;
+    char *end;
+    long n = strtol(v, &end, 10);
+    return *end == '%' || n > 10000 ? 0 : (int)n;
+}
+
+/// An <img> in picture mode: a box of lines for it, its link, and its
+/// [alt text] on the first line. False if it is shown as text only (no
+/// address, a kind that can't be drawn, or a tiny icon).
+/// @param b the state
+/// @return it has a box
+static bool picture(bld_t *b) {
+    www_doc_t *d = b->d;
+    const char *src = attr(b, "src"), *alt = attr(b, "alt");
+    if ((!src || !*src || !strncmp(src, "data:", 5)) && attr(b, "data-src"))
+        src = attr(b, "data-src");  // pictures loaded by a script
+    if (!src || !*src || !strncmp(src, "data:", 5) || b->select >= 0 || b->pre)
+        return false;
+    size_t n = strcspn(src, "?#");
+    if (n >= 4 && (!strncasecmp(src + n - 4, ".gif", 4) || !strncasecmp(src + n - 4, ".svg", 4) ||
+                   (n >= 5 && !strncasecmp(src + n - 5, ".webp", 5))))
+        return false;  // kinds that can't be drawn: their alt text
+    int aw = attr_px(b, "width"), ah = attr_px(b, "height");
+    if ((aw && aw <= 40 && (!ah || ah <= 40)) || (ah && ah <= 24))
+        return false;  // an icon: as text
+    int kw, kh;
+    if (b->size_of && b->size_of(src, &kw, &kh)) {  // loaded already: its real size
+        if (!kw || !kh)
+            return false;  // it can't be drawn
+        aw = kw;
+        ah = kh;
+    }
+    // The box: the size asked for, made to fit; else a size for any picture.
+    int ind = b->indent > MAX_INDENT ? MAX_INDENT : b->indent;
+    int max_w = (WWW_COLS - ind) * 8, max_h = WWW_PIC_ROWS * 16;
+    int w = aw ? aw : 400, h = ah ? ah : (aw ? aw * 3 / 4 : 240);
+    if (w > max_w) {
+        h = h * max_w / w;
+        w = max_w;
+    }
+    if (h > max_h) {
+        w = w * max_h / h;
+        h = max_h;
+    }
+    if (w < 16)
+        w = 16;
+    if (h < 16)
+        h = 16;
+    if (!GROW(d, pics, d->npics + 1))
+        return false;
+    uint32_t at = pool_add(d, src, strlen(src));
+    int link = b->link;
+    if (link < 0 && (link = new_link(b, WL_IMAGE)) >= 0)
+        d->links[link].href = at;
+    if (link >= 0 && !d->links[link].img)
+        d->links[link].img = at;
+    // The box starts a line of its own, with the [alt text] on it.
+    newline(b);
+    int32_t line = d->nlines;  // (the line being filled, now empty)
+    int was = b->link;
+    b->link = link;
+    b->link_cells = 0;
+    snprintf(b->label, sizeof b->label, "[%s]", alt && *alt ? alt : "picture");
+    text_utf8(b, b->label, WS_IMG);
+    b->link = was;
+    int rows = (h + 15) / 16;
+    end_line(b);
+    while (d->nlines < line + rows && !d->oom)
+        end_line(b);  // the rest of the box: empty lines
+    b->space = false;
+    d->pics[d->npics++] = (www_pic_t){at, line, (uint8_t)rows, (uint8_t)ind, (uint16_t)w,
+                                      (uint16_t)h, link};
+    return true;
+}
+
 /// A start tag.
 /// @param b the state
 static void start_tag(bld_t *b) {
@@ -1239,6 +1323,8 @@ static void start_tag(bld_t *b) {
                 b->link_cells = 0;
             }
         }
+    } else if (IS("img") && b->pictures && picture(b)) {
+        // (drawn in the page)
     } else if (IS("img")) {
         // A picture shows its [alt text]. In a link, the link keeps its address
         // (the first one's); else, with alt text, it is a link of its own (to
@@ -1462,7 +1548,8 @@ static bool tag(bld_t *b) {
 
 // ---- The page -------------------------------------------------------------------------------------
 
-www_doc_t *www_layout(const char *src, size_t len, bool html, bool latin1) {
+www_doc_t *www_layout(const char *src, size_t len, bool html, bool latin1, bool pictures,
+                      www_size_fn size_of) {
     www_doc_t *d = psram_malloc(sizeof *d);
     bld_t *b = psram_malloc(sizeof *b);
     if (!d || !b) {
@@ -1477,6 +1564,8 @@ www_doc_t *www_layout(const char *src, size_t len, bool html, bool latin1) {
     b->p = (const uint8_t *)src;
     b->end = b->p + len;
     b->latin1 = latin1;
+    b->pictures = pictures;
+    b->size_of = size_of;
     b->link = b->form = b->select = b->cell_start = -1;
     if (len >= 3 && !memcmp(src, "\xef\xbb\xbf", 3)) {
         b->p += 3;
@@ -1530,6 +1619,7 @@ void www_free(www_doc_t *d) {
     psram_free(d->links);
     psram_free(d->forms);
     psram_free(d->anchors);
+    psram_free(d->pics);
     psram_free(d->pool);
     psram_free(d);
 }

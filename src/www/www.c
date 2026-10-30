@@ -53,8 +53,11 @@
 #define HOME_FILE  "/WWW/HOME.HTM"
 /// The bookmarks.
 #define BOOKMARKS  "/WWW/BOOKMARK.HTM"
-/// A picture being shown: the viewer reads it from the drive.
-#define IMAGE_TMP  "/WWW/IMAGE.TMP"
+/// Pictures drawn in a page are kept up to this much (the ones furthest off the
+/// screen go first, and are loaded again when they come back).
+#define PIC_BUDGET (3u << 20)
+/// The colour (RGB332) of the frame round the chosen picture: cyan.
+#define PIC_FRAME  0x1f
 /// Where a search goes: the words are put on the end.
 #define SEARCH_URL "https://html.duckduckgo.com/html/?q="
 
@@ -85,6 +88,16 @@ static const uint8_t style_attr[WS_COUNT] = {
     [WS_IMG] = A(LMAGENTA, BLACK), [WS_FIELD] = A(BLACK, LGRAY), [WS_RULE] = A(DGRAY, BLACK),
     [WS_QUOTE] = A(BROWN, BLACK),
 };
+
+/// A picture drawn in the page shown (one for each of the page's www_pic_t).
+typedef struct {
+    uint8_t state;  ///< PIC_ (not tried yet, drawn, or can't be)
+    uint8_t *px;    ///< its pixels (RGB332, pw x ph, PSRAM), once loaded
+    uint16_t pw;    ///< their width
+    uint16_t ph;    ///< and height
+} pic_t;
+/// A picture's state.
+enum { PIC_NEW, PIC_OK, PIC_FAILED };
 
 /// A page in the history.
 typedef struct {
@@ -130,6 +143,16 @@ typedef struct {
     menu_item_t view[8];      ///< the View menu, with its tick
     int key_col[11];          ///< where each key starts on the key bar, for the mouse
     stdio_driver_t cap_driver;  ///< the driver that catches printing (see capture())
+    bool pictures;            ///< pictures drawn in pages (View > Pictures in pages)
+    pic_t *pic;               ///< the page's pictures (PSRAM), or NULL
+    uint32_t pic_bytes;       ///< the pixels kept for them
+    int32_t row_key[SCR_H];   ///< which picture row each screen row showed (-1: none)
+    bool relayout;            ///< a picture's size changed its box: lay the page out again
+    struct {
+        uint32_t hash;        ///< its src's hash (0: empty)
+        uint16_t w, h;        ///< its size (0 x 0: it can't be drawn)
+    } sizes[256];             ///< the sizes of pictures loaded, for laying pages out
+    int nsizes;               ///< the next slot (a ring)
 } www_t;
 
 static www_t *W;  ///< PSRAM, while open
@@ -171,6 +194,7 @@ static const char help_page[] =
     "a, F7             bookmark this page      v, F8  the bookmarks\n"
     "d                 download the link to the drive\n"
     "i                 show the chosen picture (or the link's) on the whole screen\n"
+    "*                 pictures drawn in pages, or [alt text] only\n"
     "s                 save the page's source  p      save it as text\n"
     "=                 about this page and the link\n"
     "F9, Alt+letter    the menus\n"
@@ -193,7 +217,7 @@ enum {
     M_SOURCE, M_INFO, M_VERIFY,
     M_MARK, M_MARKS,
     M_HELP, M_ABOUT,
-    M_FOLLOW, M_IMAGE,
+    M_FOLLOW, M_IMAGE, M_PICS,
 };
 
 static const menu_item_t file_items[] = {
@@ -212,7 +236,8 @@ static const menu_item_t nav_items[] = {
 };  ///< Go
 static const menu_item_t view_items[] = {
     {"Page source", M_SOURCE, "\\", false},  {"Page info", M_INFO, "=", false},
-    {"View image", M_IMAGE, "i", false},     {"-", 0, NULL, false},
+    {"View image", M_IMAGE, "i", false},     {"Pictures in pages", M_PICS, "*", false},
+    {"-", 0, NULL, false},
     {"Check certificates", M_VERIFY, NULL, false}, {NULL, 0, NULL, false},
 };  ///< View
 static const menu_item_t mark_items[] = {
@@ -420,6 +445,8 @@ static void draw_keybar(void) {
     W->key_col[NKEYS] = c;
 }
 
+static int pic_from(int32_t line);
+
 /// Draws everything.
 static void draw(void) {
     const www_doc_t *d = W->doc;
@@ -449,6 +476,14 @@ static void draw(void) {
         for (int i = 0; i < g->len; ++i)
             scr_put(PAGE_TOP + g->line - W->top, 1 + g->col + i, cells[i].ch, at);
     }
+    // A picture drawn over its box: its [alt text] is hidden (else it shows by its side).
+    for (int i = W->pic ? pic_from(W->top) : d->npics; i < d->npics && d->pics[i].line < W->top + PAGE_ROWS; ++i)
+        if (W->pic[i].state == PIC_OK)
+            for (int k = 0; k < d->pics[i].rows; ++k) {
+                int32_t row = d->pics[i].line + k - W->top + PAGE_TOP;
+                if (row >= PAGE_TOP && row < PAGE_TOP + PAGE_ROWS)
+                    scr_fill(row, 0, 1, SCR_W - 1, ' ', C_PAGE);
+            }
     if (W->find_line >= W->top && W->find_line < W->top + PAGE_ROWS) {
         const www_cell_t *cells = d->cells + d->lines[W->find_line].cell + W->find_col;
         for (int i = 0; i < W->find_len; ++i)
@@ -506,6 +541,57 @@ static void trim_cache(void) {
         }
 }
 
+/// A picture's src as a hash, for the size cache.
+/// @param s the src
+/// @return its hash (never 0)
+static uint32_t src_hash(const char *s) {
+    uint32_t h = 2166136261u;  // FNV-1a
+    for (; *s; ++s)
+        h = (h ^ (uint8_t)*s) * 16777619u;
+    return h ? h : 1;
+}
+
+/// www_size_fn: a picture's size, if it has been loaded.
+/// @param src its src
+/// @param w set to its width
+/// @param h set to its height
+/// @return known
+static bool size_of(const char *src, int *w, int *h) {
+    uint32_t k = src_hash(src);
+    for (int i = 0; i < (int)(sizeof W->sizes / sizeof *W->sizes); ++i)
+        if (W->sizes[i].hash == k) {
+            *w = W->sizes[i].w;
+            *h = W->sizes[i].h;
+            return true;
+        }
+    return false;
+}
+
+/// Remembers a picture's size (0 x 0: it can't be drawn).
+/// @param src its src
+/// @param w its width
+/// @param h its height
+static void remember_size(const char *src, int w, int h) {
+    int dummy_w, dummy_h;
+    if (size_of(src, &dummy_w, &dummy_h))
+        return;
+    int n = (int)(sizeof W->sizes / sizeof *W->sizes);
+    W->sizes[W->nsizes] = (typeof(W->sizes[0])){src_hash(src), (uint16_t)w, (uint16_t)h};
+    W->nsizes = (W->nsizes + 1) % n;
+}
+
+/// Frees the page's pictures.
+static void pics_free(void) {
+    if (W->pic)
+        for (int i = 0; i < W->doc->npics; ++i)
+            psram_free(W->pic[i].px);
+    psram_free(W->pic);
+    W->pic = NULL;
+    W->pic_bytes = 0;
+    for (int r = 0; r < SCR_H; ++r)
+        W->row_key[r] = -2;  // (every row is drawn again)
+}
+
 /// Lays out the current history entry's page (or its source).
 /// @param fragment a #name to scroll to, or NULL
 static void show(const char *fragment) {
@@ -515,10 +601,17 @@ static void show(const char *fragment) {
     if (W->source)
         html = false;
     status_now("Laying out the page...");
+    pics_free();
     www_free(W->doc);
-    W->doc = www_layout(h->src ? h->src : "", h->src ? h->len : 0, html, h->latin1);
+    W->doc = www_layout(h->src ? h->src : "", h->src ? h->len : 0, html, h->latin1,
+                        W->pictures && html, size_of);
     if (!W->doc)
-        W->doc = www_layout("", 0, false, false);  // (tiny: there is room for this)
+        W->doc = www_layout("", 0, false, false, false, NULL);  // (tiny: there is room for this)
+    W->relayout = false;
+    if (W->doc->npics && !(W->pic = psram_malloc(W->doc->npics * sizeof *W->pic)))
+        W->doc->npics = 0;  // no room to keep them: the [alt text] only
+    if (W->pic)
+        memset(W->pic, 0, W->doc->npics * sizeof *W->pic);
     if (W->doc->oom)
         snprintf(W->note, sizeof W->note, "Out of memory: only the start of the page is shown");
     if (!W->source && W->doc->title[0])
@@ -889,6 +982,220 @@ static void edit_field(int link) {
         submit(l->form, button);
 }
 
+/// The first picture whose box reaches line `line` or below, by binary search.
+/// @param line the line
+/// @return its index (npics if none)
+static int pic_from(int32_t line) {
+    const www_doc_t *d = W->doc;
+    int lo = 0, hi = d->npics;
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (d->pics[mid].line + d->pics[mid].rows <= line)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    return lo;
+}
+
+/// Draws the pictures on the screen into the pixels, after the cells: rows
+/// that show a different picture row than last time are drawn as text again
+/// first (so nothing is left of what was there), then each picture's rows
+/// are copied in, with a frame if its link is chosen.
+static void pictures_paint(void) {
+    const www_doc_t *d = W->doc;
+    int32_t key[SCR_H];
+    for (int r = 0; r < SCR_H; ++r)
+        key[r] = -1;
+    for (int i = W->pic ? pic_from(W->top) : d->npics; i < d->npics && d->pics[i].line < W->top + PAGE_ROWS; ++i)
+        for (int k = 0; k < d->pics[i].rows; ++k) {
+            int32_t row = d->pics[i].line + k - W->top + PAGE_TOP;
+            if (row >= PAGE_TOP && row < PAGE_TOP + PAGE_ROWS)
+                key[row] = i * WWW_PIC_ROWS + k;
+        }
+    mouse_pointer_hide();
+    for (int r = PAGE_TOP; r < PAGE_TOP + PAGE_ROWS; ++r)
+        if (key[r] != W->row_key[r])
+            for (int c = 0; c < SCR_W; ++c) {
+                uint8_t ch, at;
+                scr_get(r, c, &ch, &at);
+                console_set_cell(r, c, ch, at);
+            }
+    for (int i = W->pic ? pic_from(W->top) : d->npics; i < d->npics && d->pics[i].line < W->top + PAGE_ROWS; ++i) {
+        const www_pic_t *p = &d->pics[i];
+        const pic_t *q = &W->pic[i];
+        if (q->state != PIC_OK)
+            continue;
+        bool chosen = p->link >= 0 && p->link == W->cur;
+        int x0 = (1 + p->col) * 8;
+        int y_top = (PAGE_TOP + p->line - W->top) * 16;
+        for (int y = 0; y < q->ph; ++y) {
+            int sy = y_top + y;
+            if (sy < PAGE_TOP * 16 || sy >= (PAGE_TOP + PAGE_ROWS) * 16)
+                continue;
+            uint8_t *dst = dvi_framebuf + sy * DVI_WIDTH + x0;
+            memcpy(dst, q->px + y * q->pw, q->pw);
+            if (chosen) {  // a frame two pixels wide, inside the picture
+                if (y < 2 || y >= q->ph - 2)
+                    memset(dst, PIC_FRAME, q->pw);
+                dst[0] = dst[1] = dst[q->pw - 1] = dst[q->pw - 2] = PIC_FRAME;
+            }
+        }
+    }
+    mouse_pointer_show();
+    memcpy(W->row_key, key, sizeof key);
+}
+
+/// Loads the first picture on the screen not tried yet, and makes its pixels
+/// (fitted in its box, dithered for the screen).
+/// @return one was loaded (or failed); false if there are none to load
+static bool load_picture(void) {
+    const www_doc_t *d = W->doc;
+    int i = W->pic ? pic_from(W->top) : d->npics;
+    while (i < d->npics && d->pics[i].line < W->top + PAGE_ROWS && W->pic[i].state != PIC_NEW)
+        ++i;
+    if (i >= d->npics || d->pics[i].line >= W->top + PAGE_ROWS)
+        return false;
+    const www_pic_t *p = &d->pics[i];
+    pic_t *q = &W->pic[i];
+    q->state = PIC_FAILED;  // (until it works)
+    bool was_relayout = W->relayout;
+    // Until it does, it is known as one that can't be drawn: the page is laid
+    // out again with its [alt text] only.
+    remember_size(www_str(d, p->src), 0, 0);
+    W->relayout = true;
+    www_resolve(base_url(), www_str(d, p->src), W->url, sizeof W->url);
+    if (strncasecmp(W->url, "http://", 7) && strncasecmp(W->url, "https://", 8) &&
+        strncasecmp(W->url, "file://", 7))
+        return true;
+    snprintf(W->note, sizeof W->note, "Loading a picture (Esc stops): %s", W->url);
+    status_now(W->note);
+    W->note[0] = 0;
+    capture(true);
+    int res = www_fetch(W->url, NULL, W->verify, &W->reply);
+    capture(false);
+    if (res != WF_OK)
+        return true;
+    image_t img;
+    const char *err;
+    bool ok = image_load_mem((const uint8_t *)W->reply.body, W->reply.len, p->w, p->h, &img, &err);
+    psram_free(W->reply.body);
+    W->reply.body = NULL;
+    if (!ok)
+        return true;
+    for (int k = 0; k < (int)(sizeof W->sizes / sizeof *W->sizes); ++k)  // it can be drawn
+        if (W->sizes[k].hash == src_hash(www_str(d, p->src)))
+            W->sizes[k] = (typeof(W->sizes[0])){W->sizes[k].hash, (uint16_t)img.w, (uint16_t)img.h};
+    W->relayout = was_relayout;  // (unless its box is the wrong size: below)
+    // Its size in the box: fitted, never made bigger.
+    int x = 0, y = 0, w = p->w, h = p->h;
+    if (img.w <= w && img.h <= h) {
+        w = img.w;
+        h = img.h;
+    } else {
+        image_fit(&img, &x, &y, &w, &h);
+    }
+    // Room: the pictures furthest from the screen go.
+    uint32_t need = (uint32_t)w * h;
+    while (W->pic_bytes + need > PIC_BUDGET) {
+        int far = -1;
+        int32_t dist = 0;
+        for (int k = 0; k < d->npics; ++k)
+            if (W->pic[k].px) {
+                int32_t dd = d->pics[k].line < W->top ? W->top - d->pics[k].line
+                                                     : d->pics[k].line - W->top;
+                if (dd >= dist && k != i) {
+                    dist = dd;
+                    far = k;
+                }
+            }
+        if (far < 0)
+            break;
+        W->pic_bytes -= (uint32_t)W->pic[far].pw * W->pic[far].ph;
+        psram_free(W->pic[far].px);
+        W->pic[far] = (pic_t){PIC_NEW, NULL, 0, 0};
+    }
+    // Dithered into a buffer as wide as the screen (as image_draw wants), then kept compact.
+    uint8_t *wide = psram_malloc((size_t)DVI_WIDTH * h);
+    q->px = wide ? psram_malloc(need) : NULL;
+    if (q->px) {
+        image_clip_t clip = {0, 0, DVI_WIDTH, h};
+        image_draw(&img, wide, 0, 0, w, h, &clip);
+        for (int r = 0; r < h; ++r)
+            memcpy(q->px + r * w, wide + r * DVI_WIDTH, w);
+        q->pw = (uint16_t)w;
+        q->ph = (uint16_t)h;
+        q->state = PIC_OK;
+        W->pic_bytes += need;
+    }
+    if ((h + 15) / 16 != p->rows)
+        W->relayout = true;  // its box is the wrong size
+    psram_free(wide);
+    image_free(&img);
+    return true;
+}
+
+/// Lays the page out again with the sizes of the pictures loaded (their boxes
+/// fit them now), keeping the pictures already made and the place on the page
+/// (the link at the top stays at the top).
+static void relayout(void) {
+    www_doc_t *old = W->doc;
+    pic_t *oldpic = W->pic;
+    int anchor = visible(W->cur) ? W->cur : first_visible();
+    int32_t off = anchor >= 0 ? old->segs[old->links[anchor].seg].line - W->top : 0;
+    hist_t *h = &W->hist[W->pos];
+    www_doc_t *d = www_layout(h->src ? h->src : "", h->src ? h->len : 0, true, h->latin1, true, size_of);
+    W->relayout = false;
+    if (!d)
+        return;
+    pic_t *np = d->npics ? psram_malloc(d->npics * sizeof *np) : NULL;
+    if (np)
+        memset(np, 0, d->npics * sizeof *np);
+    else
+        d->npics = 0;
+    // The pictures made carry over, matched by their src in page order.
+    int k = 0;
+    for (int j = 0; j < d->npics && oldpic; ++j)
+        for (int i = k; i < old->npics; ++i)
+            if (!strcmp(www_str(old, old->pics[i].src), www_str(d, d->pics[j].src))) {
+                np[j] = oldpic[i];
+                oldpic[i].px = NULL;
+                k = i + 1;
+                break;
+            }
+    pics_free();  // (what didn't carry over)
+    www_free(old);
+    W->doc = d;
+    W->pic = np;
+    for (int j = 0; j < d->npics; ++j)
+        W->pic_bytes += np[j].px ? (uint32_t)np[j].pw * np[j].ph : 0;
+    if (anchor >= 0 && anchor < d->nlinks && d->links[anchor].seg >= 0)
+        W->top = d->segs[d->links[anchor].seg].line - off;
+    clamp_top();
+    if (W->cur >= d->nlinks || !visible(W->cur))
+        W->cur = first_visible();
+    W->find_line = -1;
+}
+
+/// The picture at a screen cell, or -1.
+/// @param row the row
+/// @param col the column
+/// @return the picture
+static int picture_at(int row, int col) {
+    const www_doc_t *d = W->doc;
+    int32_t line = W->top + row - PAGE_TOP;
+    if (!W->pic || row < PAGE_TOP || row >= PAGE_TOP + PAGE_ROWS)
+        return -1;
+    for (int i = pic_from(line); i < d->npics && d->pics[i].line <= line; ++i) {
+        const www_pic_t *p = &d->pics[i];
+        const pic_t *q = &W->pic[i];
+        int w = q->state == PIC_OK ? q->pw : p->w;
+        if (line < p->line + p->rows && (col - 1 - p->col) * 8 >= 0 && (col - 1 - p->col) * 8 < w)
+            return i;
+    }
+    return -1;
+}
+
 /// Shows the chosen link's picture on the whole screen (PNG, JPEG or BMP,
 /// as the view command does) until a key or a click.
 static void view_image(void) {
@@ -905,24 +1212,13 @@ static void view_image(void) {
     }
     if (!fetch(W->url, NULL))
         return;
-    // The viewer reads files: the picture goes to the drive for a moment.
-    f_mkdir("/WWW");
-    FIL f;
-    UINT put = 0;
-    bool ok = f_open(&f, IMAGE_TMP, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK;
-    if (ok) {
-        ok = f_write(&f, W->reply.body, W->reply.len, &put) == FR_OK && put == W->reply.len;
-        f_close(&f);
-    }
+    image_t img;
+    const char *err;
+    status_now("Decoding the picture...");
+    bool ok = image_load_mem((const uint8_t *)W->reply.body, W->reply.len, DVI_WIDTH, DVI_HEIGHT,
+                             &img, &err);
     psram_free(W->reply.body);
     W->reply.body = NULL;
-    image_t img;
-    const char *err = "can't write " IMAGE_TMP;
-    if (ok) {
-        status_now("Decoding the picture...");
-        ok = image_load(IMAGE_TMP, DVI_WIDTH, DVI_HEIGHT, &img, &err);
-    }
-    f_unlink(IMAGE_TMP);
     uint8_t *saved = ok ? psram_malloc(DVI_WIDTH * DVI_HEIGHT) : NULL;
     if (!saved) {
         if (ok)
@@ -1245,6 +1541,13 @@ static void command(int id) {
         break;
     case M_INFO: info(); break;
     case M_IMAGE: view_image(); break;
+    case M_PICS:
+        W->pictures = !W->pictures;
+        remember_place();
+        show(NULL);
+        snprintf(W->note, sizeof W->note, W->pictures ? "Pictures are drawn in pages (PNG, JPEG, BMP)"
+                                                       : "Pictures are shown as [alt text] only");
+        break;
     case M_VERIFY:
         W->verify = !W->verify;
         snprintf(W->note, sizeof W->note, W->verify ? "https certificates are checked"
@@ -1263,7 +1566,8 @@ static void command(int id) {
 /// Opens the menus at menu `open`.
 /// @param open the menu
 static void run_menu(int open) {
-    W->view[4].check = W->verify;
+    W->view[3].check = W->pictures;
+    W->view[5].check = W->verify;
     int id = menu_run(W->menus, NMENUS, open);
     if (id > 0)
         command(id);
@@ -1425,6 +1729,7 @@ static void handle(int k) {
     case 'p': command(M_SAVE_TEXT); break;
     case '=': command(M_INFO); break;
     case 'i': command(M_IMAGE); break;
+    case '*': command(M_PICS); break;
     case CTRL('y'): command(M_HISTORY); break;
     case KEY_F9: run_menu(0); break;
     case 'q': case 'Q': case KEY_F10: case CTRL('c'): command(M_QUIT); break;
@@ -1448,7 +1753,11 @@ static void mouse_click(const mouse_event_t *e) {
         return;
     if (e->button == MOUSE_RIGHT) {  // the pop-up menu (over a link: it is chosen)
         bool on_link = false;
-        if (row >= PAGE_TOP && row < PAGE_TOP + PAGE_ROWS) {
+        int pic = picture_at(row, col);
+        if (pic >= 0 && W->doc->pics[pic].link >= 0) {
+            W->cur = W->doc->pics[pic].link;
+            on_link = true;
+        } else if (row >= PAGE_TOP && row < PAGE_TOP + PAGE_ROWS) {
             int32_t line = W->top + row - PAGE_TOP;
             const www_doc_t *d = W->doc;
             for (int32_t s = www_seg_from(d, line); s < d->nsegs && d->segs[s].line == line; ++s)
@@ -1483,6 +1792,12 @@ static void mouse_click(const mouse_event_t *e) {
         clamp_top();
         if (!visible(W->cur))
             W->cur = first_visible();
+        return;
+    }
+    int pic = picture_at(row, col);
+    if (pic >= 0 && W->doc->pics[pic].link >= 0) {  // a picture: its link
+        W->cur = W->doc->pics[pic].link;
+        activate();
         return;
     }
     int32_t line = W->top + row - PAGE_TOP;
@@ -1520,7 +1835,8 @@ void www_command(int argc, char **argv) {
     for (int i = 0; i < NMENUS; ++i)
         W->menus[i] = (menu_t){menu_titles[i], (menu_item_t *)items[i]};
     W->find_line = -1;
-    W->doc = www_layout("", 0, false, false);
+    W->doc = www_layout("", 0, false, false, false, NULL);
+    W->pictures = true;
     if (!W->doc) {
         psram_free(W);
         W = NULL;
@@ -1543,11 +1859,25 @@ void www_command(int argc, char **argv) {
         --W->pos;
     }
     while (!W->quit) {
-        mouse_pointer(MOUSE_POINTER_TEXT);
+        // With pictures, an arrow pointer (it keeps the pixels under it).
+        mouse_pointer(W->pic ? MOUSE_POINTER_ARROW : MOUSE_POINTER_TEXT);
         draw();
         scr_flush();
+        pictures_paint();
+        // Pictures on the screen load while no key or click is waiting.
         mouse_event_t e;
-        int k = key_get_mouse(&e);
+        mouse_pointer_update();
+        int k = key_poll();
+        if (k == KEY_NONE && mouse_event(&e))
+            k = KEY_MOUSE;
+        if (k == KEY_NONE && load_picture())
+            continue;
+        if (k == KEY_NONE && W->relayout) {  // the pictures on the screen are in: their sizes
+            relayout();
+            continue;
+        }
+        if (k == KEY_NONE)
+            k = key_get_mouse(&e);
         if (k != KEY_MOUSE || e.type == MOUSE_DOWN)
             W->note[0] = 0;
         if (k == KEY_MOUSE)
@@ -1559,6 +1889,7 @@ void www_command(int argc, char **argv) {
     scr_end();
     for (int i = 0; i < W->nhist; ++i)
         hist_free(&W->hist[i]);
+    pics_free();
     www_free(W->doc);
     www_net_end();
     psram_free(W);

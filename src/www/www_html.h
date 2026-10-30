@@ -96,6 +96,21 @@ typedef struct {
     int32_t line;   ///< the line
 } www_anchor_t;
 
+/// The most rows a picture takes on the page (in the browser's picture mode).
+#define WWW_PIC_ROWS 20
+
+/// A picture drawn in the page (picture mode): a box of empty lines, the first
+/// showing its [alt text] until it is drawn over (or if it can't be).
+typedef struct {
+    uint32_t src;   ///< its address (in the pool)
+    int32_t line;   ///< the box's first line
+    uint8_t rows;   ///< the lines it takes
+    uint8_t col;    ///< the column it starts in (the indent)
+    uint16_t w;     ///< the box's size in pixels (the picture is fitted in it)
+    uint16_t h;     ///< (h <= rows * 16)
+    int32_t link;   ///< what clicking it does: its link, or -1
+} www_pic_t;
+
 /// A laid-out page.
 typedef struct {
     www_cell_t *cells;  ///< all the lines' characters
@@ -114,6 +129,9 @@ typedef struct {
     int32_t nforms;     ///< how many
     int32_t cap_forms;  ///< room
     www_anchor_t *anchors;  ///< the anchors
+    www_pic_t *pics;        ///< the pictures (picture mode), in line order
+    int32_t npics;          ///< how many
+    int32_t cap_pics;       ///< room
     int32_t nanchors;       ///< how many
     int32_t cap_anchors;    ///< room
     char *pool;         ///< strings, each 0-terminated
@@ -124,14 +142,23 @@ typedef struct {
     bool oom;           ///< PSRAM ran out: the page is cut short
 } www_doc_t;
 
+/// Picture mode: the size of a picture already loaded, by its src (as written
+/// in the page). True if known; 0 x 0 means it can't be drawn (only its
+/// [alt text] is shown).
+typedef bool (*www_size_fn)(const char *src, int *w, int *h);
+
 /// Lays out HTML, or plain text if `html` is false.
 /// @param src the page's bytes (needn't be 0-terminated)
 /// @param len how many
 /// @param html HTML rather than plain text
 /// @param latin1 the bytes are ISO-8859-1 or Windows-1252 rather than UTF-8
 /// (a <meta charset> in the page changes it)
+/// @param pictures leave room for pictures (PNG, JPEG, BMP) in the page, to be
+/// drawn there (www_pic_t); else they are only their [alt text]
+/// @param size_of the sizes of pictures already loaded, or NULL
 /// @return the page (PSRAM), or NULL if there was no memory at all
-www_doc_t *www_layout(const char *src, size_t len, bool html, bool latin1);
+www_doc_t *www_layout(const char *src, size_t len, bool html, bool latin1, bool pictures,
+                      www_size_fn size_of);
 
 /// Frees a page.
 /// @param d the page, or NULL

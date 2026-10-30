@@ -33,6 +33,16 @@ typedef struct {
 /// @param err set to why, on failure
 /// @return true if it loaded
 bool image_load(const char *path, int want_w, int want_h, image_t *img, const char **err);
+/// The same as image_load, from bytes in memory (e.g. a download).
+/// @param d the bytes
+/// @param len their count
+/// @param want_w the width needed (0: full size)
+/// @param want_h the height needed (0: full size)
+/// @param img filled in
+/// @param err set to why, on failure
+/// @return true if it loaded
+bool image_load_mem(const uint8_t *d, size_t len, int want_w, int want_h, image_t *img,
+                    const char **err);
 /// Frees the picture's pixels.
 /// @param img the picture
 void image_free(image_t *img);

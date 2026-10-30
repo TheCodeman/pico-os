@@ -69,9 +69,27 @@ int pc_printf(const char *fmt, ...) {
     return n;
 }
 
+/// The 16 PC colours.
+static const uint8_t vga[16][3] = {
+    {0, 0, 0}, {0, 0, 170}, {0, 170, 0}, {0, 170, 170}, {170, 0, 0}, {170, 0, 170}, {170, 85, 0},
+    {170, 170, 170}, {85, 85, 85}, {85, 85, 255}, {85, 255, 85}, {85, 255, 255}, {255, 85, 85},
+    {255, 85, 255}, {255, 255, 85}, {255, 255, 255},
+};
+
+/// A PC colour as RGB332.
+/// @param c the colour (0-15)
+/// @return it
+static uint8_t rgb332(int c) {
+    return (uint8_t)((vga[c][0] >> 5) << 5 | (vga[c][1] >> 5) << 2 | vga[c][2] >> 6);
+}
+
 void console_set_cell(int row, int col, uint8_t ch, uint8_t attr) {
     cell_ch[row][col] = ch;
     cell_at[row][col] = attr;
+    for (int y = 0; y < 16; ++y)  // the pixels too, as the console draws them
+        for (int x = 0; x < 8; ++x)
+            dvi_framebuf[(row * 16 + y) * DVI_WIDTH + col * 8 + x] =
+                rgb332(font8x16[ch][y] & (0x80 >> x) ? attr & 15 : attr >> 4);
 }
 void console_get_cell(int row, int col, uint8_t *ch, uint8_t *attr) {
     *ch = cell_ch[row][col];
@@ -210,8 +228,10 @@ static void answer(struct net_conn *c) {
     } else if (!strcmp(path, "/pics")) {
         n = snprintf(page, sizeof page, "<title>Pictures</title><h1>Pictures</h1>"
                      "<p><img src=\"pic.bmp\" alt=\"A test picture\"> beside text</p>"
-                     "<p><a href=\"/\"><img src=\"/pic.gif\" alt=\"logo\"> Home</a></p>");
-    } else if (!strcmp(path, "/pic.bmp")) {  // a 64 x 48 colour ramp, 24-bit BMP
+                     "<p><a href=\"/\"><img src=\"/pic.gif\" alt=\"logo\"> Home</a></p>"
+                     "<p><a href=\"/long\"><img src=\"/pic2.bmp\" width=128 height=96 "
+                     "alt=\"Linked picture\"></a></p><p>After the pictures.</p>");
+    } else if (!strcmp(path, "/pic.bmp") || !strcmp(path, "/pic2.bmp")) {  // a 64 x 48 colour ramp, 24-bit BMP
         static const uint8_t hdr[54] = {'B', 'M', 0x36, 0x24, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0,
                                         64, 0, 0, 0, 48, 0, 0, 0, 1, 0, 24, 0};
         memcpy(page, hdr, sizeof hdr);
@@ -308,12 +328,6 @@ void net_tls_end(net_tls_t *t) { (void)t; }
 
 // ---- Screenshots and checks ---------------------------------------------------------------------------
 
-/// The 16 PC colours.
-static const uint8_t vga[16][3] = {
-    {0, 0, 0}, {0, 0, 170}, {0, 170, 0}, {0, 170, 170}, {170, 0, 0}, {170, 0, 170}, {170, 85, 0},
-    {170, 170, 170}, {85, 85, 85}, {85, 85, 255}, {85, 255, 85}, {85, 255, 255}, {255, 85, 85},
-    {255, 85, 255}, {255, 255, 85}, {255, 255, 255},
-};
 
 /// Writes the screen as 640x480 RGB bytes to shot_<name>.raw.
 /// @param name the screenshot's name
@@ -528,9 +542,19 @@ static const step_t script[] = {
     {S_SEE, "History"},
     {S_KEYS, "\x1b"},
     {S_PAUSE, NULL, 0, 0, 0},
-    // Pictures: one with alt text is a link of its own; Enter shows it.
+    // Pictures drawn in the page: one with alt text is a link of its own;
+    // Enter shows it on the whole screen.
     {S_KEYS, "ghttp://demo.test/pics\r"},
-    {S_SEE, "[A test picture] beside text"},
+    {S_PAUSE, NULL, 0, 0, 0},  // (no keys a moment: the pictures load, the page is laid out again)
+    {S_PAUSE, NULL, 0, 0, 0},
+    {S_PAUSE, NULL, 0, 0, 0},
+    {S_PAUSE, NULL, 0, 0, 0},
+    {S_PAUSE, NULL, 0, 0, 0},
+    {S_PAUSE, NULL, 0, 0, 0},
+    {S_NOTSEE, "[A test picture]"},  // (drawn over: its alt text is hidden)
+    {S_SEE, "beside text"},
+    {S_SEE, "After the pictures."},
+    {S_PIXELS, "pics"},
     {S_SEE, "Picture: Enter shows it: http://demo.test/pic.bmp"},
     {S_KEYS, "\r"},
     {S_PIXELS, "image"},
@@ -542,12 +566,25 @@ static const step_t script[] = {
     {S_KEYS, "i"},
     {S_SEE, "Can't show it: not a BMP, PNG or JPEG file"},
     {S_KEYS, "\r"},
+    // A picture in a link: Enter follows the link.
+    {S_KEYS, DOWN},
+    {S_SEE, "http://demo.test/long   (i: its picture)"},
+    {S_KEYS, "\r"},
+    {S_SEE, "A long page"},
+    {S_KEYS, LEFT},
+    {S_SEE, "After the pictures."},
     // The right button's menu over the picture: View image, no Follow link.
     {S_CLICK, NULL, 4, 3, MOUSE_RIGHT},
     {S_SEE, "View image"},
     {S_NOTSEE, "Follow link"},
     {S_KEYS, "\x1b"},
     {S_PAUSE, NULL, 0, 0, 0},
+    // Text only, then pictures again.
+    {S_KEYS, "*"},
+    {S_SEE, "Pictures are shown as [alt text] only"},
+    {S_SEE, "[A test picture] beside text"},
+    {S_KEYS, "*"},
+    {S_SEE, "Pictures are drawn in pages"},
     {S_KEYS, "h"},
     {S_SEE, "www: keys"},
     {S_SHOT, "help"},
