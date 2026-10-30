@@ -43,6 +43,16 @@ bool image_load(const char *path, int want_w, int want_h, image_t *img, const ch
 /// @return true if it loaded
 bool image_load_mem(const uint8_t *d, size_t len, int want_w, int want_h, image_t *img,
                     const char **err);
+/// How long the last image_load or image_load_mem took, by part, in
+/// microseconds (0 on the PC): for finding what is slow.
+typedef struct {
+    uint32_t read_us;     ///< reading the file
+    uint32_t decode_us;   ///< decoding it (PNG: inflating and unfiltering)
+    uint32_t convert_us;  ///< making it RGB (PNG: blending its alpha)
+} image_times_t;
+/// The last load's times.
+extern image_times_t image_times;
+
 /// Frees the picture's pixels.
 /// @param img the picture
 void image_free(image_t *img);

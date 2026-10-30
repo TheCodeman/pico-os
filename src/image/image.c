@@ -24,8 +24,16 @@
 
 // ---- Memory: pictures go in PSRAM when there is some ----------------------
 
+image_times_t image_times;
+
 #ifdef PICO_BUILD
+#include "hardware/timer.h"
 #include "psram_heap.h"
+
+/// @return microseconds, for image_times
+static uint32_t us_now(void) {
+    return time_us_32();
+}
 
 static bool have_psram(void) {
     return psram_present();
@@ -58,6 +66,10 @@ static void *big_realloc(void *p, size_t n) {
     return n <= 64 * 1024 ? realloc(p, n) : NULL;
 }
 #else
+/// @return 0: no times on the PC
+static uint32_t us_now(void) {
+    return 0;
+}
 /// Allocates a big buffer (host builds: malloc).
 /// @param n its size
 /// @return it, or NULL
@@ -138,8 +150,10 @@ static bool read_file(const char *path, uint8_t **data, size_t *len, const char 
     *len = f_size(&f);
     *data = big_alloc(*len ? *len : 1);
     UINT got = 0;
+    uint32_t t0 = us_now();
     bool ok = *data && f_read(&f, *data, *len, &got) == FR_OK && got == *len;
     f_close(&f);
+    image_times.read_us = us_now() - t0;
     if (!ok) {
         *err = *data ? "can't read the file" : "not enough memory";
         big_free(*data);
@@ -298,7 +312,10 @@ static bool decode_png(const uint8_t *d, size_t len, image_t *img, const char **
         return false;
     }
     unsigned char *out = NULL;
+    uint32_t t0 = us_now();
     e = lodepng_decode_memory(&out, &w, &h, d, len, LCT_RGBA, 8);
+    image_times.decode_us = us_now() - t0;
+    t0 = us_now();
     if (e) {
         *err = e == 83 ? "not enough memory" : lodepng_error_text(e);
         return false;
@@ -319,6 +336,7 @@ static bool decode_png(const uint8_t *d, size_t len, image_t *img, const char **
         for (int c = 0; c < 3; ++c)
             out[i * 3 + c] = (unsigned char)((p[c] * a + bg * (255 - a)) / 255);
     }
+    image_times.convert_us = us_now() - t0;
     img->w = w;
     img->h = h;
     img->rgb = out;
@@ -450,6 +468,7 @@ static bool decode_jpeg(const char *path, int want_w, int want_h, image_t *img,
 
 bool image_load(const char *path, int want_w, int want_h, image_t *img, const char **err) {
     img->rgb = NULL;
+    image_times = (image_times_t){0, 0, 0};
     FIL f;
     uint8_t magic[8] = {0};
     UINT got = 0;
@@ -479,6 +498,7 @@ bool image_load(const char *path, int want_w, int want_h, image_t *img, const ch
 bool image_load_mem(const uint8_t *d, size_t len, int want_w, int want_h, image_t *img,
                     const char **err) {
     img->rgb = NULL;
+    image_times = (image_times_t){0, 0, 0};
     if (len >= 3 && d[0] == 0xff && d[1] == 0xd8 && d[2] == 0xff) {
         jpeg_io_t io = {.mem = d, .len = len, .img = img};
         return decode_jpeg_io(&io, want_w, want_h, err);

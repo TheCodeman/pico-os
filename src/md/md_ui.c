@@ -262,6 +262,8 @@ typedef struct {
     uint32_t page_us;      ///< adding up this frame's
     uint32_t layout_ms;    ///< the document last took to lay out
     uint32_t ttf_ms;       ///< the fonts took to load
+    int pic_n;             ///< pictures loaded, and the time they took (us), by part:
+    uint32_t pic_read, pic_decode, pic_convert, pic_draw;  ///< read, decode, to RGB, dithered and kept
 } md_t;
 
 static md_t *M;  ///< PSRAM, while the viewer runs
@@ -530,6 +532,11 @@ static bool pic_load_one(void) {
     const char *err;
     if (!image_load(path, item->w, item->h, &img, &err))
         return true;
+    M->pic_n++;
+    M->pic_read += image_times.read_us;
+    M->pic_decode += image_times.decode_us;
+    M->pic_convert += image_times.convert_us;
+    uint32_t t0 = clock_us();
     uint8_t *wide = psram_malloc((size_t)W * item->h);
     uint8_t *px = wide ? psram_malloc(need) : NULL;
     if (px) {
@@ -542,6 +549,7 @@ static bool pic_load_one(void) {
     }
     psram_free(wide);
     image_free(&img);
+    M->pic_draw += clock_us() - t0;
     return true;
 }
 
@@ -1250,7 +1258,7 @@ static void draw_help(void) {
 
 /// Draws the About box.
 static void draw_about(void) {
-    int w = 480, h = 230, x = (W - w) / 2, y = 120;
+    int w = 480, h = 250, x = (W - w) / 2, y = 110;
     box(x, y, w, h, "Markdown viewer " VER_MD);
     static const char *const lines[] = {
         "Shows Markdown files (CommonMark with GitHub's tables,",
@@ -1270,6 +1278,10 @@ static void draw_about(void) {
     textf(x + 16, y + 172, C_DIM, C_FACE, "laid out in %lu ms", (unsigned long)M->layout_ms);
     if (md_ttf_loaded())
         textf(x + 216, y + 172, C_DIM, C_FACE, "fonts loaded in %lu ms", (unsigned long)M->ttf_ms);
+    if (M->pic_n)
+        textf(x + 16, y + 192, C_DIM, C_FACE, "%d pictures: read %lu, decode %lu, RGB %lu, dither %lu ms", M->pic_n,
+              (unsigned long)(M->pic_read / 1000), (unsigned long)(M->pic_decode / 1000),
+              (unsigned long)(M->pic_convert / 1000), (unsigned long)(M->pic_draw / 1000));
     text(x + 16, y + h - 26, "(any key or click closes this)", C_DIM, C_FACE);
 }
 
