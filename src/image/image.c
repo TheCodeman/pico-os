@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include "ff.h"
+#include "image_rows.h"
 #include "lodepng.h"
 #include "tjpgd.h"
 
@@ -603,6 +604,51 @@ bool image_load_mem(const uint8_t *d, size_t len, int want_w, int want_h, image_
     return false;
 }
 
+bool image_load_compact_mem(const uint8_t *d, size_t len, uint8_t *px, int w, int h, const char **err) {
+    uint32_t read_us = image_times.read_us;
+    uint32_t t0 = us_now();
+    int r = png_rows_decode(d, len, px, w, h, err);
+    if (r) {
+        image_times = (image_times_t){read_us, us_now() - t0, 0};
+        return r > 0;
+    }
+    image_t img;
+    if (!image_load_mem(d, len, w, h, &img, err))
+        return false;
+    image_times.read_us = read_us;
+    image_draw_compact(&img, px, w, h);
+    image_free(&img);
+    return true;
+}
+
+bool image_load_compact(const char *path, uint8_t *px, int w, int h, const char **err) {
+    image_times = (image_times_t){0, 0, 0};
+    FIL f;
+    uint8_t magic[8] = {0};
+    UINT got = 0;
+    if (f_open(&f, path, FA_READ) != FR_OK) {
+        *err = "file not found";
+        return false;
+    }
+    f_read(&f, magic, sizeof magic, &got);
+    f_close(&f);
+    if (got == 8 && !memcmp(magic, "\x89PNG\r\n\x1a\n", 8)) {  // read whole, then a row at a time
+        uint8_t *data;
+        size_t len;
+        if (!read_file(path, &data, &len, err))
+            return false;
+        bool ok = image_load_compact_mem(data, len, px, w, h, err);
+        big_free(data);
+        return ok;
+    }
+    image_t img;
+    if (!image_load(path, w, h, &img, err))
+        return false;
+    image_draw_compact(&img, px, w, h);
+    image_free(&img);
+    return true;
+}
+
 // ---- Drawing --------------------------------------------------------------------
 
 /// The ordered dither's 4x4 matrix.
@@ -626,6 +672,19 @@ static inline int level(int v, int steps, int d) {
         return q;
     q = ((v * steps * 16 + d) * 32897) >> 27;  // / 4080
     return q > steps ? steps : q;
+}
+
+void image_dither_row(const uint8_t *row, int iw, uint8_t *out, int x, int x0, int x1, int dy, int64_t step) {
+    const uint8_t *b = bayer[dy & 3];
+    for (int dx = x0; dx < x1; ++dx) {
+        int sx = (int)(((int64_t)(dx - x) * step) >> 16);
+        const uint8_t *p = row + (sx < iw ? sx : iw - 1) * 3;
+        // Ordered dithering: add a fraction of a step before rounding down
+        // (v * 7 / 255 + d / 16, scaled by 4080 to stay in integers).
+        int d = b[dx & 3] * 255;
+        int r = level(p[0], 7, d), g = level(p[1], 7, d), bl = level(p[2], 3, d);
+        out[dx] = (uint8_t)(r << 5 | g << 2 | bl);
+    }
 }
 
 /// Draws img scaled to w x h at (x, y), the part from (x0, y0) to (x1, y1).
@@ -653,17 +712,7 @@ static void draw_part(const image_t *img, uint8_t *fb, int stride, int x, int y,
         int sy = (int)((long long)(dy - y) * img->h / h);
         const uint8_t *row = img->rgb + (size_t)sy * img->w * 3;
         uint8_t *dst = fb + (size_t)dy * stride;
-        uint8_t *out = via ? buf - x0 : dst;
-        const uint8_t *b = bayer[dy & 3];
-        for (int dx = x0; dx < x1; ++dx) {
-            int sx = (int)(((int64_t)(dx - x) * step) >> 16);
-            const uint8_t *p = row + (sx < img->w ? sx : img->w - 1) * 3;
-            // Ordered dithering: add a fraction of a step before rounding down
-            // (v * 7 / 255 + d / 16, scaled by 4080 to stay in integers).
-            int d = b[dx & 3] * 255;
-            int r = level(p[0], 7, d), g = level(p[1], 7, d), bl = level(p[2], 3, d);
-            out[dx] = (uint8_t)(r << 5 | g << 2 | bl);
-        }
+        image_dither_row(row, img->w, via ? buf - x0 : dst, x, x0, x1, dy, step);
         if (via)
             memcpy(dst + x0, buf, (size_t)(x1 - x0));
     }

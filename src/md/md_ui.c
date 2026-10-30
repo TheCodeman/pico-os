@@ -528,23 +528,23 @@ static bool pic_load_one(void) {
                     dvi_framebuf[(STAT_Y + 2 + r) * W + 8 + i * 8 + b] = C_YELLOW;
     }
     M->msg_until = 0;
-    image_t img;
     const char *err;
-    if (!image_load(path, item->w, item->h, &img, &err))
+    uint8_t *px = psram_malloc(need);
+    if (!px)
         return true;
+    uint32_t t0 = clock_us();
+    if (!image_load_compact(path, px, item->w, item->h, &err)) {
+        psram_free(px);
+        return true;
+    }
+    uint32_t t = clock_us() - t0;
     M->pic_n++;
     M->pic_read += image_times.read_us;
     M->pic_decode += image_times.decode_us;
     M->pic_convert += image_times.convert_us;
-    uint32_t t0 = clock_us();
-    uint8_t *px = psram_malloc(need);
-    if (px) {
-        image_draw_compact(&img, px, item->w, item->h);
-        p->px = px;
-        M->pic_bytes += need;
-    }
-    image_free(&img);
-    M->pic_draw += clock_us() - t0;
+    M->pic_draw += t - image_times.read_us - image_times.decode_us - image_times.convert_us;
+    p->px = px;
+    M->pic_bytes += need;
     return true;
 }
 

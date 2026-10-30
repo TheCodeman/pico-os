@@ -86,6 +86,27 @@ void image_draw(const image_t *img, uint8_t *fb, int x, int y, int w, int h,
 /// @param h the height
 void image_draw_compact(const image_t *img, uint8_t *px, int w, int h);
 
+/// Loads a picture straight into a w x h RGB332 picture of its own, scaled
+/// and dithered as image_draw_compact does. Opaque, non-interlaced PNGs are
+/// decoded a row at a time and never kept whole (much faster from PSRAM);
+/// other files go through image_load.
+/// @param path the file
+/// @param px w * h bytes, filled in
+/// @param w the width
+/// @param h the height
+/// @param err set to why, on failure
+/// @return true if it loaded
+bool image_load_compact(const char *path, uint8_t *px, int w, int h, const char **err);
+/// The same, from bytes in memory.
+/// @param d the bytes
+/// @param len their count
+/// @param px w * h bytes, filled in
+/// @param w the width
+/// @param h the height
+/// @param err set to why, on failure
+/// @return true if it loaded
+bool image_load_compact_mem(const uint8_t *d, size_t len, uint8_t *px, int w, int h, const char **err);
+
 /// The largest rectangle with img's shape that fits in w x h, centred in it.
 /// @param img the picture
 /// @param x set to the left

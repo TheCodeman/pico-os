@@ -78,6 +78,7 @@ add_executable(pico2_os
     src/stack_switch.c
     src/serial_console.c
     src/image/image.c
+    src/image/png_rows.c
     src/image/lodepng.c
     src/image/tjpgd.c
     src/net/clock.c

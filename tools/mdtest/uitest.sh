@@ -19,7 +19,7 @@ cc $FLAGS -c dirstub.c -o "$T/dirstub.o"
 cc $FLAGS -c $SRC/md/md_ttf.c -o "$T/md_ttf.o"
 cc $FLAGS -c $SRC/font/fnt.c -o "$T/fnt.o"
 cc -O2 -w -fsanitize=address,undefined $STUBS -I$SRC/font -c $SRC/font/fnt_stb.c -o "$T/fnt_stb.o"
-for f in image lodepng tjpgd; do  # the picture decoders
+for f in image png_rows lodepng tjpgd; do  # the picture decoders
     cc -O1 -w -fsanitize=address,undefined $STUBS -I$SRC -I$SRC/image -c $SRC/image/$f.c -o "$T/$f.o"
 done
 cc -fsanitize=address,undefined "$T"/*.o -lm -o "$T/uitest"

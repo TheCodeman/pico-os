@@ -12,7 +12,7 @@ FLAGS="-O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializer
 for f in $SRC/mc/mc_scr.c $SRC/mc/mc_ui.c $SRC/www/www_html.c $SRC/www/www_net.c $SRC/www/www.c uitest.c; do
     cc $FLAGS -I$SRC/image -c "$f" -o "$T/$(basename "$f" .c).o"
 done
-for f in image lodepng tjpgd; do  # the picture viewer
+for f in image png_rows lodepng tjpgd; do  # the picture viewer
     cc -O1 -w -fsanitize=address,undefined -include stubs/pc_printf.h -Istubs -I$SRC -I$SRC/image -c $SRC/image/$f.c -o "$T/$f.o"
 done
 cc -fsanitize=address,undefined "$T"/*.o -o "$T/uitest"
