@@ -89,6 +89,18 @@ void image_draw(const image_t *img, uint8_t *fb, int x, int y, int w, int h,
 /// @param h the height
 void image_draw_compact(const image_t *img, uint8_t *px, int w, int h);
 
+/// A clock for timing picture work.
+/// @return microseconds (0 on the PC)
+uint32_t image_us(void);
+
+/// A picture's size from its header (PNG, BMP, JPEG), without decoding it.
+/// @param d the file's bytes
+/// @param len their count
+/// @param w set to its width
+/// @param h set to its height
+/// @return false if it can't be told
+bool image_size_mem(const uint8_t *d, size_t len, int *w, int *h);
+
 /// Loads a picture straight into a w x h RGB332 picture of its own, scaled
 /// and dithered as image_draw_compact does. Opaque, non-interlaced PNGs are
 /// decoded a row at a time and never kept whole (much faster from PSRAM);

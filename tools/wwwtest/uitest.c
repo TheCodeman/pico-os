@@ -28,6 +28,7 @@
 #include "ff.h"
 #include "font8x16.h"
 #include "mc.h"
+#include "lodepng.h"
 #include "mouse.h"
 #include "net.h"
 #include "pico/stdlib.h"
@@ -230,7 +231,8 @@ static void answer(struct net_conn *c) {
                      "<p><img src=\"pic.bmp\" alt=\"A test picture\"> beside text</p>"
                      "<p><a href=\"/\"><img src=\"/pic.gif\" alt=\"logo\"> Home</a></p>"
                      "<p><a href=\"/long\"><img src=\"/pic2.bmp\" width=128 height=96 "
-                     "alt=\"Linked picture\"></a></p><p>After the pictures.</p>");
+                     "alt=\"Linked picture\"></a></p><p><img src=\"/pic3.png\" alt=\"A PNG\"></p>"
+                     "<p>After the pictures.</p>");
     } else if (!strcmp(path, "/pic.bmp") || !strcmp(path, "/pic2.bmp")) {  // a 64 x 48 colour ramp, 24-bit BMP
         static const uint8_t hdr[54] = {'B', 'M', 0x36, 0x24, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0,
                                         64, 0, 0, 0, 48, 0, 0, 0, 1, 0, 24, 0};
@@ -243,6 +245,38 @@ static void answer(struct net_conn *c) {
                 page[n++] = (char)(x * 4);
             }
         type = "image/bmp";
+    } else if (!strcmp(path, "/pic3.png")) {  // a 96 x 40 RGB PNG, stored (decoded a row at a time)
+        static uint8_t raw[40 * (1 + 96 * 3)];
+        for (int y = 0, k = 0; y < 40; ++y) {
+            raw[k++] = 0;  // no filter
+            for (int x = 0; x < 96; ++x)
+                raw[k++] = (uint8_t)(x * 2), raw[k++] = (uint8_t)(y * 6), raw[k++] = 200;
+        }
+        uint8_t *o = (uint8_t *)page;
+        memcpy(o, "\x89PNG\r\n\x1a\n", 8);
+        n = 8;
+        // A chunk: length, type, data, CRC.
+#define CHUNK(ty, data, len)                                                                              \
+    do {                                                                                                  \
+        uint32_t L = (uint32_t)(len);                                                                     \
+        o[n] = (uint8_t)(L >> 24), o[n + 1] = (uint8_t)(L >> 16), o[n + 2] = (uint8_t)(L >> 8), o[n + 3] = (uint8_t)L; \
+        memcpy(o + n + 4, ty, 4);                                                                         \
+        memcpy(o + n + 8, data, L);                                                                       \
+        uint32_t c = lodepng_crc32(o + n + 4, L + 4);                                                     \
+        o[n + 8 + L] = (uint8_t)(c >> 24), o[n + 9 + L] = (uint8_t)(c >> 16), o[n + 10 + L] = (uint8_t)(c >> 8); \
+        o[n + 11 + L] = (uint8_t)c;                                                                       \
+        n += 12 + (int)L;                                                                                 \
+    } while (0)
+        static const uint8_t ihdr[13] = {0, 0, 0, 96, 0, 0, 0, 40, 8, 2, 0, 0, 0};
+        CHUNK("IHDR", ihdr, 13);
+        static uint8_t z[2 + 5 + sizeof raw + 4];  // zlib: one stored block (the Adler-32 isn't checked)
+        z[0] = 0x78, z[1] = 0x01, z[2] = 1, z[3] = sizeof raw & 0xff, z[4] = sizeof raw >> 8;
+        z[5] = (uint8_t)~z[3], z[6] = (uint8_t)~z[4];
+        memcpy(z + 7, raw, sizeof raw);
+        CHUNK("IDAT", z, sizeof z);
+        CHUNK("IEND", "", 0);
+#undef CHUNK
+        type = "image/png";
     } else if (!strcmp(path, "/pic.gif")) {
         n = snprintf(page, sizeof page, "GIF89a not really");
         type = "image/gif";
@@ -582,6 +616,7 @@ static const step_t script[] = {
     {S_PAUSE, NULL, 0, 0, 0},
     {S_PAUSE, NULL, 0, 0, 0},
     {S_NOTSEE, "[A test picture]"},  // (drawn over: its alt text is hidden)
+    {S_NOTSEE, "[A PNG]"},
     {S_SEE, "beside text"},
     {S_SEE, "After the pictures."},
     {S_PIXELS, "pics"},

@@ -147,6 +147,9 @@ typedef struct {
     int key_col[11];          ///< where each key starts on the key bar, for the mouse
     stdio_driver_t cap_driver;  ///< the driver that catches printing (see capture())
     bool pictures;            ///< pictures drawn in pages (View > Pictures in pages)
+    bool pic_whole;           ///< decode pictures whole first, the old way (Ctrl-B, to compare)
+    int pic_n;                ///< pictures decoded, and the time it took (us), for About
+    uint32_t pic_us;          ///< (see pic_n)
     pic_t *pic;               ///< the page's pictures (PSRAM), or NULL
     uint32_t pic_bytes;       ///< the pixels kept for them
     int32_t row_key[SCR_H];   ///< which picture row each screen row showed (-1: none)
@@ -1164,13 +1167,19 @@ static bool load_picture(void) {
              (unsigned long)(W->reply.len >> 10), W->url);
     status_now(W->note);
     W->note[0] = 0;
-    image_t img;
+    // Its size from its header, then decoded straight at the size it has on
+    // the page (PNGs a row at a time: image_load_compact_mem). If the header
+    // can't tell, decoded whole first.
+    const uint8_t *body = (const uint8_t *)W->reply.body;
+    image_t img = {0, 0, NULL};
     const char *err;
-    bool ok = image_load_mem((const uint8_t *)W->reply.body, W->reply.len, p->w, p->h, &img, &err);
-    psram_free(W->reply.body);
-    W->reply.body = NULL;
-    if (!ok)
+    uint32_t t0 = image_us();
+    bool sized = !W->pic_whole && image_size_mem(body, W->reply.len, &img.w, &img.h);
+    if (!sized && !image_load_mem(body, W->reply.len, p->w, p->h, &img, &err)) {
+        psram_free(W->reply.body);
+        W->reply.body = NULL;
         return true;
+    }
     for (int k = 0; k < (int)(sizeof W->sizes / sizeof *W->sizes); ++k)  // it can be drawn
         if (W->sizes[k].hash == src_hash(www_str(d, p->src)))
             W->sizes[k] = (typeof(W->sizes[0])){W->sizes[k].hash, (uint16_t)img.w, (uint16_t)img.h};
@@ -1205,8 +1214,21 @@ static bool load_picture(void) {
     }
     // Dithered at its size on the page, kept compact.
     q->px = psram_malloc(need);
-    if (q->px) {
+    if (q->px && sized && !image_load_compact_mem(body, W->reply.len, q->px, w, h, &err)) {
+        psram_free(q->px);
+        q->px = NULL;
+        for (int k = 0; k < (int)(sizeof W->sizes / sizeof *W->sizes); ++k)  // it can't be drawn after all
+            if (W->sizes[k].hash == src_hash(www_str(d, p->src)))
+                W->sizes[k].w = W->sizes[k].h = 0;
+        W->relayout = true;
+    } else if (q->px && !sized) {
         image_draw_compact(&img, q->px, w, h);
+    }
+    psram_free(W->reply.body);
+    W->reply.body = NULL;
+    W->pic_n++;
+    W->pic_us += image_us() - t0;
+    if (q->px) {
         q->pw = (uint16_t)w;
         q->ph = (uint16_t)h;
         q->state = PIC_OK;
@@ -1637,10 +1659,14 @@ static void command(int id) {
     case M_MARK: add_bookmark(); break;
     case M_MARKS: follow("file://" BOOKMARKS, NULL); break;
     case M_HELP: follow("about:help", NULL); break;
-    case M_ABOUT:
-        dlg_message("About", "www " VER_WWW ": a text web browser for pico-os\nin the manner of lynx\n\n"
-                    "Copyright (c) 2026 Ken Segler, MIT licence", "OK", false);
+    case M_ABOUT: {
+        char t[240];
+        snprintf(t, sizeof t, "www " VER_WWW ": a text web browser for pico-os\nin the manner of lynx\n\n"
+                 "Copyright (c) 2026 Ken Segler, MIT licence\n\n%d pictures decoded in %lu ms (%s)", W->pic_n,
+                 (unsigned long)(W->pic_us / 1000), W->pic_whole ? "whole first" : "PNGs a row at a time");
+        dlg_message("About", t, "OK", false);
         break;
+    }
     }
 }
 
@@ -1812,6 +1838,11 @@ static void handle(int k) {
     case 'i': command(M_IMAGE); break;
     case '*': command(M_PICS); break;
     case CTRL('y'): command(M_HISTORY); break;
+    case CTRL('b'):  // pictures decoded whole first, or PNGs a row at a time (to compare their times in About)
+        W->pic_whole = !W->pic_whole;
+        W->pic_n = 0, W->pic_us = 0;
+        snprintf(W->note, sizeof W->note, W->pic_whole ? "Pictures decoded whole first" : "PNGs decoded a row at a time");
+        break;
     case KEY_F9: run_menu(0); break;
     case 'q': case 'Q': case KEY_F10: case CTRL('c'): command(M_QUIT); break;
     case KEY_ESC: W->find_line = -1; break;

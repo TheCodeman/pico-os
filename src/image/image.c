@@ -604,6 +604,45 @@ bool image_load_mem(const uint8_t *d, size_t len, int want_w, int want_h, image_
     return false;
 }
 
+uint32_t image_us(void) {
+    return us_now();
+}
+
+bool image_size_mem(const uint8_t *d, size_t len, int *w, int *h) {
+    if (len >= 24 && !memcmp(d, "\x89PNG\r\n\x1a\n", 8) && !memcmp(d + 12, "IHDR", 4)) {
+        *w = (int)((uint32_t)d[16] << 24 | (uint32_t)d[17] << 16 | (uint32_t)d[18] << 8 | d[19]);
+        *h = (int)((uint32_t)d[20] << 24 | (uint32_t)d[21] << 16 | (uint32_t)d[22] << 8 | d[23]);
+        return *w > 0 && *h > 0;
+    }
+    if (len >= 26 && d[0] == 'B' && d[1] == 'M') {
+        *w = (int)le32(d + 18);
+        int32_t hh = (int32_t)le32(d + 22);
+        *h = hh < 0 ? -hh : hh;
+        return *w > 0 && *h > 0;
+    }
+    if (len >= 4 && d[0] == 0xff && d[1] == 0xd8) {  // JPEG: the frame header's
+        size_t at = 2;
+        while (at + 9 < len) {
+            if (d[at] != 0xff) {
+                ++at;
+                continue;
+            }
+            uint8_t m = d[at + 1];
+            if (m == 0xff || m == 0x01 || (m >= 0xd0 && m <= 0xd7)) {
+                at += m == 0xff ? 1 : 2;
+                continue;
+            }
+            if (m >= 0xc0 && m <= 0xcf && m != 0xc4 && m != 0xc8 && m != 0xcc) {
+                *h = d[at + 5] << 8 | d[at + 6];
+                *w = d[at + 7] << 8 | d[at + 8];
+                return *w > 0 && *h > 0;
+            }
+            at += 2 + (size_t)(d[at + 2] << 8 | d[at + 3]);
+        }
+    }
+    return false;
+}
+
 bool image_load_compact_mem(const uint8_t *d, size_t len, uint8_t *px, int w, int h, const char **err) {
     uint32_t read_us = image_times.read_us;
     uint32_t t0 = us_now();
