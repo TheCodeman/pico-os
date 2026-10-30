@@ -544,6 +544,8 @@ static const step_t script[] = {
     {S_PAUSE, NULL, 0, 0, 0},
     // Pictures drawn in the page: one with alt text is a link of its own;
     // Enter shows it on the whole screen.
+    {S_KEYS, "*"},  // (pictures in pages are off at first)
+    {S_SEE, "Pictures are drawn in pages"},
     {S_KEYS, "ghttp://demo.test/pics\r"},
     {S_PAUSE, NULL, 0, 0, 0},  // (no keys a moment: the pictures load, the page is laid out again)
     {S_PAUSE, NULL, 0, 0, 0},
@@ -579,12 +581,10 @@ static const step_t script[] = {
     {S_NOTSEE, "Follow link"},
     {S_KEYS, "\x1b"},
     {S_PAUSE, NULL, 0, 0, 0},
-    // Text only, then pictures again.
+    // Text only again.
     {S_KEYS, "*"},
     {S_SEE, "Pictures are shown as [alt text] only"},
     {S_SEE, "[A test picture] beside text"},
-    {S_KEYS, "*"},
-    {S_SEE, "Pictures are drawn in pages"},
     {S_KEYS, "h"},
     {S_SEE, "www: keys"},
     {S_SHOT, "help"},

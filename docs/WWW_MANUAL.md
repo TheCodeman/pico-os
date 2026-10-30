@@ -112,8 +112,9 @@ and sites that need a cookie work while it is open.
 
 ![Pictures in a page](www_pics.png)
 
-Pictures (PNG, JPEG and BMP) are drawn in the page, between the text, as
-they come onto the screen: each loads while no key is pressed (the status
+Pages are text at first, each picture its `[alt text]`. With **\*** (or
+View > Pictures in pages) pictures (PNG, JPEG and BMP) are drawn in the
+page, between the text, as they come onto the screen: each loads while no key is pressed (the status
 line says which; Esc stops it), scaled to fit the page's width and at most
 20 lines high, dithered to the screen's 256 colours, never made bigger. A
 picture whose size the page doesn't give gets a box of a guessed size
@@ -123,9 +124,8 @@ a page has pictures.
 
 A picture's box shows its `[alt text]` until it is drawn, and stays text
 if it can't be: GIF, WebP and SVG pictures, tiny icons (40 pixels or
-less), ones that fail to load, and very big ones. **\*** (or View >
-Pictures in pages) switches to text only, with every picture as its
-`[alt text]` on the line, and back.
+less), ones that fail to load, and very big ones. **\*** again goes back
+to text only; the setting lasts while the browser is open.
 
 A picture in a link follows the link when clicked or chosen with Enter
 (a cyan frame shows it is chosen); one not in a link is a link of its own

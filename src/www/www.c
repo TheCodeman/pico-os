@@ -1840,7 +1840,7 @@ void www_command(int argc, char **argv) {
         W->menus[i] = (menu_t){menu_titles[i], (menu_item_t *)items[i]};
     W->find_line = -1;
     W->doc = www_layout("", 0, false, false, false, NULL);
-    W->pictures = true;
+    W->pictures = false;  // (pictures in pages: View > Pictures in pages, or *)
     if (!W->doc) {
         psram_free(W);
         W = NULL;
