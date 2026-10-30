@@ -31,7 +31,6 @@ image_times_t image_times;
 
 #ifdef PICO_BUILD
 #include "hardware/timer.h"
-#include "pico.h"
 #include "psram_heap.h"
 
 /// @return microseconds, for image_times
@@ -111,8 +110,6 @@ static void *small_realloc(void *p, size_t n) {
     return q;
 }
 #else
-/// PC builds: functions stay where they are.
-#define __not_in_flash_func(f) f
 /// @return 0: no times on the PC
 static uint32_t us_now(void) {
     return 0;
@@ -679,8 +676,7 @@ static inline int level(int v, int steps, int d) {
     return q > steps ? steps : q;
 }
 
-void __not_in_flash_func(image_dither_row)(const uint8_t *row, int iw, uint8_t *out, int x, int x0, int x1, int dy,
-                                          int64_t step) {
+void image_dither_row(const uint8_t *row, int iw, uint8_t *out, int x, int x0, int x1, int dy, int64_t step) {
     const uint8_t *b = bayer[dy & 3];
     for (int dx = x0; dx < x1; ++dx) {
         int sx = (int)(((int64_t)(dx - x) * step) >> 16);

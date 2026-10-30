@@ -36,7 +36,6 @@
 #include <unistd.h>
 
 #include "hardware/timer.h"
-#include "pico.h"
 
 #include "psram_heap.h"
 
@@ -112,8 +111,6 @@ static void *psram_or_heap(size_t n) {
 static uint32_t time_us_32(void) {
     return 0;
 }
-/// PC builds: functions stay where they are.
-#define __not_in_flash_func(f) f
 #endif
 
 // ---- The state ---------------------------------------------------------------------------------------
@@ -172,7 +169,7 @@ static uint32_t be32(const uint8_t *p) {
 /// The next compressed byte (from the next IDAT chunk when this one ends).
 /// @param s the decoder
 /// @return it, or -1 at the end
-static int __not_in_flash_func(in_byte)(ps_t *s) {
+static int in_byte(ps_t *s) {
     while (s->left == 0) {
         if (s->at + 12 > s->len || memcmp(s->d + s->at + 4, "IDAT", 4))
             return -1;
@@ -264,7 +261,7 @@ static bool build(huff_t *h, const uint8_t *len, int n) {
 /// @param s the decoder
 /// @param h the code
 /// @return the symbol, or -1 for a code that isn't in it
-static int __not_in_flash_func(decode)(ps_t *s, const huff_t *h) {
+static int decode(ps_t *s, const huff_t *h) {
     need(s, 16);
     uint16_t e = h->fast[s->bitbuf & (FAST_SIZE - 1)];
     if (e) {
@@ -300,7 +297,7 @@ static inline int paeth(int a, int b, int c) {
 
 /// A scanline is complete: unfilters it and dithers the picture's rows that show it.
 /// @param s the decoder
-static void __not_in_flash_func(row_done)(ps_t *s) {
+static void row_done(ps_t *s) {
     uint32_t t0 = time_us_32();
     if (s->ring)  // kept as it came, for copies from further back than near reaches
         memcpy(s->ring + (size_t)(s->sy % s->nring) * s->rowlen, s->cur, (size_t)s->rowlen);
@@ -460,7 +457,7 @@ static bool dynamic_codes(ps_t *s) {
 /// Inflates until the picture's last row is made (or the stream ends).
 /// @param s the decoder
 /// @return false if the stream is damaged
-static bool __not_in_flash_func(inflate)(ps_t *s) {
+static bool inflate(ps_t *s) {
     bool last = false;
     while (!last && s->dy < s->h) {
         last = bits(s, 1);
