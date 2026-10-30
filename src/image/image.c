@@ -298,10 +298,26 @@ static bool decode_png(const uint8_t *d, size_t len, image_t *img, const char **
         return false;
     }
     unsigned char *out = NULL;
-    e = lodepng_decode_memory(&out, &w, &h, d, len, LCT_RGB, 8);
+    e = lodepng_decode_memory(&out, &w, &h, d, len, LCT_RGBA, 8);
     if (e) {
         *err = e == 83 ? "not enough memory" : lodepng_error_text(e);
         return false;
+    }
+    // Transparent parts are blended onto black, or onto white if what shows
+    // is mostly dark (a logo for a light page): the shape stays visible.
+    size_t n = (size_t)w * h;
+    uint64_t light = 0, weight = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const unsigned char *p = out + i * 4;
+        light += (uint64_t)(p[0] * 2 + p[1] * 5 + p[2]) / 8 * p[3];
+        weight += p[3];
+    }
+    unsigned bg = weight && light / weight < 96 ? 255 : 0;
+    for (size_t i = 0; i < n; ++i) {  // RGBA to RGB, in place
+        const unsigned char *p = out + i * 4;
+        unsigned a = p[3];
+        for (int c = 0; c < 3; ++c)
+            out[i * 3 + c] = (unsigned char)((p[c] * a + bg * (255 - a)) / 255);
     }
     img->w = w;
     img->h = h;
