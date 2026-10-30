@@ -51,6 +51,7 @@
 #include "wav.h"
 #include "hexedit.h"
 #include "md.h"
+#include "font.h"
 #include "www.h"
 #include "sdr.h"
 #include "say.h"
@@ -387,6 +388,12 @@ static const help_t help_programs[] = {
      "                           lists, code, quotes, tables, links (Tab and\n"
      "                           Enter follow them) and pictures from the drive\n"
      "  F1 in the viewer lists its keys, F10 opens the menus."},
+    {"font", "ttf", "font viewer and benchmark",
+     "font FILE [size] [\"text\"]  show a TrueType (.ttf), OpenType (.otf) or\n"
+     "                           PFN font anti-aliased at 12-48 pixels, and\n"
+     "                           the text given at the size given\n"
+     "font bench FILE...         time loading and drawing up to 4 fonts\n"
+     "  In the viewer: R redraw, C redraw uncached, D dither, K kerning, Esc."},
     {"sdr", NULL, "radio receiver (RTL-SDR)",
      "sdr [MHz] [wfm|nfm|am]     the receiver: spectrum, waterfall, wide and\n"
      "                           narrow FM and AM, squelch, favourites, scan\n"
@@ -1749,7 +1756,7 @@ static const struct {
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset}, {"clock", cmd_clock},
-    {"date", net_cmd_date}, {"tz", net_cmd_tz}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"md", md_command}, {"markdown", md_command}, {"www", www_command}, {"lynx", www_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"lancer", lancer_command}, {"say", say_command}, {"screenshot", cmd_screenshot}, {"ver", cmd_ver}, {"version", cmd_ver},
+    {"date", net_cmd_date}, {"tz", net_cmd_tz}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"md", md_command}, {"markdown", md_command}, {"font", font_command}, {"ttf", font_command}, {"www", www_command}, {"lynx", www_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"lancer", lancer_command}, {"say", say_command}, {"screenshot", cmd_screenshot}, {"ver", cmd_ver}, {"version", cmd_ver},
 };  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.

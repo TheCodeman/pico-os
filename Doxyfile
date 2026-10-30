@@ -36,7 +36,7 @@ EXCLUDE                = src/fatfs \
                          src/image/lodepng.c src/image/lodepng.h \
                          src/image/tjpgd.c src/image/tjpgd.h src/image/tjpgdcnf.h \
                          src/net/mbedtls_config.h src/net/lwipopts.h src/tusb_config.h \
-                         src/genesis/genesis_fast_68k.h src/font8x16.h \
+                         src/genesis/genesis_fast_68k.h src/font8x16.h src/font/stb_truetype.h \
                          src/basic src/applesoft src/apple2e src/c64 src/genesis \
                          src/mc src/mod src/radio src/si5351 src/fmradio src/sprite src/wav src/smb src/xfer \
                          src/editor.c src/editor.h src/term.c src/term.h \

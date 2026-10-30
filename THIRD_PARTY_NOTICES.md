@@ -10,6 +10,7 @@ apart from changes marked "pico-os" in the source.
 | FatFs R0.15 | `src/fatfs` | FatFs licence (BSD-style, 1 clause) | ChaN, elm-chan.org |
 | LodePNG 20201017 | `src/image/lodepng.*` | zlib | Lode Vandevenne, via LVGL 8.4 |
 | TJpgDec R0.03 | `src/image/tjpgd*` | permissive (ChaN) | ChaN, via LVGL 9.2 |
+| stb_truetype 1.26 (one change marked pico-os) | `src/font/stb_truetype.h` | public domain or MIT (your choice) | Sean Barrett, github.com/nothings/stb |
 | TinyUSB host driver files (patched) | `src/usb_patch` | MIT | TinyUSB, from Pico SDK 2.3.1 |
 | Helix MP3 decoder | `src/radio/helix` | RPSL 1.0 / RCSL (`LICENSE.txt`) | RealNetworks Helix DNA |
 | Helix AAC decoder | `src/radio/aac` | RPSL 1.0 / RCSL (`LICENSE.txt`) | RealNetworks Helix DNA, as libhelix-aac |

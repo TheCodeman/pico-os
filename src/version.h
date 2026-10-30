@@ -25,6 +25,7 @@
 #define VER_WAV "1.0"        ///< wav: WAV sound editor
 #define VER_HEX "1.0"        ///< hex: hex editor
 #define VER_MD "1.0"         ///< md: Markdown viewer
+#define VER_FONT "1.0"       ///< font: font viewer and benchmark
 #define VER_SDR "1.0"        ///< sdr: RTL-SDR receiver
 #define VER_VIEW "1.0"       ///< view: picture viewer
 #define VER_SWARM "1.0"      ///< swarm: shooter game
