@@ -673,6 +673,29 @@ static void save_bytes(const char *title, const char *name, const char *data, ui
     snprintf(W->note, sizeof W->note, "Saved %lu bytes to %s", (unsigned long)len, W->input);
 }
 
+/// A name from an address or a server made fit for the drive: %XX codes
+/// undone ("%20" is a space), and characters FAT can't have (and 8-bit
+/// ones) made '_'.
+/// @param s the name
+/// @param n its length
+/// @param out the file name
+/// @param size room in out
+static void file_name(const char *s, size_t n, char *out, size_t size) {
+    size_t k = 0;
+    for (size_t i = 0; i < n && k + 1 < size; ++i) {
+        unsigned char c = (unsigned char)s[i];
+        if (c == '%' && i + 2 < n && isxdigit((unsigned char)s[i + 1]) && isxdigit((unsigned char)s[i + 2])) {
+            char hx[3] = {s[i + 1], s[i + 2], 0};
+            c = (unsigned char)strtol(hx, NULL, 16);
+            i += 2;
+        }
+        if (c < ' ' || c >= 0x7f || strchr("\\/:*?\"<>|", c))
+            c = '_';
+        out[k++] = (char)c;
+    }
+    out[k] = 0;
+}
+
 /// A file name for a URL: the last part of its path.
 /// @param url the URL
 /// @param out the name
@@ -687,7 +710,7 @@ static void name_from_url(const char *url, char *out, size_t size) {
     if (start == end)
         snprintf(out, size, "index.htm");
     else
-        snprintf(out, size, "%.*s", (int)(end - start), start);
+        file_name(start, (size_t)(end - start), out, size);
 }
 
 /// www_save_fn for a download: asks where to save it (the name the server
@@ -703,7 +726,7 @@ static int ask_save(const www_reply_t *r, char *path, size_t size) {
         snprintf(kb, sizeof kb, "%lu bytes", (unsigned long)r->total);
     snprintf(title, sizeof title, "Download (%s, %s)", r->type[0] ? r->type : "a file", kb);
     if (r->name[0])
-        snprintf(W->input, sizeof W->input, "%s", r->name);
+        file_name(r->name, strlen(r->name), W->input, 96);
     else
         name_from_url(r->url, W->input, 96);
     int what = WS_CANCEL;

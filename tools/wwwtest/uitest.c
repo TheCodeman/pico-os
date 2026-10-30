@@ -546,6 +546,10 @@ static const step_t script[] = {
     // A relative <base href>: links are made absolute against the page.
     {S_KEYS, "ghttp://demo.test/based\r"},
     {S_SEE, "http://demo.test/files/x%20y.bin"},
+    {S_KEYS, "d"},  // the name suggested has the %20 undone
+    {S_SEE, "x y.bin"},
+    {S_KEYS, "\x1b"},
+    {S_PAUSE, NULL, 0, 0, 0},
     {S_KEYS, LEFT},
     // Bookmark the page, then look at the bookmarks.
     {S_KEYS, "a"},
