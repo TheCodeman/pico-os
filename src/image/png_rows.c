@@ -21,9 +21,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "image.h"
 #include "image_rows.h"
 
-#define FAST_BITS 10                 ///< Huffman codes this long or shorter are found with one look-up
+#define FAST_BITS 9                  ///< Huffman codes this long or shorter are found with one look-up
 #define FAST_SIZE (1u << FAST_BITS)  ///< entries in a look-up table
 
 // ---- Memory ----------------------------------------------------------------------------------------
@@ -34,21 +35,37 @@
 
 #include "psram_heap.h"
 
-#define SRAM_KEEP (24 * 1024)  ///< the SRAM heap is only used if this much is left free after
+#define SRAM_KEEP (8 * 1024)  ///< the SRAM heap is only used if this much is left free after (a decode is short)
 
 extern char __StackLimit;  ///< top of the heap, from the SDK's linker script
 
-/// A buffer: from the SRAM heap if there is room to spare, else PSRAM.
+/// A buffer from the SRAM heap, if there is room to spare.
 /// @param n its size
 /// @return it, or NULL
-static void *buf_alloc(size_t n) {
+static void *sram_alloc(size_t n) {
     struct mallinfo mi = mallinfo();
     long room = (long)(&__StackLimit - (char *)sbrk(0)) + (long)mi.fordblks;
     if (room > (long)(n + SRAM_KEEP)) {
         void *p = malloc(n);
         if (p)
-            return p;
+            image_times.sram_bytes += n;
+        return p;
     }
+    return NULL;
+}
+
+/// A buffer: from the SRAM heap if there is room to spare, else PSRAM.
+/// @param n its size
+/// @return it, or NULL
+static void *buf_alloc(size_t n) {
+    void *p = sram_alloc(n);
+    return p ? p : psram_malloc(n);
+}
+
+/// A buffer in PSRAM (for the whole window when SRAM is short).
+/// @param n its size
+/// @return it, or NULL
+static void *psram_or_heap(size_t n) {
     return psram_malloc(n);
 }
 
@@ -61,6 +78,14 @@ static void buf_free(void *p) {
         free(p);
 }
 #else
+size_t png_rows_pc_sram = (size_t)-1;  ///< host builds: the biggest "SRAM" block (tests the split window)
+
+/// A buffer from SRAM (host builds: malloc, up to png_rows_pc_sram).
+/// @param n its size
+/// @return it, or NULL
+static void *sram_alloc(size_t n) {
+    return n <= png_rows_pc_sram ? malloc(n) : NULL;
+}
 /// A buffer (host builds: malloc).
 /// @param n its size
 /// @return it, or NULL
@@ -71,6 +96,12 @@ static void *buf_alloc(size_t n) {
 /// @param p it
 static void buf_free(void *p) {
     free(p);
+}
+/// A buffer (host builds: malloc).
+/// @param n its size
+/// @return it, or NULL
+static void *psram_or_heap(size_t n) {
+    return malloc(n);
 }
 #endif
 
@@ -95,8 +126,10 @@ typedef struct {
     int over;           ///< bits made up past the end (0s)
     huff_t lit, dist;   ///< the codes
     // The inflated bytes.
-    uint8_t *win;       ///< the last wsize of them
+    uint8_t *win;       ///< the last wsize of them (NULL: near is the whole window)
     uint32_t wsize;     ///< a power of two
+    uint8_t *near;      ///< the last nsize of them, in SRAM (NULL: none)
+    uint32_t nsize;     ///< a power of two, up to wsize
     uint32_t wpos;      ///< how many so far
     // The scanlines.
     uint8_t *cur, *prev;  ///< this one and the one before (filter byte first)
@@ -331,7 +364,11 @@ static void row_done(ps_t *s) {
 /// @param s the decoder
 /// @param b the byte
 static inline void out(ps_t *s, uint8_t b) {
-    s->win[s->wpos++ & (s->wsize - 1)] = b;
+    if (s->near)
+        s->near[s->wpos & (s->nsize - 1)] = b;
+    if (s->win)
+        s->win[s->wpos & (s->wsize - 1)] = b;
+    s->wpos++;
     s->cur[s->rpos++] = b;
     if (s->rpos == s->rowlen)
         row_done(s);
@@ -444,8 +481,13 @@ static bool inflate(ps_t *s) {
                 uint32_t dist = dist_base[ds] + bits(s, dist_extra[ds]);
                 if (dist > s->wpos || dist > s->wsize)
                     return false;
-                while (n--)
-                    out(s, s->win[(s->wpos - dist) & (s->wsize - 1)]);
+                // From the SRAM copy if it reaches back that far (most do), else PSRAM's.
+                if (s->near && dist <= s->nsize)
+                    while (n--)
+                        out(s, s->near[(s->wpos - dist) & (s->nsize - 1)]);
+                else
+                    while (n--)
+                        out(s, s->win[(s->wpos - dist) & (s->wsize - 1)]);
                 if (s->dy >= s->h)
                     break;
             }
@@ -519,12 +561,22 @@ int png_rows_decode(const uint8_t *d, size_t len, uint8_t *px, int w, int h, con
         return -1;
     }
     s->wsize = 1u << ((cmf >> 4) + 8);
-    s->win = buf_alloc(s->wsize);
+    // The rows first (in SRAM if they fit), then the window: all of it in
+    // SRAM, or the last 16 KB there and the whole of it in PSRAM too.
     s->cur = buf_alloc((size_t)s->rowlen);
     s->prev = buf_alloc((size_t)s->rowlen);
     s->rgb = buf_alloc((size_t)iw * 3);
+    if ((s->near = sram_alloc(s->wsize)) != NULL) {
+        s->nsize = s->wsize;
+    } else {
+        s->win = psram_or_heap(s->wsize);
+        for (s->nsize = s->wsize / 2 < 16384 ? s->wsize / 2 : 16384; s->nsize >= 2048 && !s->near; s->nsize /= 2)
+            s->near = sram_alloc(s->nsize);
+        if (s->near)
+            s->nsize *= 2;  // (halved once more on the way out)
+    }
     int result = -1;
-    if (!s->win || !s->cur || !s->prev || !s->rgb) {
+    if ((!s->win && !s->near) || !s->cur || !s->prev || !s->rgb) {
         *err = "not enough memory";
     } else {
         memset(s->prev, 0, (size_t)s->rowlen);
@@ -540,6 +592,7 @@ int png_rows_decode(const uint8_t *d, size_t len, uint8_t *px, int w, int h, con
     buf_free(s->prev);
     buf_free(s->cur);
     buf_free(s->win);
+    buf_free(s->near);
     buf_free(s);
     return result;
 }

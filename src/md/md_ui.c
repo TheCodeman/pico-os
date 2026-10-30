@@ -264,6 +264,7 @@ typedef struct {
     uint32_t ttf_ms;       ///< the fonts took to load
     int pic_n;             ///< pictures loaded, and the time they took (us), by part:
     uint32_t pic_read, pic_decode, pic_convert, pic_draw;  ///< read, decode, to RGB, dithered and kept
+    uint32_t pic_sram;     ///< SRAM the last one's decoder had
 } md_t;
 
 static md_t *M;  ///< PSRAM, while the viewer runs
@@ -533,11 +534,20 @@ static bool pic_load_one(void) {
     if (!px)
         return true;
     uint32_t t0 = clock_us();
-    if (!image_load_compact(path, px, item->w, item->h, &err)) {
+    // The strip's SRAM goes to the decoder while it works (its window and rows
+    // are much faster there than in PSRAM).
+    bool had_strip = M->strip != NULL;
+    free(M->strip);
+    M->strip = NULL;
+    bool ok = image_load_compact(path, px, item->w, item->h, &err);
+    if (had_strip)
+        M->strip = malloc(STRIP * W);  // (without it: the PSRAM picture)
+    if (!ok) {
         psram_free(px);
         return true;
     }
     uint32_t t = clock_us() - t0;
+    M->pic_sram = image_times.sram_bytes;
     M->pic_n++;
     M->pic_read += image_times.read_us;
     M->pic_decode += image_times.decode_us;
@@ -1253,7 +1263,7 @@ static void draw_help(void) {
 
 /// Draws the About box.
 static void draw_about(void) {
-    int w = 480, h = 250, x = (W - w) / 2, y = 110;
+    int w = 480, h = 270, x = (W - w) / 2, y = 100;
     box(x, y, w, h, "Markdown viewer " VER_MD);
     static const char *const lines[] = {
         "Shows Markdown files (CommonMark with GitHub's tables,",
@@ -1277,6 +1287,8 @@ static void draw_about(void) {
         textf(x + 16, y + 192, C_DIM, C_FACE, "%d pictures: read %lu, decode %lu, RGB %lu, dither %lu ms", M->pic_n,
               (unsigned long)(M->pic_read / 1000), (unsigned long)(M->pic_decode / 1000),
               (unsigned long)(M->pic_convert / 1000), (unsigned long)(M->pic_draw / 1000));
+    if (M->pic_n)
+        textf(x + 16, y + 212, C_DIM, C_FACE, "(the last decoded with %lu KB of SRAM)", (unsigned long)(M->pic_sram >> 10));
     text(x + 16, y + h - 26, "(any key or click closes this)", C_DIM, C_FACE);
 }
 

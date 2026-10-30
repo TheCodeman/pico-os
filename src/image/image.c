@@ -561,7 +561,7 @@ static bool decode_jpeg(const char *path, int want_w, int want_h, image_t *img,
 
 bool image_load(const char *path, int want_w, int want_h, image_t *img, const char **err) {
     img->rgb = NULL;
-    image_times = (image_times_t){0, 0, 0};
+    image_times = (image_times_t){0, 0, 0, 0};
     FIL f;
     uint8_t magic[8] = {0};
     UINT got = 0;
@@ -591,7 +591,7 @@ bool image_load(const char *path, int want_w, int want_h, image_t *img, const ch
 bool image_load_mem(const uint8_t *d, size_t len, int want_w, int want_h, image_t *img,
                     const char **err) {
     img->rgb = NULL;
-    image_times = (image_times_t){0, 0, 0};
+    image_times = (image_times_t){0, 0, 0, 0};
     if (len >= 3 && d[0] == 0xff && d[1] == 0xd8 && d[2] == 0xff) {
         jpeg_io_t io = {.mem = d, .len = len, .img = img};
         return decode_jpeg_io(&io, want_w, want_h, err);
@@ -609,7 +609,9 @@ bool image_load_compact_mem(const uint8_t *d, size_t len, uint8_t *px, int w, in
     uint32_t t0 = us_now();
     int r = png_rows_decode(d, len, px, w, h, err);
     if (r) {
-        image_times = (image_times_t){read_us, us_now() - t0, 0};
+        image_times.read_us = read_us;
+        image_times.decode_us = us_now() - t0;
+        image_times.convert_us = 0;
         return r > 0;
     }
     image_t img;
@@ -622,7 +624,7 @@ bool image_load_compact_mem(const uint8_t *d, size_t len, uint8_t *px, int w, in
 }
 
 bool image_load_compact(const char *path, uint8_t *px, int w, int h, const char **err) {
-    image_times = (image_times_t){0, 0, 0};
+    image_times = (image_times_t){0, 0, 0, 0};
     FIL f;
     uint8_t magic[8] = {0};
     UINT got = 0;

@@ -51,10 +51,14 @@ static double now(void) {
     return t.tv_sec + t.tv_nsec / 1e9;
 }
 
+extern size_t png_rows_pc_sram;  ///< png_rows.c (PC): the biggest "SRAM" block
+
 int main(int argc, char **argv) {
     int fails = 0, rows = 0, fallback = 0;
     double t_rows = 0, t_lode = 0;
     for (int i = 1; i < argc; ++i) {
+        // Every other file with little "SRAM": the window split between SRAM and PSRAM.
+        png_rows_pc_sram = i % 2 ? (size_t)-1 : 8192;
         size_t n;
         uint8_t *d = slurp(argv[i], &n);
         if (!d || !n) {

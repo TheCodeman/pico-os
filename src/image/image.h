@@ -49,6 +49,7 @@ typedef struct {
     uint32_t read_us;     ///< reading the file
     uint32_t decode_us;   ///< decoding it (PNG: inflating and unfiltering)
     uint32_t convert_us;  ///< making it RGB (PNG: blending its alpha)
+    uint32_t sram_bytes;  ///< SRAM the row-at-a-time PNG decoder had for its buffers
 } image_times_t;
 /// The last load's times.
 extern image_times_t image_times;
