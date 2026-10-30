@@ -291,6 +291,26 @@ static bool decode_bmp(const uint8_t *d, size_t len, image_t *img, const char **
 
 // ---- PNG ----------------------------------------------------------------------
 
+/// Whether a PNG can have see-through parts: an alpha channel, or a tRNS chunk
+/// (before the pixels).
+/// @param d the file
+/// @param len its size
+/// @return it can
+static bool png_alpha(const uint8_t *d, size_t len) {
+    if (len < 33 || d[25] == 4 || d[25] == 6)  // grey + alpha, RGBA
+        return true;
+    for (size_t at = 8; at + 8 <= len;) {
+        uint32_t n = (uint32_t)d[at] << 24 | (uint32_t)d[at + 1] << 16 | (uint32_t)d[at + 2] << 8 | d[at + 3];
+        const uint8_t *t = d + at + 4;
+        if (!memcmp(t, "tRNS", 4))
+            return true;
+        if (!memcmp(t, "IDAT", 4) || n > len)
+            return false;
+        at += 12 + (size_t)n;
+    }
+    return false;
+}
+
 /// Decodes a PNG with LodePNG.
 /// @param d the file
 /// @param len its size
@@ -311,14 +331,32 @@ static bool decode_png(const uint8_t *d, size_t len, image_t *img, const char **
         *err = "picture too big";
         return false;
     }
+    // Without see-through parts it is decoded as RGB, which an RGB file
+    // already is (no converting); with them, as RGBA, then blended below.
+    // The CRCs and the Adler-32 aren't checked: they take as long as the rest
+    // (a damaged file still can't overrun anything; it just looks wrong).
+    bool alpha = png_alpha(d, len);
     unsigned char *out = NULL;
     uint32_t t0 = us_now();
-    e = lodepng_decode_memory(&out, &w, &h, d, len, LCT_RGBA, 8);
+    lodepng_state_init(&state);
+    state.info_raw.colortype = alpha ? LCT_RGBA : LCT_RGB;
+    state.info_raw.bitdepth = 8;
+    state.decoder.ignore_crc = 1;
+    state.decoder.zlibsettings.ignore_adler32 = 1;
+    e = lodepng_decode(&out, &w, &h, &state, d, len);
+    lodepng_state_cleanup(&state);
     image_times.decode_us = us_now() - t0;
     t0 = us_now();
     if (e) {
+        lodepng_free(out);
         *err = e == 83 ? "not enough memory" : lodepng_error_text(e);
         return false;
+    }
+    if (!alpha) {
+        img->w = w;
+        img->h = h;
+        img->rgb = out;
+        return true;
     }
     // Transparent parts are blended onto black, or onto white if what shows
     // is mostly dark (a logo for a light page): the shape stays visible.
@@ -526,11 +564,53 @@ static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}
 /// @param d the dither (0-15 times 255)
 /// @return the level
 static inline int level(int v, int steps, int d) {
-    int q = (v * steps + 127) / 255;
-    if (q * 255 / steps == v)
+    static const uint8_t lv3[8] = {0, 36, 72, 109, 145, 182, 218, 255};  // k * 255 / 7
+    static const uint8_t lv2[4] = {0, 85, 170, 255};                      // k * 255 / 3
+    // The divisions as multiplies (exact for these ranges: checked for every value).
+    int q = ((v * steps + 127) * 257 + 257) >> 16;  // (v * steps + 127) / 255
+    if ((steps == 7 ? lv3[q] : lv2[q]) == v)
         return q;
-    q = (v * steps * 16 + d) / 4080;
+    q = ((v * steps * 16 + d) * 32897) >> 27;  // / 4080
     return q > steps ? steps : q;
+}
+
+/// Draws img scaled to w x h at (x, y), the part from (x0, y0) to (x1, y1).
+/// @param img the picture
+/// @param fb the picture drawn in
+/// @param stride its bytes per row
+/// @param x the rectangle's left
+/// @param y its top
+/// @param w its width
+/// @param h its height
+/// @param x0 the first column drawn
+/// @param y0 the first row
+/// @param x1 after the last column
+/// @param y1 after the last row
+static void draw_part(const image_t *img, uint8_t *fb, int stride, int x, int y, int w, int h, int x0, int y0,
+                      int x1, int y1) {
+    // Which picture column each screen column shows: 16.16 steps (a
+    // multiply a pixel, no table: SRAM is short).
+    int64_t step = ((int64_t)img->w << 16) / w;
+    for (int dy = y0; dy < y1; ++dy) {
+        int sy = (int)((long long)(dy - y) * img->h / h);
+        const uint8_t *row = img->rgb + (size_t)sy * img->w * 3;
+        uint8_t *out = fb + (size_t)dy * stride;
+        const uint8_t *b = bayer[dy & 3];
+        for (int dx = x0; dx < x1; ++dx) {
+            int sx = (int)(((int64_t)(dx - x) * step) >> 16);
+            const uint8_t *p = row + (sx < img->w ? sx : img->w - 1) * 3;
+            // Ordered dithering: add a fraction of a step before rounding down
+            // (v * 7 / 255 + d / 16, scaled by 4080 to stay in integers).
+            int d = b[dx & 3] * 255;
+            int r = level(p[0], 7, d), g = level(p[1], 7, d), bl = level(p[2], 3, d);
+            out[dx] = (uint8_t)(r << 5 | g << 2 | bl);
+        }
+    }
+}
+
+void image_draw_compact(const image_t *img, uint8_t *px, int w, int h) {
+    if (img->rgb && w > 0 && h > 0)
+        draw_part(img, px, w, 0, 0, w, h, 0, 0, w, h);
 }
 
 void image_draw(const image_t *img, uint8_t *fb, int x, int y, int w, int h,
@@ -548,24 +628,7 @@ void image_draw(const image_t *img, uint8_t *fb, int x, int y, int w, int h,
         c.y1 = SCREEN_H;
     int x0 = x < c.x0 ? c.x0 : x, x1 = x + w > c.x1 ? c.x1 : x + w;
     int y0 = y < c.y0 ? c.y0 : y, y1 = y + h > c.y1 ? c.y1 : y + h;
-    // Which picture column each screen column shows: 16.16 steps (a
-    // multiply a pixel, no table: SRAM is short).
-    int64_t step = ((int64_t)img->w << 16) / w;
-    for (int dy = y0; dy < y1; ++dy) {
-        int sy = (int)((long long)(dy - y) * img->h / h);
-        const uint8_t *row = img->rgb + (size_t)sy * img->w * 3;
-        uint8_t *out = fb + dy * SCREEN_W;
-        const uint8_t *b = bayer[dy & 3];
-        for (int dx = x0; dx < x1; ++dx) {
-            int sx = (int)(((int64_t)(dx - x) * step) >> 16);
-            const uint8_t *p = row + (sx < img->w ? sx : img->w - 1) * 3;
-            // Ordered dithering: add a fraction of a step before rounding down
-            // (v * 7 / 255 + d / 16, scaled by 4080 to stay in integers).
-            int d = b[dx & 3] * 255;
-            int r = level(p[0], 7, d), g = level(p[1], 7, d), bl = level(p[2], 3, d);
-            out[dx] = (uint8_t)(r << 5 | g << 2 | bl);
-        }
-    }
+    draw_part(img, fb, SCREEN_W, x, y, w, h, x0, y0, x1, y1);
 }
 
 void image_fit(const image_t *img, int *x, int *y, int *w, int *h) {

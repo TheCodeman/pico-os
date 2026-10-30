@@ -537,17 +537,12 @@ static bool pic_load_one(void) {
     M->pic_decode += image_times.decode_us;
     M->pic_convert += image_times.convert_us;
     uint32_t t0 = clock_us();
-    uint8_t *wide = psram_malloc((size_t)W * item->h);
-    uint8_t *px = wide ? psram_malloc(need) : NULL;
+    uint8_t *px = psram_malloc(need);
     if (px) {
-        image_clip_t clip = {0, 0, W, item->h};
-        image_draw(&img, wide, 0, 0, item->w > W ? W : item->w, item->h, &clip);
-        for (int r = 0; r < item->h; ++r)
-            memcpy(px + r * item->w, wide + r * W, item->w > W ? W : item->w);
+        image_draw_compact(&img, px, item->w, item->h);
         p->px = px;
         M->pic_bytes += need;
     }
-    psram_free(wide);
     image_free(&img);
     M->pic_draw += clock_us() - t0;
     return true;

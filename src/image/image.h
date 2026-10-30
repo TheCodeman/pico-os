@@ -78,6 +78,14 @@ typedef struct {
 void image_draw(const image_t *img, uint8_t *fb, int x, int y, int w, int h,
                 const image_clip_t *clip);
 
+/// Draws `img` scaled to w x h into `px`, a picture of its own (w bytes a
+/// row, RGB332), with ordered dithering: for keeping a picture ready to copy.
+/// @param img the picture
+/// @param px w * h bytes
+/// @param w the width
+/// @param h the height
+void image_draw_compact(const image_t *img, uint8_t *px, int w, int h);
+
 /// The largest rectangle with img's shape that fits in w x h, centred in it.
 /// @param img the picture
 /// @param x set to the left

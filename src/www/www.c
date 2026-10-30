@@ -1203,14 +1203,10 @@ static bool load_picture(void) {
         psram_free(W->pic[far].px);
         W->pic[far] = (pic_t){PIC_NEW, NULL, 0, 0};
     }
-    // Dithered into a buffer as wide as the screen (as image_draw wants), then kept compact.
-    uint8_t *wide = psram_malloc((size_t)DVI_WIDTH * h);
-    q->px = wide ? psram_malloc(need) : NULL;
+    // Dithered at its size on the page, kept compact.
+    q->px = psram_malloc(need);
     if (q->px) {
-        image_clip_t clip = {0, 0, DVI_WIDTH, h};
-        image_draw(&img, wide, 0, 0, w, h, &clip);
-        for (int r = 0; r < h; ++r)
-            memcpy(q->px + r * w, wide + r * DVI_WIDTH, w);
+        image_draw_compact(&img, q->px, w, h);
         q->pw = (uint16_t)w;
         q->ph = (uint16_t)h;
         q->state = PIC_OK;
@@ -1218,7 +1214,6 @@ static bool load_picture(void) {
     }
     if ((h + 15) / 16 != p->rows)
         W->relayout = true;  // its box is the wrong size
-    psram_free(wide);
     image_free(&img);
     return true;
 }
