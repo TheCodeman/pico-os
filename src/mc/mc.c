@@ -162,11 +162,15 @@ static void open_entry(void) {
     panel_full_path(p, name, path, sizeof path);
     static const char *const basic_ext[] = {"BAS", NULL};
     static const char *const image_ext[] = {"BMP", "PNG", "JPG", "JPEG", NULL};
+    static const char *const md_ext[] = {"MD", "MARKDOWN", "MKD", NULL};
     if (has_ext(name, basic_ext)) {
         quoted(line, sizeof line, "basic", path);
         run_command(line, true);
     } else if (has_ext(name, image_ext)) {
         quoted(line, sizeof line, "view", path);
+        run_command(line, false);
+    } else if (has_ext(name, md_ext)) {
+        quoted(line, sizeof line, "md", path);
         run_command(line, false);
     } else {
         view_file(path);

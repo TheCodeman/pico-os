@@ -191,6 +191,7 @@ Esc or Ctrl-C stops between files. Copying a file onto itself is refused.
 | `sprite [file.spr \| info file \| png file [out]]` | `spredit` | A sprite editor: draw RGB332 sprites up to 32x32 with up to 64 animation frames with the mouse, for BASIC's `SPRITE LOAD` (see the *Sprite Editor* manual). |
 | `wav [file.wav \| info file]` | `wavedit` | A WAV sound editor: select, cut, copy, paste, trim, gain, normalize, fades, reverse, silence, echo, reverb, chorus, flanger, filters, distortion, rate and channels, undo, with the mouse, playing over HDMI (see the *WAV Editor* manual). |
 | `hex [file]` | `hexedit` | A hex editor for any file up to 4 GB, read from the drive as needed: overwrite, insert, delete, cut, copy, paste, find, go to, undo, bits and numbers at the cursor, with menus, the keys and the mouse (see the *Hex Editor* manual). |
+| `md [file.md \| folder]` | `markdown` | A Markdown viewer in graphics: headings, bold, italic, code, quotes, lists, tables and pictures from the drive; links to other files, headings and the web can be followed, with contents, find and the source (see the *Markdown Viewer* manual). |
 | `sdr [MHz] [wfm \| nfm \| am] \| info` | | A radio receiver for an RTL-SDR dongle on the hub (RTL2832U with an R820T or R828D tuner): spectrum, waterfall, wide and narrow FM and AM over HDMI, squelch, favourites and scan (see the *SDR Receiver* manual). |
 | `term [baud] [format]` | `serial` | Serial terminal on COM1 with a settings page (see the *Serial Terminal* manual). |
 | `applesoft [file]` | | An Apple IIe at the Applesoft BASIC prompt (see the *Emulators* manual). |
@@ -575,6 +576,7 @@ Each manual is a PDF in the `manuals` folder (made from `docs/*.md` with
 | The sprite editor (`sprite`, `spredit`) | `manuals/Pico 2 mini OS Sprite Editor.pdf` |
 | The WAV sound editor (`wav`, `wavedit`) | `manuals/Pico 2 mini OS WAV Editor.pdf` |
 | The hex editor (`hex`, `hexedit`) | `manuals/Pico 2 mini OS Hex Editor.pdf` |
+| The Markdown viewer (`md`, `markdown`) | `manuals/Pico 2 mini OS Markdown Viewer.pdf` |
 | The SDR receiver for RTL-SDR dongles (`sdr`) | `manuals/Pico 2 mini OS SDR Receiver.pdf` |
 | Swarm, the arcade space shooter (`swarm`) | `manuals/Pico 2 mini OS Swarm.pdf` |
 | Lancer, the side-scrolling shooter (`lancer`) | `manuals/Pico 2 mini OS Lancer.pdf` |

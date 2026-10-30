@@ -12,7 +12,7 @@ keyboard, mouse and flash drive, WiFi, and a set of programs to go with it.
   files on a USB drive (FAT/exFAT) and on Windows/Samba shares over WiFi.
 - **Programs:** a text editor, a Midnight Commander style file manager
   (`mc`), a picture viewer, a MOD/XM music tracker, a sprite editor, a
-  WAV sound editor, a hex editor, a serial terminal with X/Y/ZMODEM, an internet radio (MP3 and AAC),
+  WAV sound editor, a hex editor, a Markdown viewer with pictures, a serial terminal with X/Y/ZMODEM, an internet radio (MP3 and AAC),
   a radio receiver for RTL-SDR dongles (wide and narrow FM, AM, with a waterfall),
   Swarm, an arcade space shooter, Lancer, a side-scrolling shooter, and `say`, text to speech over HDMI.
 - **Network:** WiFi, a text web browser like lynx (`www`), `wget` (HTTP/HTTPS), `telnet` with a BBS directory,
@@ -37,6 +37,7 @@ Captured with `screenshot` on the board, or drawn by the PC tests in
 | <img src="screenshots/Si5351A.png" width="400" alt="Clock generator (on the board)"><br>Clock generator (on the board) | <img src="docs/si5351_main.png" width="400" alt="Clock generator (si5351)"><br>Clock generator (`si5351`) |
 | <img src="docs/sprite_main.png" width="400" alt="Sprite editor (sprite)"><br>Sprite editor (`sprite`) | <img src="docs/wav_main.png" width="400" alt="WAV editor (wav)"><br>WAV editor (`wav`) |
 | <img src="docs/hex_main.png" width="400" alt="Hex editor (hex)"><br>Hex editor (`hex`) | <img src="docs/hex_sums.png" width="400" alt="Hex editor: checksums and CRCs"><br>Hex editor: checksums and CRCs |
+| <img src="screenshots/md.png" width="400" alt="Markdown viewer (md, on the board)"><br>Markdown viewer (`md`, on the board) | <img src="docs/md_table.png" width="400" alt="Markdown viewer: a table and pictures"><br>Markdown viewer: a table and pictures |
 | <img src="docs/www_demo.png" width="400" alt="Web browser (www)"><br>Web browser (`www`) | <img src="docs/www_results.png" width="400" alt="Web browser: a form's reply"><br>Web browser: a form's reply |
 | <img src="docs/wav_effects.png" width="400" alt="WAV editor effects"><br>WAV editor effects | <img src="docs/swarm_title.png" width="400" alt="Swarm (swarm)"><br>Swarm (`swarm`) |
 | <img src="docs/swarm_beam.png" width="400" alt="Swarm: the tractor beam"><br>Swarm: the tractor beam | <img src="docs/swarm_dual.png" width="400" alt="Swarm: the twin fighter"><br>Swarm: the twin fighter |
@@ -53,7 +54,7 @@ Captured with `screenshot` on the board, or drawn by the PC tests in
 
 PDFs in [manuals/](manuals/), one for the OS and one for each application
 (BASIC, the editor, mc, the tracker, the radio, the clock generator, the
-FM radio, the sprite editor, the WAV editor, the hex editor, the SDR receiver, Swarm, Lancer, the network tools, the web browser, the serial terminal, the emulators). They are made from
+FM radio, the sprite editor, the WAV editor, the hex editor, the Markdown viewer, the SDR receiver, Swarm, Lancer, the network tools, the web browser, the serial terminal, the emulators). They are made from
 [docs/](docs/) with `tools/make_manual.py`. The code's API documentation is
 made with `doxygen` (the `Doxyfile` here; it goes to `docs/api/html`, and
 the docs workflow builds it on each push; it can publish it to GitHub

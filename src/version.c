@@ -21,6 +21,7 @@ const app_version_t app_versions[] = {
     {"sprite", "sprite editor", VER_SPRITE},
     {"wav", "WAV sound editor", VER_WAV},
     {"hex", "hex editor", VER_HEX},
+    {"md", "Markdown viewer", VER_MD},
     {"sdr", "RTL-SDR receiver", VER_SDR},
     {"view", "picture viewer", VER_VIEW},
     {"swarm", "Swarm (game)", VER_SWARM},
