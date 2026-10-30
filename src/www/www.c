@@ -137,6 +137,7 @@ typedef struct {
     char url[WWW_URL_MAX];    ///< a URL being worked out
     char url2[WWW_URL_MAX];   ///< and another
     char target[WWW_URL_MAX]; ///< the page load() is loading
+    char base[WWW_URL_MAX];   ///< the page's <base href>, made absolute
     char post[POST_MAX];      ///< form data
     www_reply_t reply;        ///< what a fetch got
     bool cancelled;           ///< a download's name was asked for and cancelled
@@ -374,7 +375,11 @@ static int first_visible(void) {
 /// The page's base for its links: <base href>, else its own address.
 /// @return the base URL
 static const char *base_url(void) {
-    return W->doc->base[0] ? W->doc->base : W->hist[W->pos].url;
+    if (!W->doc->base[0])
+        return W->hist[W->pos].url;
+    // <base href> may itself be relative ("/download/x/", as archive.org's is).
+    www_resolve(W->hist[W->pos].url, W->doc->base, W->base, sizeof W->base);
+    return W->base;
 }
 
 /// What the status line says about the chosen link.

@@ -246,6 +246,9 @@ static void answer(struct net_conn *c) {
     } else if (!strcmp(path, "/pic.gif")) {
         n = snprintf(page, sizeof page, "GIF89a not really");
         type = "image/gif";
+    } else if (!strcmp(path, "/based")) {  // a relative <base href>, as archive.org's
+        n = snprintf(page, sizeof page, "<html><head><base href=\"/files/\"/><title>Based</title></head>"
+                     "<body><a href=\"x%%20y.bin\">a file</a></body></html>");
     } else if (!strcmp(path, "/big.bin")) {  // 300,000 bytes, chunked, with a file name
         type = "application/zip";
         snprintf(head, sizeof head, "Content-Disposition: attachment; filename=\"BIG.ZIP\"\r\n");
@@ -540,6 +543,10 @@ static const step_t script[] = {
     {S_KEYS, "\r"},
     {S_SEE, "Saved 300000 bytes to BIG.ZIP"},
     {S_FILE, "BIG.ZIP", 300000},
+    // A relative <base href>: links are made absolute against the page.
+    {S_KEYS, "ghttp://demo.test/based\r"},
+    {S_SEE, "http://demo.test/files/x%20y.bin"},
+    {S_KEYS, LEFT},
     // Bookmark the page, then look at the bookmarks.
     {S_KEYS, "a"},
     {S_SEE, "Name it:"},
