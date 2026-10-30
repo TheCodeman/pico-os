@@ -8,7 +8,9 @@
  * stream is inflated into a window of its own size (32 KB at most), each
  * scanline is unfiltered as soon as it is complete (two rows kept), and the
  * rows the picture needs are dithered into it at once. The window and the
- * rows are in SRAM when the heap has room to spare, else in PSRAM.
+ * rows are in SRAM when the heap has room to spare. When only part of the
+ * window fits, the scanlines are also kept in PSRAM as they came (a copy
+ * each, not a write a byte), for the few copies from further back.
  *
  * Opaque (no alpha channel, no tRNS), non-interlaced PNGs of any bit depth
  * and colour type are decoded; the rest are left to LodePNG.
@@ -135,7 +137,8 @@ typedef struct {
     int over;           ///< bits made up past the end (0s)
     huff_t lit, dist;   ///< the codes
     // The inflated bytes.
-    uint8_t *win;       ///< the last wsize of them (NULL: near is the whole window)
+    uint8_t *ring;      ///< the last nring scanlines as they came (filtered), in PSRAM (NULL: near is the whole window)
+    int nring;          ///< how many: enough to reach wsize back
     uint32_t wsize;     ///< a power of two
     uint8_t *near;      ///< the last nsize of them, in SRAM (NULL: none)
     uint32_t nsize;     ///< a power of two, up to wsize
@@ -299,6 +302,8 @@ static inline int paeth(int a, int b, int c) {
 /// @param s the decoder
 static void __not_in_flash_func(row_done)(ps_t *s) {
     uint32_t t0 = time_us_32();
+    if (s->ring)  // kept as it came, for copies from further back than near reaches
+        memcpy(s->ring + (size_t)(s->sy % s->nring) * s->rowlen, s->cur, (size_t)s->rowlen);
     uint8_t *x = s->cur + 1, *p = s->prev + 1;
     int n = s->rowlen - 1, f = s->fbpp;
     switch (s->cur[0]) {
@@ -371,14 +376,23 @@ static void __not_in_flash_func(row_done)(ps_t *s) {
     s->rpos = 0;
 }
 
+/// An inflated byte from further back than the SRAM window reaches: from the
+/// scanlines kept in PSRAM, or this one.
+/// @param s the decoder
+/// @param pos its place in the stream
+/// @return it
+static uint8_t far_byte(const ps_t *s, uint32_t pos) {
+    uint32_t row = pos / (uint32_t)s->rowlen, off = pos % (uint32_t)s->rowlen;
+    if ((int)row >= s->sy)
+        return s->cur[off];
+    return s->ring[(size_t)(row % (uint32_t)s->nring) * s->rowlen + off];
+}
+
 /// An inflated byte: into the window and the scanline.
 /// @param s the decoder
 /// @param b the byte
 static inline void out(ps_t *s, uint8_t b) {
-    if (s->near)
-        s->near[s->wpos & (s->nsize - 1)] = b;
-    if (s->win)
-        s->win[s->wpos & (s->wsize - 1)] = b;
+    s->near[s->wpos & (s->nsize - 1)] = b;
     s->wpos++;
     s->cur[s->rpos++] = b;
     if (s->rpos == s->rowlen)
@@ -493,13 +507,13 @@ static bool __not_in_flash_func(inflate)(ps_t *s) {
                 if (dist > s->wpos || dist > s->wsize)
                     return false;
                 // From the SRAM copy if it reaches back that far (most do), else PSRAM's.
-                if (s->near && dist <= s->nsize)
+                if (dist <= s->nsize) {
                     while (n--)
                         out(s, s->near[(s->wpos - dist) & (s->nsize - 1)]);
-                else {
+                } else {
                     image_times.far_copies++;
                     while (n--)
-                        out(s, s->win[(s->wpos - dist) & (s->wsize - 1)]);
+                        out(s, far_byte(s, s->wpos - dist));
                 }
                 if (s->dy >= s->h)
                     break;
@@ -583,14 +597,21 @@ int png_rows_decode(const uint8_t *d, size_t len, uint8_t *px, int w, int h, con
     if ((s->near = sram_alloc(s->wsize)) != NULL) {
         s->nsize = s->wsize;
     } else {
-        s->win = psram_or_heap(s->wsize);
         for (s->nsize = s->wsize / 2 < 16384 ? s->wsize / 2 : 16384; s->nsize >= 2048 && !s->near; s->nsize /= 2)
             s->near = sram_alloc(s->nsize);
-        if (s->near)
+        if (s->near) {
             s->nsize *= 2;  // (halved once more on the way out)
+        } else {
+            s->nsize = s->wsize;  // all of it in PSRAM, as a last resort
+            s->near = psram_or_heap(s->wsize);
+        }
+        if (s->nsize < s->wsize) {
+            s->nring = (int)(s->wsize / (uint32_t)s->rowlen) + 2;
+            s->ring = psram_or_heap((size_t)s->nring * s->rowlen);
+        }
     }
     int result = -1;
-    if ((!s->win && !s->near) || !s->cur || !s->prev || (!s->rgb && !(ctype == 2 && depth == 8))) {
+    if (!s->near || (s->nsize < s->wsize && !s->ring) || !s->cur || !s->prev || (!s->rgb && !(ctype == 2 && depth == 8))) {
         *err = "not enough memory";
     } else {
         memset(s->prev, 0, (size_t)s->rowlen);
@@ -605,7 +626,7 @@ int png_rows_decode(const uint8_t *d, size_t len, uint8_t *px, int w, int h, con
     buf_free(s->rgb);
     buf_free(s->prev);
     buf_free(s->cur);
-    buf_free(s->win);
+    buf_free(s->ring);
     buf_free(s->near);
     buf_free(s);
     return result;

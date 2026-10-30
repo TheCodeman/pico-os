@@ -30,7 +30,7 @@ def picture(w, h, mode):
     d.text((3, 3), "png_rows", fill=(255, 255, 255))
     return im if mode == 'RGB' else im.convert(mode)
 n = 0
-for (w, h) in [(1, 1), (5, 3), (17, 9), (64, 48), (333, 201), (640, 480)]:
+for (w, h) in [(1, 1), (5, 3), (17, 9), (64, 48), (333, 201), (640, 480), (3000, 6)]:
     for mode in ['RGB', 'L', '1', 'P']:
         for level in [0, 1, 6, 9]:
             im = picture(w, h, mode)
