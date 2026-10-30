@@ -33,6 +33,7 @@ void scr_begin(void) {}
 void scr_end(void) {}
 absolute_time_t get_absolute_time(void) { return now_us; }
 uint32_t to_ms_since_boot(absolute_time_t t) { return (uint32_t)(t / 1000); }
+uint64_t to_us_since_boot(absolute_time_t t) { return t; }
 void sleep_ms(uint32_t ms) { now_us += ms * 1000ull; }
 uint8_t usb_keyboard_modifiers(void) { return mods; }
 void www_command(int argc, char **argv) {

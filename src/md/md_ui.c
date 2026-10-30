@@ -90,6 +90,7 @@
 #define PAGE_W   (SB_X - 8 - MARGIN)  ///< the width the text is laid out for
 #define SHADOW   6     ///< a drop-down's shadow
 #define STEP     32    ///< Up and Down scroll this far
+#define STRIP    16    ///< rows of the SRAM strip each frame is drawn in, a piece at a time
 
 /// What a click hits.
 enum {
@@ -238,9 +239,12 @@ typedef struct {
     // Drawing.
     char msg[100];         ///< a message for the status line
     uint32_t msg_until;    ///< until when
-    uint8_t *g;            ///< the off-screen picture
-    uint8_t *t;            ///< where drawing goes: g, or the screen
+    uint8_t *g;            ///< the off-screen picture (PSRAM): used if there is no strip
+    uint8_t *strip;        ///< STRIP rows (SRAM heap): a frame is drawn in it a piece at a time
+    bool use_strip;        ///< draw through the strip (Ctrl-B switches, to compare)
+    uint8_t *t;            ///< where drawing goes: row 0 of the screen as drawn (strip, g or the screen)
     int cy0, cy1;          ///< drawing is clipped to these rows
+    int by0, by1;          ///< and always to these (the strip's rows; else 0 and H)
     hit_t hits[96];        ///< places to click
     int nhits;             ///< their count
     bool collect;          ///< places to click are kept while drawing
@@ -253,6 +257,7 @@ typedef struct {
     bool www;              ///< open ask_url in www (from the loop: www wants the stack)
     uint8_t *saved;        ///< the screen as it was before (put back after)
     // Times, for the About box.
+    uint32_t frame_us;     ///< the last frame took to draw and show
     uint32_t page_ms;      ///< the page last took to draw
     uint32_t layout_ms;    ///< the document last took to lay out
     uint32_t ttf_ms;       ///< the fonts took to load
@@ -266,6 +271,20 @@ static void fd_read(void);
 /// @return them
 static uint32_t now_ms(void) {
     return to_ms_since_boot(get_absolute_time());
+}
+
+/// Microseconds since boot.
+/// @return them
+static uint32_t clock_us(void) {
+    return (uint32_t)to_us_since_boot(get_absolute_time());
+}
+
+/// Clips drawing to rows y0 to y1 - 1, within the strip's.
+/// @param y0 the first
+/// @param y1 after the last
+static void clip(int y0, int y1) {
+    M->cy0 = y0 > M->by0 ? y0 : M->by0;
+    M->cy1 = y1 < M->by1 ? y1 : M->by1;
 }
 
 /// Sets a message for the status line (for 4 seconds).
@@ -589,6 +608,8 @@ static void fill(int x, int y, int w, int h, uint8_t c) {
 /// @param x1 nothing is drawn from here right
 static void glyph(int x, int y, uint8_t c, int font, uint8_t fl, uint8_t fg, int x1) {
     int cw = MD_CW(font), ch = MD_CH(font);
+    if (y >= M->cy1 || y + ch <= M->cy0)
+        return;
     const uint8_t *gl = font8x16[c];
     for (int r = 0; r < ch; ++r) {
         int yy = y + r;
@@ -805,11 +826,13 @@ static void draw_img(const md_item_t *it, int idx, int sx, int sy) {
 
 /// Draws the page: the items on the screen.
 static void draw_page(void) {
-    M->cy0 = VIEW_Y, M->cy1 = STAT_Y;
+    clip(VIEW_Y, STAT_Y);
     fill(0, VIEW_Y, SB_X, VIEW_H, MD_C_BG);
     hit(0, VIEW_Y, SB_X, VIEW_H, HIT_PAGE, 0);
-    M->pic_wanted = false;
-    ++M->tick;
+    if (M->collect) {  // once a frame (the first piece)
+        M->pic_wanted = false;
+        ++M->tick;
+    }
     const md_doc_t *d = M->doc;
     if (d) {
         for (int i = md_first_item(d, M->top); i < d->nitems; ++i) {
@@ -819,6 +842,8 @@ static void draw_page(void) {
             if (it->y + it->h <= M->top)
                 continue;
             int sx = MARGIN + it->x, sy = VIEW_Y + (int)(it->y - M->top);
+            if (sy >= M->cy1 || sy + it->h <= M->cy0)
+                continue;  // not in this piece
             switch (it->kind) {
             case MI_RECT: fill(sx, sy, it->w > SB_X - 2 - sx ? SB_X - 2 - sx : it->w, it->h, it->fg); break;
             case MI_TEXT: draw_text(it, i, sx, sy); break;
@@ -840,7 +865,7 @@ static void draw_page(void) {
     }
     bevel(SB_X + 1, VIEW_Y + ty, SB_W - 2, th, true, C_LIGHT);
     hit(SB_X, VIEW_Y, SB_W, VIEW_H, HIT_SB, 0);
-    M->cy0 = 0, M->cy1 = H;
+    clip(0, H);
 }
 
 /// A menu title's x on the bar.
@@ -1238,22 +1263,21 @@ static void draw_about(void) {
               (unsigned long)M->len, M->doc->nitems, M->doc->nlinks, M->doc->nimgs,
               (unsigned long)(M->pic_bytes >> 10));
     textf(x + 16, y + 132, C_DIM, C_FACE, "PSRAM free %lu KB", (unsigned long)(psram_free_total() >> 10));
-    textf(x + 16, y + 152, C_DIM, C_FACE, "%s: page drawn in %lu ms, laid out in %lu ms",
-          md_ttf_on() ? "TrueType" : "8x16 font", (unsigned long)M->page_ms, (unsigned long)M->layout_ms);
+    textf(x + 16, y + 152, C_DIM, C_FACE, "%s, %s: frame %lu ms (page %lu ms)",
+          md_ttf_on() ? "TrueType" : "8x16 font", M->strip && M->use_strip ? "SRAM strip" : "PSRAM buffer",
+          (unsigned long)(M->frame_us / 1000), (unsigned long)M->page_ms);
+    textf(x + 16, y + 172, C_DIM, C_FACE, "laid out in %lu ms", (unsigned long)M->layout_ms);
     if (md_ttf_loaded())
-        textf(x + 16, y + 172, C_DIM, C_FACE, "fonts loaded in %lu ms", (unsigned long)M->ttf_ms);
+        textf(x + 216, y + 172, C_DIM, C_FACE, "fonts loaded in %lu ms", (unsigned long)M->ttf_ms);
     text(x + 16, y + h - 26, "(any key or click closes this)", C_DIM, C_FACE);
 }
 
-/// Draws everything into the off-screen picture, then copies it onto the screen.
-static void draw(void) {
-    M->t = M->g ? M->g : dvi_framebuf;
-    M->collect = true;
-    M->nhits = 0;
-    M->cy0 = 0, M->cy1 = H;
-    uint32_t t0 = now_ms();
+/// Draws everything, clipped to the strip's rows (M->by0 to M->by1).
+static void compose(void) {
+    clip(0, H);
+    uint32_t t0 = clock_us();
     draw_page();
-    M->page_ms = now_ms() - t0;
+    M->page_ms += clock_us() - t0;
     draw_bar();
     draw_status();
     switch (M->dlg) {
@@ -1266,10 +1290,37 @@ static void draw(void) {
     }
     if (M->menu >= 0)
         draw_menu();
+}
+
+/// Draws everything: through the SRAM strip a piece at a time, each piece
+/// copied onto the screen when done (PSRAM is slow to fill and read back);
+/// else into the off-screen picture, then copied; else onto the screen.
+static void draw(void) {
+    uint32_t t0 = clock_us();
+    M->nhits = 0;
+    M->page_ms = 0;  // (in us while adding up)
+    if (M->strip && M->use_strip) {
+        for (int y0 = 0; y0 < H; y0 += STRIP) {
+            M->t = M->strip - (ptrdiff_t)y0 * W;
+            M->by0 = y0, M->by1 = y0 + STRIP;
+            M->collect = y0 == 0;  // the places to click: once
+            compose();
+            memcpy(dvi_framebuf + y0 * W, M->strip, STRIP * W);
+        }
+    } else {
+        M->t = M->g ? M->g : dvi_framebuf;
+        M->by0 = 0, M->by1 = H;
+        M->collect = true;
+        compose();
+        if (M->g)
+            memcpy(dvi_framebuf, M->g, W * H);
+    }
     M->collect = false;
-    if (M->g)
-        memcpy(dvi_framebuf, M->g, W * H);
+    M->by0 = 0, M->by1 = H;
+    clip(0, H);
     M->t = dvi_framebuf;
+    M->page_ms /= 1000;
+    M->frame_us = clock_us() - t0;
 }
 
 // ---- Files -------------------------------------------------------------------------------------
@@ -1855,6 +1906,10 @@ static void key(int k) {
     case KEY_F7: case 'f': command(CMD_TTF); break;
     case KEY_F5: case 'r': case CTRL('r'): command(CMD_RELOAD); break;
     case CTRL('o'): case 'o': command(CMD_OPEN); break;
+    case CTRL('b'):  // the SRAM strip or the PSRAM buffer (to compare their times in About)
+        M->use_strip = !M->use_strip;
+        message(M->use_strip ? "Drawn through an SRAM strip" : "Drawn in a PSRAM buffer");
+        break;
     case KEY_F1: case '?': command(CMD_HELP); break;
     case KEY_ESC: case 'q': command(CMD_QUIT); break;
     default:
@@ -2076,6 +2131,7 @@ static void stop(void) {
     md_ttf_close();
     psram_free(M->text);
     psram_free(M->g);
+    free(M->strip);
     if (M->saved) {
         memcpy(dvi_framebuf, M->saved, W * H);
         psram_free(M->saved);
@@ -2101,6 +2157,9 @@ static bool start(void) {
         M->pics[i].item = -1;
     M->g = psram_malloc(W * H);
     M->saved = psram_malloc(W * H);
+    M->strip = malloc(STRIP * W);  // 10 KB of SRAM while the viewer runs (without it: g)
+    M->use_strip = true;
+    M->by1 = H;
     if (!M->g || !M->saved) {
         psram_free(M->g);
         psram_free(M->saved);
