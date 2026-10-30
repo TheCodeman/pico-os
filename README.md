@@ -15,7 +15,7 @@ keyboard, mouse and flash drive, WiFi, and a set of programs to go with it.
   WAV sound editor, a hex editor, a serial terminal with X/Y/ZMODEM, an internet radio (MP3 and AAC),
   a radio receiver for RTL-SDR dongles (wide and narrow FM, AM, with a waterfall),
   Swarm, an arcade space shooter, Lancer, a side-scrolling shooter, and `say`, text to speech over HDMI.
-- **Network:** WiFi, `wget` (HTTP/HTTPS), `telnet` with a BBS directory,
+- **Network:** WiFi, a text web browser like lynx (`www`), `wget` (HTTP/HTTPS), `telnet` with a BBS directory,
   `ssh` and `scp`, network shares (`mount`), NTP.
 - **BASIC:** a GW-BASIC style BASIC with graphics, sprites, font sheets,
   music, files, the serial port, GPIO, I2C and SPI.
@@ -37,6 +37,7 @@ Captured with `screenshot` on the board, or drawn by the PC tests in
 | <img src="screenshots/Si5351A.png" width="400" alt="Clock generator (on the board)"><br>Clock generator (on the board) | <img src="docs/si5351_main.png" width="400" alt="Clock generator (si5351)"><br>Clock generator (`si5351`) |
 | <img src="docs/sprite_main.png" width="400" alt="Sprite editor (sprite)"><br>Sprite editor (`sprite`) | <img src="docs/wav_main.png" width="400" alt="WAV editor (wav)"><br>WAV editor (`wav`) |
 | <img src="docs/hex_main.png" width="400" alt="Hex editor (hex)"><br>Hex editor (`hex`) | <img src="docs/hex_sums.png" width="400" alt="Hex editor: checksums and CRCs"><br>Hex editor: checksums and CRCs |
+| <img src="docs/www_demo.png" width="400" alt="Web browser (www)"><br>Web browser (`www`) | <img src="docs/www_results.png" width="400" alt="Web browser: a form's reply"><br>Web browser: a form's reply |
 | <img src="docs/wav_effects.png" width="400" alt="WAV editor effects"><br>WAV editor effects | <img src="docs/swarm_title.png" width="400" alt="Swarm (swarm)"><br>Swarm (`swarm`) |
 | <img src="docs/swarm_beam.png" width="400" alt="Swarm: the tractor beam"><br>Swarm: the tractor beam | <img src="docs/swarm_dual.png" width="400" alt="Swarm: the twin fighter"><br>Swarm: the twin fighter |
 | <img src="docs/swarm_challenge.png" width="400" alt="Swarm: a challenging stage"><br>Swarm: a challenging stage | <img src="docs/term.png" width="400" alt="Serial terminal (term)"><br>Serial terminal (`term`) |
@@ -52,7 +53,7 @@ Captured with `screenshot` on the board, or drawn by the PC tests in
 
 PDFs in [manuals/](manuals/), one for the OS and one for each application
 (BASIC, the editor, mc, the tracker, the radio, the clock generator, the
-FM radio, the sprite editor, the WAV editor, the hex editor, the SDR receiver, Swarm, Lancer, the network tools, the serial terminal, the emulators). They are made from
+FM radio, the sprite editor, the WAV editor, the hex editor, the SDR receiver, Swarm, Lancer, the network tools, the web browser, the serial terminal, the emulators). They are made from
 [docs/](docs/) with `tools/make_manual.py`. The code's API documentation is
 made with `doxygen` (the `Doxyfile` here; it goes to `docs/api/html`, and
 the docs workflow builds it on each push; it can publish it to GitHub
@@ -478,6 +479,11 @@ the video's, so they never collide.
   plain text.** At start-up, once the drive is mounted, the saved network is
   joined automatically and retried every 30 s if lost. `wifi off`/`on`
   disconnects and reconnects; `wifi forget` also deletes `WIFI.CFG`.
+- `www [address | file | words]` (or `lynx`) is a text web browser in the
+  manner of lynx: pages as text with links and simple forms (GET and POST),
+  redirects, cookies, history, bookmarks, find, the page source, downloads,
+  mc-style pull-down menus and the mouse; words typed are searched for.
+  Everything it keeps is in PSRAM while it runs (see the *Web Browser* manual).
 - `wget [-k] URL [file]` downloads over HTTP or HTTPS to the drive, with
   progress, following up to 5 redirects (between http and https too). Esc
   or Ctrl-C stops it and deletes the partial file.

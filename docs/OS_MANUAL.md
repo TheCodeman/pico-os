@@ -106,22 +106,23 @@ cyan, command names in white):
       df          size and free space       Network
                                               wifi        WiFi status and setup
     Programs                                  radio       internet radio
-      edit        text editor                 wget        download a file
-      basic       GW-BASIC style BASIC        telnet      remote terminal
-      applesoft   Applesoft BASIC (Apple II)  ssh         remote shell (SSH)
-      term        serial terminal (COM1)      scp         copy files over SSH
-      apple2e     Apple IIe emulator          mount       network share (SMB)
-      c64         Commodore 64 emulator       ntp         set the clock (NTP)
-      genesis     Sega Genesis emulator
-      mc          file manager              System
-                                              clock       processor clock (MHz)
-      tracker     MOD music tracker           date        show or set the clock
-      si5351      Si5351A clock generator     mem         memory use
-      fm          FM radio (Si4703)           mouse       mouse status and speed
-      sprite      sprite editor (RGB332)      memtest     test the PSRAM
-      wav         WAV sound editor            reset       restart the board
-      sdr         radio receiver (RTL-SDR)    run         run a script
-      view        show a picture              help        this list
+      edit        text editor                 www         web browser (text)
+      basic       GW-BASIC style BASIC        wget        download a file
+      applesoft   Applesoft BASIC (Apple II)  telnet      remote terminal
+      term        serial terminal (COM1)      ssh         remote shell (SSH)
+      apple2e     Apple IIe emulator          scp         copy files over SSH
+      c64         Commodore 64 emulator       mount       network share (SMB)
+      genesis     Sega Genesis emulator       ntp         set the clock (NTP)
+      mc          file manager
+                                            System
+      tracker     MOD music tracker           clock       processor clock (MHz)
+      si5351      Si5351A clock generator     date        show or set the clock
+      fm          FM radio (Si4703)           mem         memory use
+      sprite      sprite editor (RGB332)      mouse       mouse status and speed
+      wav         WAV sound editor            memtest     test the PSRAM
+      sdr         radio receiver (RTL-SDR)    reset       restart the board
+      view        show a picture              run         run a script
+                                              help        this list
 
 
     Type help and a command name for how to use it, e.g. help wifi.
@@ -234,6 +235,7 @@ Esc or Ctrl-C stops between files. Copying a file onto itself is refused.
 | `wifi off` (or `disconnect`) / `wifi on` | Turns the radio off / on. |
 | `wifi wait [seconds]` | Waits until WiFi is connected (default 20 s): for /AUTORUN. |
 | `wifi forget` | Deletes `WIFI.CFG`. |
+| `www [address \| file \| words]` (`lynx`) | A text web browser: pages as text with their links and forms, history, bookmarks, find (see the *Web Browser* manual). |
 | `wget [-k] URL [file]` | Downloads a file over http or https. |
 | `telnet host [port]` | Telnet terminal (default port 23); **Ctrl-]** quits. `telnet` alone: a directory of BBSes to pick from. |
 | `ssh [-p port] [user@]host [command]` | Terminal session on an SSH server, or one command's output. |
@@ -331,7 +333,8 @@ The time is always UTC; there are no time zones.
 | Path | Use |
 |---|---|
 | `/WIFI.CFG` | Saved WiFi network (`ssid=` and `password=` lines) |
-| `/CACERT.PEM` | CA certificates for `wget` https |
+| `/CACERT.PEM` | CA certificates for `wget` and `www` https |
+| `/WWW/HOME.HTM`, `/WWW/BOOKMARK.HTM` | The web browser's own start page (optional) and its bookmarks |
 | `/SSH/KNOWN_HOSTS` | Trusted SSH server keys |
 | `/SSH/ID_ECDSA`, `/SSH/ID_RSA` | Optional private key for scp login |
 | `/SMB/CREDS` | Saved share logins for `mount` (only if you said yes) |
@@ -561,5 +564,6 @@ Each manual is a PDF in the `manuals` folder (made from `docs/*.md` with
 | Swarm, the arcade space shooter (`swarm`) | `manuals/Pico 2 mini OS Swarm.pdf` |
 | Lancer, the side-scrolling shooter (`lancer`) | `manuals/Pico 2 mini OS Lancer.pdf` |
 | `wget`, `telnet` and its BBS directory, `ssh`, `scp` | `manuals/Pico 2 mini OS Network Tools.pdf` |
+| The web browser (`www`, `lynx`) | `manuals/Pico 2 mini OS Web Browser.pdf` |
 | The serial terminal (`term`) and XMODEM/YMODEM/ZMODEM | `manuals/Pico 2 mini OS Serial Terminal.pdf` |
 | Applesoft, the Apple IIe, the Commodore 64 and the Sega Genesis | `manuals/Pico 2 mini OS Emulators.pdf` |

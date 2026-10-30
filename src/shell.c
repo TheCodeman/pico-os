@@ -50,6 +50,7 @@
 #include "usb_storage.h"
 #include "wav.h"
 #include "hexedit.h"
+#include "www.h"
 #include "sdr.h"
 #include "say.h"
 #include "swarm.h"
@@ -421,6 +422,12 @@ static const help_t help_network[] = {
      "radio mute [on|off]        silence it (alone: toggles)\n"
      "  Ctrl+Alt+M mutes and unmutes it from anywhere.\n"
      "  Favourites, the last station and the volume are kept in /RADIO.INI."},
+    {"www", "lynx", "web browser (text)",
+     "www [address|file|words]   a text web browser, like lynx: http and\n"
+     "                           https pages as text with links and forms;\n"
+     "                           words are searched for. Up/Down choose a\n"
+     "                           link, Enter follows it, Left goes back\n"
+     "  F1 in the browser lists its keys, F9 opens the menus."},
     {"wget", NULL, "download a file",
      "wget [-k] URL [file]\n"
      "  http or https. -k skips the certificate check (CACERT.PEM).\n"
@@ -1691,7 +1698,7 @@ static const struct {
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset}, {"clock", cmd_clock},
-    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"lancer", lancer_command}, {"say", say_command}, {"screenshot", cmd_screenshot},
+    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"www", www_command}, {"lynx", www_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"lancer", lancer_command}, {"say", say_command}, {"screenshot", cmd_screenshot},
 };  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.
