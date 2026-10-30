@@ -259,6 +259,7 @@ typedef struct {
     // Times, for the About box.
     uint32_t frame_us;     ///< the last frame took to draw and show
     uint32_t page_ms;      ///< the page last took to draw
+    uint32_t page_us;      ///< adding up this frame's
     uint32_t layout_ms;    ///< the document last took to lay out
     uint32_t ttf_ms;       ///< the fonts took to load
 } md_t;
@@ -1277,7 +1278,7 @@ static void compose(void) {
     clip(0, H);
     uint32_t t0 = clock_us();
     draw_page();
-    M->page_ms += clock_us() - t0;
+    M->page_us += clock_us() - t0;
     draw_bar();
     draw_status();
     switch (M->dlg) {
@@ -1298,7 +1299,7 @@ static void compose(void) {
 static void draw(void) {
     uint32_t t0 = clock_us();
     M->nhits = 0;
-    M->page_ms = 0;  // (in us while adding up)
+    M->page_us = 0;
     if (M->strip && M->use_strip) {
         for (int y0 = 0; y0 < H; y0 += STRIP) {
             M->t = M->strip - (ptrdiff_t)y0 * W;
@@ -1319,7 +1320,7 @@ static void draw(void) {
     M->by0 = 0, M->by1 = H;
     clip(0, H);
     M->t = dvi_framebuf;
-    M->page_ms /= 1000;
+    M->page_ms = M->page_us / 1000;  // (About shows the frame before's)
     M->frame_us = clock_us() - t0;
 }
 

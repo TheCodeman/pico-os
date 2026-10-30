@@ -181,6 +181,11 @@ the pointer, Back, Forward, Contents, Find, Source text and Reload.
 
 ## Limits
 
+- Each frame is drawn 16 rows at a time in a 10 KB strip of SRAM (only
+  while `md` is open) and copied onto the screen piece by piece: about
+  30 ms a frame with the 8x16 font and 47 ms with TrueType text, against
+  120 and 142 ms through a picture in PSRAM. Ctrl-B switches between the
+  two, and About gives the times.
 - Files up to 8 MB. The text, the page laid out and the pictures drawn
   (up to 3 MB of them; those furthest from the screen are let go first and
   drawn again when they come back) are kept in PSRAM, only while `md` is
