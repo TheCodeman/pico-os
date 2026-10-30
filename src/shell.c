@@ -608,7 +608,7 @@ static void cmd_help(int argc, char **argv) {
         printf("\n\n%s\n", h->usage);
         return;
     }
-    // Two columns, one command per line.
+    // Two columns, one command per line, a screenful at a time.
     int nl = sizeof help_left / sizeof *help_left, nr = sizeof help_right / sizeof *help_right;
     for (int row = 0;; ++row) {
         bool more_left = help_row(help_left, nl, row, 40);
@@ -616,6 +616,8 @@ static void cmd_help(int argc, char **argv) {
         printf("\n");
         if (!more_left && !more_right)
             break;
+        if ((row + 1) % PAGE_LINES == 0 && !more())
+            return;
     }
     printf(HELP_DIM "Type help and a command name for how to use it, e.g. help wifi.\n"
            "Also: dir=ls del=rm copy=cp ren=mv type=cat clear=cls ed=edit reboot=reset\n"
