@@ -28,7 +28,21 @@ typedef struct {
     char type[64];            ///< its Content-Type, lower case, without parameters
     bool latin1;              ///< its charset is ISO-8859-1 or Windows-1252
     bool cut;                 ///< stopped with Esc, or too big: only the start
+    int32_t total;            ///< its Content-Length, or -1
+    char name[96];            ///< the file name the server suggests (Content-Disposition), or ""
+    bool saved;               ///< it went to a file on the drive (len bytes), not to body
 } www_reply_t;
+
+/// What to do with a reply's body (www_save_fn's answer).
+enum {
+    WS_MEMORY,  ///< into r->body (a page)
+    WS_SAVE,    ///< to the file named, streamed: any size
+    WS_CANCEL,  ///< nothing: the fetch stops
+};
+
+/// Asked once the reply's header is in (type, total, name and url are set):
+/// what to do with the body. For WS_SAVE it fills in the file's path.
+typedef int (*www_save_fn)(const www_reply_t *r, char *path, size_t size);
 
 /// What became of a fetch.
 enum {
@@ -42,9 +56,10 @@ enum {
 /// @param url the URL (http://, https:// or file://)
 /// @param post form data to POST, or NULL
 /// @param verify check https certificates against CACERT.PEM
+/// @param save asked what to do with the body (NULL: into memory)
 /// @param r what was got (free r->body with psram_free)
-/// @return WF_
-int www_fetch(const char *url, const char *post, bool verify, www_reply_t *r);
+/// @return WF_ (WF_FAIL also when cancelled)
+int www_fetch(const char *url, const char *post, bool verify, www_save_fn save, www_reply_t *r);
 
 /// Forgets the cookies.
 void www_net_end(void);

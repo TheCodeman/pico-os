@@ -139,6 +139,8 @@ typedef struct {
     char target[WWW_URL_MAX]; ///< the page load() is loading
     char post[POST_MAX];      ///< form data
     www_reply_t reply;        ///< what a fetch got
+    bool cancelled;           ///< a download's name was asked for and cancelled
+    bool saving;              ///< the fetch was a download to the drive
     menu_t menus[5];          ///< the menu bar (menu_titles and the items)
     menu_item_t view[8];      ///< the View menu, with its tick
     int key_col[11];          ///< where each key starts on the key bar, for the mouse
@@ -683,17 +685,63 @@ static void name_from_url(const char *url, char *out, size_t size) {
         snprintf(out, size, "%.*s", (int)(end - start), start);
 }
 
+/// www_save_fn for a download: asks where to save it (the name the server
+/// suggests, or the last part of the address), streamed to the drive.
+/// @param r the reply so far
+/// @param path set to the file
+/// @param size room in path
+/// @return WS_SAVE, or WS_CANCEL
+static int ask_save(const www_reply_t *r, char *path, size_t size) {
+    capture(false);  // (the dialog's cursor is printed)
+    char title[80], kb[24] = "size not given";
+    if (r->total >= 0)
+        snprintf(kb, sizeof kb, "%lu bytes", (unsigned long)r->total);
+    snprintf(title, sizeof title, "Download (%s, %s)", r->type[0] ? r->type : "a file", kb);
+    if (r->name[0])
+        snprintf(W->input, sizeof W->input, "%s", r->name);
+    else
+        name_from_url(r->url, W->input, 96);
+    int what = WS_CANCEL;
+    while (dlg_input(title, "Save as (on the drive):", W->input, 256) && W->input[0]) {
+        FILINFO fi;
+        if (f_stat(W->input, &fi) == FR_OK &&
+            dlg_message(title, "That file is there already. Replace it?", "Replace|Other name", false) != 0)
+            continue;
+        snprintf(path, size, "%s", W->input);
+        what = WS_SAVE;
+        break;
+    }
+    W->cancelled = what == WS_CANCEL;
+    W->saving = what == WS_SAVE;
+    capture(true);
+    return what;
+}
+
+/// www_save_fn for following a link: a page is shown; anything else (a zip,
+/// a program, a picture) is a download.
+/// @param r the reply so far
+/// @param path set to the file
+/// @param size room in path
+/// @return WS_
+static int save_if_not_text(const www_reply_t *r, char *path, size_t size) {
+    bool html;
+    return www_is_text(r->type, &html) ? WS_MEMORY : ask_save(r, path, size);
+}
+
 /// Fetches a URL, asking about a certificate that can't be checked; printing
-/// shows on the status line. Says why on failure.
+/// shows on the status line. Says why on failure. A download goes to the
+/// drive (W->reply.saved), with a note saying so.
 /// @param url the URL
 /// @param post form data, or NULL
+/// @param save what to do with the body (www_save_fn), or NULL: memory
 /// @return got it (in W->reply)
-static bool fetch(const char *url, const char *post) {
+static bool fetch(const char *url, const char *post, www_save_fn save) {
     snprintf(W->note, sizeof W->note, "Loading %s", url);
     status_now(W->note);
     W->note[0] = 0;
+    W->cancelled = W->saving = false;
     capture(true);
-    int res = www_fetch(url, post, W->verify, &W->reply);
+    int res = www_fetch(url, post, W->verify, save, &W->reply);
     capture(false);
     if (res == WF_CERT) {
         char text[300];
@@ -705,12 +753,18 @@ static bool fetch(const char *url, const char *post) {
         if (b == 2)
             W->verify = false;
         capture(true);
-        res = www_fetch(url, post, false, &W->reply);
+        res = www_fetch(url, post, false, save, &W->reply);
         capture(false);
     }
     if (res != WF_OK) {
-        dlg_message("Can't load the page", W->msg[0] ? W->msg : "It failed", "OK", true);
+        if (!W->cancelled)
+            dlg_message(W->saving ? "Download" : "Can't load the page", W->msg[0] ? W->msg : "It failed",
+                        "OK", true);
         return false;
+    }
+    if (W->reply.saved) {
+        snprintf(W->note, sizeof W->note, "%s", W->msg);
+        return true;
     }
     if (W->reply.cut)
         snprintf(W->note, sizeof W->note, "%s", W->msg);
@@ -740,11 +794,13 @@ static bool load(const char *url, const char *post, bool push) {
         memcpy(src, page, len + 1);
         snprintf(type, sizeof type, "text/html");
     } else {
-        if (!fetch(W->target, post))
+        if (!fetch(W->target, post, save_if_not_text))
             return false;
         www_reply_t *r = &W->reply;
+        if (r->saved)  // a download: the page stays
+            return false;
         bool html;
-        if (!www_is_text(r->type, &html)) {
+        if (!www_is_text(r->type, &html)) {  // (a file on the drive, opened with file://)
             char name[96];
             name_from_url(r->url, name, sizeof name);
             char title[80];
@@ -1072,7 +1128,7 @@ static bool load_picture(void) {
     status_now(W->note);
     W->note[0] = 0;
     capture(true);
-    int res = www_fetch(W->url, NULL, W->verify, &W->reply);
+    int res = www_fetch(W->url, NULL, W->verify, NULL, &W->reply);
     capture(false);
     if (res != WF_OK)
         return true;
@@ -1214,7 +1270,7 @@ static void view_image(void) {
         snprintf(W->note, sizeof W->note, "Can't load a %.*s: picture", (int)strcspn(W->url, ":"), W->url);
         return;
     }
-    if (!fetch(W->url, NULL))
+    if (!fetch(W->url, NULL, NULL))
         return;
     image_t img;
     const char *err;
@@ -1397,13 +1453,11 @@ static void download(void) {
         return;
     }
     www_resolve(base_url(), www_str(d, d->links[W->cur].href), W->url, sizeof W->url);
-    if (!strncasecmp(W->url, "about:", 6) || !fetch(W->url, NULL))
+    if (strncasecmp(W->url, "http://", 7) && strncasecmp(W->url, "https://", 8)) {
+        snprintf(W->note, sizeof W->note, "Only http and https links can be downloaded");
         return;
-    char name[96];
-    name_from_url(W->reply.url, name, sizeof name);
-    save_bytes("Download", name, W->reply.body, W->reply.len);
-    psram_free(W->reply.body);
-    W->reply.body = NULL;
+    }
+    fetch(W->url, NULL, ask_save);  // (streamed to the drive; the note says so)
 }
 
 /// Adds the page to the bookmarks file (an HTML page of links).

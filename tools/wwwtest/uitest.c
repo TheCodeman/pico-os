@@ -201,7 +201,7 @@ static void answer(struct net_conn *c) {
     const char *ck = strstr(c->req, "\r\nCookie: ");
     if (ck)
         snprintf(cookie, sizeof cookie, "%.*s", (int)strcspn(ck + 10, "\r"), ck + 10);
-    static char page[200000];
+    static char page[400000];
     char head[512] = "";
     const char *type = "text/html; charset=utf-8";
     int code = 200, n = 0;
@@ -246,6 +246,12 @@ static void answer(struct net_conn *c) {
     } else if (!strcmp(path, "/pic.gif")) {
         n = snprintf(page, sizeof page, "GIF89a not really");
         type = "image/gif";
+    } else if (!strcmp(path, "/big.bin")) {  // 300,000 bytes, chunked, with a file name
+        type = "application/zip";
+        snprintf(head, sizeof head, "Content-Disposition: attachment; filename=\"BIG.ZIP\"\r\n");
+        for (n = 0; n < 300000; ++n)
+            page[n] = (char)(n * 7);
+        chunked = true;
     } else if (!strcmp(path, "/file.bin")) {
         type = "application/octet-stream";
         for (n = 0; n < 1000; ++n)
@@ -255,9 +261,12 @@ static void answer(struct net_conn *c) {
         n = snprintf(page, sizeof page, "<title>Not found</title><h1>404</h1><p>No %s here.</p>", path);
     }
     c->resp = malloc(n * 2 + 1024);
+    char length[48];
+    snprintf(length, sizeof length, chunked ? "Transfer-Encoding: chunked\r\n" : "Content-Length: %d\r\n", n);
     int k = snprintf(c->resp, 1024, "HTTP/1.1 %d X\r\nContent-Type: %s\r\n%s%s\r\n", code, type, head,
-                     chunked ? "Transfer-Encoding: chunked\r\n" : "");
+                     length);
     if (chunked) {  // in chunks of 100 bytes
+        c->resp = realloc(c->resp, (size_t)n * 2 + 1024);
         for (int at = 0; at < n; at += 100) {
             int len = n - at < 100 ? n - at : 100;
             k += sprintf(c->resp + k, "%x\r\n", len);
@@ -523,6 +532,14 @@ static const step_t script[] = {
     {S_SEE, "Download (application/octet-stream, 1000 bytes)"},
     {S_KEYS, "\x1b"},
     {S_PAUSE, NULL, 0, 0, 0},
+    {S_NOTSEE, "Can't load the page"},  // (cancelled: nothing to say)
+    // A big chunked download with a name from the server, streamed to the drive.
+    {S_KEYS, "ghttp://demo.test/big.bin\r"},
+    {S_SEE, "Download (application/zip, size not given)"},
+    {S_SEE, "BIG.ZIP"},
+    {S_KEYS, "\r"},
+    {S_SEE, "Saved 300000 bytes to BIG.ZIP"},
+    {S_FILE, "BIG.ZIP", 300000},
     // Bookmark the page, then look at the bookmarks.
     {S_KEYS, "a"},
     {S_SEE, "Name it:"},
@@ -630,6 +647,15 @@ static void run_steps(void) {
             if (stat(local(s->s), &st) || st.st_size != s->a) {
                 printf("FAIL at step %d: %s isn't %d bytes\n", step, s->s, s->a);
                 ++failures;
+            } else if (!strcmp(s->s, "BIG.ZIP")) {  // its bytes, after the chunks were taken out
+                FILE *f = fopen(local(s->s), "rb");
+                for (int i = 0; i < s->a; ++i)
+                    if (fgetc(f) != (uint8_t)(i * 7)) {
+                        printf("FAIL at step %d: byte %d of %s is wrong\n", step, i, s->s);
+                        ++failures;
+                        break;
+                    }
+                fclose(f);
             }
             break;
         }
@@ -682,6 +708,7 @@ bool mouse_event(mouse_event_t *e) {
 
 int main(void) {
     remove("FILE.BIN");
+    remove("BIG.ZIP");
     remove("WWW/BOOKMARK.HTM");
     char *argv[] = {"www", NULL};
     www_command(1, argv);

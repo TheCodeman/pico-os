@@ -412,6 +412,153 @@ static bool read_body(stream_t *s, www_reply_t *r, uint32_t have, uint32_t room,
     return true;
 }
 
+/// Chunked transfer encoding undone as the bytes go by (for a file saved).
+typedef struct {
+    int state;      ///< 0 the size line, 1 its end, 2 data, 3 the CRLF after it, 4 the end
+    uint32_t size;  ///< the chunk's size, as read
+    uint32_t left;  ///< its bytes still to come
+} dechunk_t;
+
+/// Takes the chunk framing out of `n` bytes in place.
+/// @param d the state
+/// @param buf the bytes (the data is moved to the front)
+/// @param n how many
+/// @return the data bytes
+static uint32_t dechunk(dechunk_t *d, char *buf, uint32_t n) {
+    uint32_t out = 0;
+    for (uint32_t i = 0; i < n && d->state != 4;) {
+        char c = buf[i];
+        switch (d->state) {
+        case 0:  // hex digits, then anything up to the newline
+            if (isxdigit((unsigned char)c))
+                d->size = d->size * 16 + (uint32_t)(isdigit((unsigned char)c) ? c - '0' : (c | 0x20) - 'a' + 10);
+            else
+                d->state = 1;
+            if (d->state == 0) {
+                ++i;
+                break;
+            }
+            // fall through
+        case 1:
+            ++i;
+            if (c == '\n') {
+                d->left = d->size;
+                d->state = d->size ? 2 : 4;
+                d->size = 0;
+            }
+            break;
+        case 2: {
+            uint32_t k = n - i < d->left ? n - i : d->left;
+            memmove(buf + out, buf + i, k);
+            out += k;
+            i += k;
+            d->left -= k;
+            if (!d->left)
+                d->state = 3;
+            break;
+        }
+        case 3:  // the CRLF after the data
+            ++i;
+            if (c == '\n')
+                d->state = 0;
+            break;
+        }
+    }
+    return out;
+}
+
+/// Streams the body to a file, with progress; Esc stops (and deletes it).
+/// @param s the stream
+/// @param r the reply (len is set to the bytes saved)
+/// @param path the file
+/// @param buf a buffer, with the body's first bytes
+/// @param have how many
+/// @param room its size
+/// @param chunked the body is chunked
+/// @return all of it was saved
+static bool save_body(stream_t *s, www_reply_t *r, const char *path, char *buf, uint32_t have,
+                      uint32_t room, bool chunked) {
+    FIL file;
+    FRESULT fr = f_open(&file, path, FA_WRITE | FA_CREATE_ALWAYS);
+    if (fr != FR_OK) {
+        printf("Can't write %s\n", path);
+        return false;
+    }
+    dechunk_t dc = {0, 0, 0};
+    uint32_t got = 0;
+    uint64_t start = time_us_64(), shown = 0;
+    absolute_time_t idle = make_timeout_time_ms(IDLE_TIMEOUT_MS);
+    bool ok = true, done = false;
+    const char *why = NULL;
+    while (!done) {
+        // Fill the buffer before writing: the drive likes big writes.
+        while (have < room / 2) {
+            int n = s_read(s, buf + have, room / 2 - have);
+            if (n < 0) {
+                done = true;
+                break;
+            }
+            if (n == 0)
+                break;
+            have += (uint32_t)n;
+            idle = make_timeout_time_ms(IDLE_TIMEOUT_MS);
+        }
+        uint32_t data = chunked ? dechunk(&dc, buf, have) : have;
+        if (chunked && dc.state == 4)
+            done = true;
+        if (data) {
+            UINT w;
+            if (f_write(&file, buf, data, &w) != FR_OK || w != data) {
+                why = "Can't write to the drive (is it full?)";
+                ok = false;
+                break;
+            }
+            got += data;
+        } else if (!have && !done) {
+            if (time_reached(idle)) {
+                why = "Timed out";
+                ok = false;
+                break;
+            }
+            sleep_ms(2);
+        }
+        have = 0;
+        if (net_stop_key()) {
+            why = "Stopped";
+            ok = false;
+            break;
+        }
+        if (r->total >= 0 && !chunked && got >= (uint32_t)r->total)
+            done = true;
+        if (time_us_64() - shown > 300000 || done) {
+            shown = time_us_64();
+            uint32_t ms = (uint32_t)((shown - start) / 1000);
+            unsigned rate = ms ? (unsigned)((uint64_t)got * 1000 / 1024 / ms) : 0;
+            if (r->total > 0)
+                printf("Saving %lu of %lu KB to %s, %u KB/s (Esc stops)\r", (unsigned long)(got >> 10),
+                       (unsigned long)(r->total >> 10), path, rate);
+            else
+                printf("Saving %lu KB to %s, %u KB/s (Esc stops)\r", (unsigned long)(got >> 10), path,
+                       rate);
+            fflush(stdout);
+        }
+    }
+    f_close(&file);
+    if (ok && r->total > 0 && !chunked && got < (uint32_t)r->total) {
+        why = "The connection closed early";
+        ok = false;
+    }
+    if (!ok) {
+        f_unlink(path);
+        printf("%s: %s was deleted\n", why, path);
+        return false;
+    }
+    r->len = got;
+    r->saved = true;
+    printf("Saved %lu bytes to %s\n", (unsigned long)got, path);
+    return true;
+}
+
 bool www_is_text(const char *type, bool *html) {
     *html = !type[0] || strstr(type, "html") || strstr(type, "xml");
     return *html || !strncmp(type, "text/", 5) || !strcmp(type, "application/json") ||
@@ -485,8 +632,9 @@ static int fetch_file(const char *url, www_reply_t *r) {
     return WF_OK;
 }
 
-int www_fetch(const char *url, const char *post, bool verify, www_reply_t *r) {
+int www_fetch(const char *url, const char *post, bool verify, www_save_fn save, www_reply_t *r) {
     memset(r, 0, sizeof *r);
+    r->total = -1;
     if (!strncasecmp(url, "file://", 7))
         return fetch_file(url, r);
     fetch_t *f = psram_malloc(sizeof *f);
@@ -580,6 +728,20 @@ int www_fetch(const char *url, const char *post, bool verify, www_reply_t *r) {
         }
         int32_t total = header(f->hdr, NULL, "Content-Length", f->value, sizeof f->value)
                             ? atol(f->value) : -1;
+        r->total = total;
+        if (header(f->hdr, NULL, "Content-Disposition", f->value, sizeof f->value)) {
+            const char *fn = find_ci(f->value, "filename=");
+            if (fn) {  // filename="x.zip" or filename=x.zip: the last part of it
+                fn += 9 + (fn[9] == '"');
+                size_t k = strcspn(fn, "\";");
+                const char *slash = fn;
+                for (size_t i = 0; i < k; ++i)
+                    if (fn[i] == '/' || fn[i] == '\\')
+                        slash = fn + i + 1;
+                k -= (size_t)(slash - fn);
+                snprintf(r->name, sizeof r->name, "%.*s", (int)k, slash);
+            }
+        }
         bool chunked = header(f->hdr, NULL, "Transfer-Encoding", f->value, sizeof f->value) &&
                        find_ci(f->value, "chunked");
         if (header(f->hdr, NULL, "Content-Encoding", f->value, sizeof f->value) &&
@@ -589,6 +751,19 @@ int www_fetch(const char *url, const char *post, bool verify, www_reply_t *r) {
             goto out;
         }
         uint32_t room = FIRST_ROOM > HEADER_MAX ? FIRST_ROOM : HEADER_MAX;
+        int what = save ? save(r, f->abs, sizeof f->abs) : WS_MEMORY;
+        if (what == WS_CANCEL) {
+            s_close(&s);
+            goto out;
+        }
+        if (what == WS_SAVE) {
+            bool ok = save_body(&s, r, f->abs, r->body, (uint32_t)body, room, chunked);
+            s_close(&s);
+            psram_free(r->body);
+            r->body = NULL;
+            result = ok ? WF_OK : WF_FAIL;
+            break;
+        }
         read_body(&s, r, (uint32_t)body, room, chunked ? -1 : total);
         s_close(&s);
         if (chunked)

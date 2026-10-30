@@ -143,10 +143,13 @@ their sizes are remembered while the browser is open.
 
 - **a** adds the page to `/WWW/BOOKMARK.HTM` (an HTML page of links: edit
   it with `edit` if you like); **v** opens it.
-- **d** downloads the chosen link to the drive (it asks for the name).
-  Following a link to something that isn't a page (a ZIP, a picture, a
-  program) asks the same. Files up to 4 MB go through PSRAM; for bigger
-  ones use `wget`.
+- **d** (or the right button's **Download link**) downloads the chosen
+  link to the drive, page or not. Following a link to something that
+  isn't a page (a ZIP, a ROM, a program, a picture) downloads it too. Either
+  way it asks for the name first, suggesting the one the server gives (or
+  the last part of the address), and asks before replacing a file. The file
+  is written to the drive as it comes, any size, with the progress and
+  speed on the status line; Esc stops it and deletes the part saved.
 - **s** saves the page's HTML, **p** the page as text (CRLF lines, as on
   the screen).
 - `/WWW/HOME.HTM` on the drive replaces the start page: any HTML page, for
