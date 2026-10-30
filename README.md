@@ -122,6 +122,7 @@ ROMs or games are included.
    or a space after anything else; several are filled in as far as they
    agree, and a second Tab lists them. Commands: help, ls/dir, cd, pwd, mkdir, rm/del,
    mv/ren, cat/type, cp/copy, df, mem, memtest, cls/clear, beep [hz], echo,
+   ver (the OS's and each program's version; also `<command> --version`),
    reset/reboot. Arguments with spaces can be quoted. Long listings pause
    with "more". `reset` restarts the board after leaving WiFi and
    unmounting the drive; `reset bootsel` starts the USB bootloader instead

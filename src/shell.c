@@ -55,6 +55,7 @@
 #include "say.h"
 #include "swarm.h"
 #include "lancer.h"
+#include "version.h"
 
 #define LINE_MAX      255  ///< a command may wrap over several screen rows
 /// Lines of history kept.
@@ -491,6 +492,10 @@ static const help_t help_system[] = {
      "  Runs each line of FILE as a command (# or REM: comments; @ or echo off:\n"
      "  don't show them; Esc stops it). /AUTORUN runs this way at start-up\n"
      "  (Esc during start-up skips it), e.g.  wifi wait 20  then  mount //pc/share."},
+    {"ver", "version", "OS and program versions",
+     "ver [command]\n"
+     "  Shows the OS's version and build, and each program's version (or one\n"
+     "  program's). Any command followed by --version shows its version too."},
     {"help", NULL, "this list",
      "help [command]\n"
      "  Lists the commands, or shows how to use one."},
@@ -1684,6 +1689,39 @@ static void cmd_echo(int argc, char **argv) {
     putchar('\n');
 }
 
+/// Prints the OS's name, version and build.
+static void print_os_version(void) {
+    printf("%s %s (build %s)\n", OS_NAME, OS_VERSION, version_build());
+}
+
+/// ver [command]: the OS's version, and the programs' or one program's.
+/// @param argc the argument count
+/// @param argv the arguments
+static void cmd_ver(int argc, char **argv) {
+    if (argc >= 2) {
+        const app_version_t *v = version_find(argv[1]);
+        if (v)
+            printf("%s %s: %s, in ", v->command, v->version, v->name);
+        else
+            printf("%s is part of ", argv[1]);
+        print_os_version();
+        return;
+    }
+    print_os_version();
+    putchar('\n');
+    int rows = (app_version_count + 1) / 2;
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < 2; ++c) {
+            int i = r + c * rows;
+            if (i >= app_version_count)
+                break;
+            const app_version_t *v = &app_versions[i];
+            printf(HELP_CMD "  %-10s" HELP_DIM "%-24s" HELP_END "%-4s", v->command, v->name, v->version);
+        }
+        putchar('\n');
+    }
+}
+
 static const struct {
     const char *name;  ///< the command's name
     void (*run)(int argc, char **argv);  ///< what runs it
@@ -1698,7 +1736,7 @@ static const struct {
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset}, {"clock", cmd_clock},
-    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"www", www_command}, {"lynx", www_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"lancer", lancer_command}, {"say", say_command}, {"screenshot", cmd_screenshot},
+    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"www", www_command}, {"lynx", www_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"lancer", lancer_command}, {"say", say_command}, {"screenshot", cmd_screenshot}, {"ver", cmd_ver}, {"version", cmd_ver},
 };  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.
@@ -1737,6 +1775,15 @@ static void run_line(char *text) {
         return;
     for (size_t i = 0; i < sizeof commands / sizeof commands[0]; ++i) {
         if (strcmp(argv[0], commands[i].name) == 0) {
+            if (argc == 2 && strcmp(argv[1], "--version") == 0 && strcmp(argv[0], "echo") != 0) {
+                // By the command's first name (an alias shares its function).
+                size_t first = 0;
+                while (commands[first].run != commands[i].run)
+                    ++first;
+                char *v[] = {"ver", (char *)commands[first].name};
+                cmd_ver(2, v);
+                return;
+            }
             commands[i].run(argc, argv);
             audio_trim();  // (the sound queues a program made, given back)
             return;

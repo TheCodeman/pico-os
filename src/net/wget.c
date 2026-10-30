@@ -16,6 +16,7 @@
 #include "net.h"
 #include "pico/stdlib.h"
 #include "shell.h"
+#include "version.h"
 
 /// Redirects followed.
 #define MAX_REDIRECTS 5
@@ -356,7 +357,7 @@ void net_cmd_wget(int argc, char **argv) {
         if (!s_open(&s, url, verify))
             break;
         int n = snprintf(req, URL_MAX + 256,
-                         "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: pico-os-wget/1.1\r\n"
+                         "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: pico-os-wget/" VER_WGET "\r\n"
                          "Accept: */*\r\nConnection: close\r\n\r\n",
                          url->path, url->host);
         int hdr_len;

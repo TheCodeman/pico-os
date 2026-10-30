@@ -123,6 +123,7 @@ cyan, command names in white):
       wav         WAV sound editor            memtest     test the PSRAM
       sdr         radio receiver (RTL-SDR)    reset       restart the board
       view        show a picture              run         run a script
+                                              ver         OS and program versions
                                               help        this list
 
 
@@ -224,6 +225,7 @@ Esc or Ctrl-C stops between files. Copying a file onto itself is refused.
 | `ntp [server]` | | Gets the time from an NTP server now and sets the clock (section 4). |
 | `reset` | `reboot` | Restarts the board. |
 | `reset bootsel` | | Restarts into the RP2350 USB bootloader, for copying a `.uf2` file. |
+| `ver [command]` | `version` | Shows the OS's version and build (the git commit, with `+` if it had uncommitted changes, and the day it was built), and every program's version, or one program's. Any command followed by `--version` (`www --version`) shows its version too. The numbers all live in `src/version.h`. |
 | `help [command]` | | Lists the commands, or shows how to use one. |
 
 ### Network

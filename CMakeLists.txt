@@ -14,6 +14,7 @@ pico_sdk_init()
 
 add_executable(pico2_os
     src/main.c
+    src/version.c
     src/clock_setting.c
     src/chip_temp.c
     src/clock_app.c
@@ -135,6 +136,16 @@ add_executable(pico2_os
 target_include_directories(pico2_os PRIVATE src src/fatfs src/basic src/net src/image src/applesoft src/xfer src/apple2e src/c64 src/smb src/mc src/mod src/radio src/radio/helix src/si5351 src/fmradio src/sprite src/wav src/hex src/www src/sdr src/swarm src/say src/lancer
     src/genesis src/genesis/core/bus src/genesis/core/cpus/M68K src/genesis/core/cpus/Z80
     src/genesis/core/io src/genesis/core/savestate src/genesis/core/sound src/genesis/core/vdp)
+
+# The build stamp (git commit and date) for src/version.c, written at every
+# build but only changed when they change.
+set(VERSION_BUILD_H ${CMAKE_CURRENT_BINARY_DIR}/generated/version/version_build.h)
+add_custom_target(pico2_os_version
+    COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_CURRENT_LIST_DIR} -DOUT=${VERSION_BUILD_H}
+            -P ${CMAKE_CURRENT_LIST_DIR}/tools/version_build.cmake
+    BYPRODUCTS ${VERSION_BUILD_H})
+add_dependencies(pico2_os pico2_os_version)
+target_include_directories(pico2_os PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated/version)
 
 # FatFs is third-party code; don't drown our own warnings in its.
 set_source_files_properties(src/fatfs/ff.c src/fatfs/ffunicode.c src/image/lodepng.c src/image/tjpgd.c

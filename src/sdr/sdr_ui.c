@@ -52,6 +52,7 @@
 #include "rtl_usb.h"
 #include "sdr.h"
 #include "sdr_dsp.h"
+#include "version.h"
 
 #define W DVI_WIDTH              ///< the screen's width
 #define H DVI_HEIGHT             ///< its height
@@ -428,7 +429,7 @@ static void fmt_gain(char *s, int n) {
 /// The title strip: the program, the dongle, and a message or the load.
 static void draw_top(void) {
     fill(0, 0, W, TOP_H, C_STRIP);
-    int x = text(8, 4, "SDR receiver", C_YELLOW, C_STRIP);
+    int x = text(8, 4, "SDR receiver " VER_SDR, C_YELLOW, C_STRIP);
     if (S->running) {
         const char *name = S->dev.product[0] ? S->dev.product : "RTL2832U";
         x = textf(x + 16, 4, C_LABEL, C_STRIP, "%s, %s, %lu kS/s%s", name, rtl_tuner_name(S->dev.tuner),

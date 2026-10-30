@@ -35,6 +35,7 @@
 #include "psram_heap.h"
 #include "www_html.h"
 #include "www_net.h"
+#include "version.h"
 
 /// The page's first screen row (under the menu bar).
 #define PAGE_TOP   1
@@ -1253,7 +1254,7 @@ static void command(int id) {
     case M_MARKS: follow("file://" BOOKMARKS, NULL); break;
     case M_HELP: follow("about:help", NULL); break;
     case M_ABOUT:
-        dlg_message("About", "www 1.0: a text web browser for pico-os\nin the manner of lynx\n\n"
+        dlg_message("About", "www " VER_WWW ": a text web browser for pico-os\nin the manner of lynx\n\n"
                     "Copyright (c) 2026 Ken Segler, MIT licence", "OK", false);
         break;
     }

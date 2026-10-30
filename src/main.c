@@ -38,6 +38,7 @@
 #include "mouse.h"
 #include "usb_log.h"
 #include "usb_storage.h"
+#include "version.h"
 
 /// The shell (and BASIC and the editor under it) runs on this, not on core
 /// 0's 4 KB boot stack; interrupt handlers, the WiFi stack's included, run on
@@ -345,7 +346,8 @@ int main(void) {
                  (unsigned)(psram_size >> 20));
     else
         snprintf(chip, sizeof chip, "RP2350 @ %u MHz, %d\xf8" "F", real_mhz, temp);
-    printf(TITLE "  Pico 2 mini OS%*s  " PLAIN "\n\n", CONSOLE_COLS - 18, chip);
+    printf(TITLE "  " OS_NAME " " OS_VERSION "%*s  " PLAIN "\n\n",
+           CONSOLE_COLS - (int)sizeof("    " OS_NAME " " OS_VERSION) + 1, chip);
     debug_printf("640x480 HDMI text console, %dx%d characters, 48 kHz stereo audio\n",
                  CONSOLE_COLS, CONSOLE_ROWS);
     if (psram_size) {

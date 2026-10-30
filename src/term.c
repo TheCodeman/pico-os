@@ -29,6 +29,7 @@
 #include "pico/stdlib.h"
 #include "serial_console.h"
 #include "xfer.h"
+#include "version.h"
 
 /// The settings file.
 #define CFG_FILE   "/TERM.CFG"
@@ -446,7 +447,8 @@ static void draw_settings(int sel, const char *note) {
     static const char *const labels[] = {"Baud rate", "Data bits", "Parity", "Stop bits",
                                          "Pins", "Flow control", "Local echo", "Enter sends",
                                          "Received CR", "Backspace sends"};
-    printf("\x1b[H\x1b[97;44m  Serial terminal settings (COM1)%*s\x1b[0m\n\n", CONSOLE_COLS - 34, "");
+    printf("\x1b[H\x1b[97;44m  Serial terminal " VER_TERM " settings (COM1)%*s\x1b[0m\n\n",
+           CONSOLE_COLS - (int)sizeof("  Serial terminal " VER_TERM " settings (COM1)"), "");
     for (int i = 0; i < S_COUNT; ++i) {
         char value[48];
         setting_text(i, value, sizeof value);

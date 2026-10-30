@@ -35,6 +35,7 @@
 #include <strings.h>
 
 #include "console.h"
+#include "version.h"
 #include "dvi.h"
 #include "ff.h"
 #include "font8x16.h"
@@ -1128,7 +1129,7 @@ static void draw_bar(void) {
         hit(bx, 0, bw, BAR_H, HIT_MENU, i);
     }
     char name[60];
-    snprintf(name, sizeof name, "%.40s%s  Hex Editor", file_name(), F->modified ? "*" : "");
+    snprintf(name, sizeof name, "%.40s%s  Hex Editor " VER_HEX, file_name(), F->modified ? "*" : "");
     text(W - 8 - (int)strlen(name) * 8, 0, name, C_YELLOW, C_FACE);
     fill(0, 0, W, 1, C_LIGHT);
     fill(0, BAR_H - 1, W, 1, C_DARK);

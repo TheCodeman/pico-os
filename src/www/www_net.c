@@ -22,6 +22,7 @@
 #include "net.h"
 #include "pico/stdlib.h"
 #include "psram_heap.h"
+#include "version.h"
 
 /// Redirects followed.
 #define MAX_REDIRECTS 8
@@ -34,7 +35,7 @@
 /// The first room for a page; it doubles as needed.
 #define FIRST_ROOM (64u << 10)
 /// Who we say we are: lynx's name gets simple pages from many sites.
-#define USER_AGENT "Lynx/2.9.0 (pico-os www/1.0) libwww-FM/2.14"
+#define USER_AGENT "Lynx/2.9.0 (pico-os www/" VER_WWW ") libwww-FM/2.14"
 
 /// A URL's parts.
 typedef struct {
