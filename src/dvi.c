@@ -341,6 +341,45 @@ volatile uint32_t dvi_restarts, dvi_late, dvi_worst_gap_us, dvi_worst_build_us;
 volatile uint32_t dvi_fail_ctrl, dvi_fail_read_addr;
 ///@}
 
+/// How long dvi_relock() holds the signal off: two seconds was enough for a
+/// display that had locked onto the signal badly (a red screen full of lines).
+#define RELOCK_MS 2000
+/// dvi_relock() was called; check_scanout() does the work.
+static volatile bool relock_requested;
+
+void dvi_relock(void) {
+    relock_requested = true;
+}
+
+/// Stops both DMA channels and leaves the HSTX in reset, its output idle.
+static void stop_scanout(void) {
+    irq_set_enabled(DMA_IRQ_0, false);
+    // Unchain the channels first: a channel being aborted can still trigger
+    // the one it chains to, which would then be running while it is set up.
+    for (uint ch = DMACH_PING; ch <= DMACH_PONG; ++ch)
+        hw_write_masked(&dma_hw->ch[ch].al1_ctrl, ch << DMA_CH0_CTRL_TRIG_CHAIN_TO_LSB,
+                        DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS);
+    dma_hw->abort = (1u << DMACH_PING) | (1u << DMACH_PONG);
+    // A channel has stopped once BUSY clears (the abort bits can clear
+    // first, while a transfer is still in flight).
+    while (dma_channel_is_busy(DMACH_PING) || dma_channel_is_busy(DMACH_PONG))
+        tight_loop_contents();
+    for (uint ch = DMACH_PING; ch <= DMACH_PONG; ++ch)
+        dma_hw->ch[ch].al1_ctrl = dma_hw->ch[ch].al1_ctrl;  // error flags are write-1-to-clear
+    // Reset the HSTX: that empties its FIFO and its command decoder, which
+    // may be part way through a junk command and would otherwise stay out
+    // of step with the lines for good.
+    reset_block_num(RESET_HSTX);
+}
+
+/// Takes the HSTX out of reset and starts again from the top of the frame.
+static void restart_scanout(void) {
+    unreset_block_num_wait_blocking(RESET_HSTX);
+    hstx_setup();
+    scanout_late = false;
+    start_scanout();
+}
+
 /// If the scanout breaks (the IRQ ran late, a channel reported a bus error,
 /// or the chain stopped), the picture is gone for good, because the HSTX
 /// loses track of where its commands start. Every 50 ms, check, and if so,
@@ -349,7 +388,20 @@ volatile uint32_t dvi_fail_ctrl, dvi_fail_read_addr;
 /// @param t the timer
 /// @return true (keep going)
 static bool check_scanout(repeating_timer_t *t) {
-    static uint stalls;
+    static uint stalls, relock_ticks;
+    if (relock_ticks) {
+        // The HSTX is held in reset, so the display sees no signal at all.
+        if (--relock_ticks)
+            return true;
+        restart_scanout();
+        return true;
+    }
+    if (relock_requested) {
+        relock_requested = false;
+        stop_scanout();
+        relock_ticks = RELOCK_MS / 50;
+        return true;
+    }
     const uint32_t errors = DMA_CH0_CTRL_TRIG_AHB_ERROR_BITS;
     bool failed = false;
     for (uint ch = DMACH_PING; ch <= DMACH_PONG; ++ch) {
@@ -372,27 +424,8 @@ static bool check_scanout(repeating_timer_t *t) {
     if (late)
         ++dvi_late;
     ++dvi_restarts;
-    irq_set_enabled(DMA_IRQ_0, false);
-    // Unchain the channels first: a channel being aborted can still trigger
-    // the one it chains to, which would then be running while it is set up.
-    for (uint ch = DMACH_PING; ch <= DMACH_PONG; ++ch)
-        hw_write_masked(&dma_hw->ch[ch].al1_ctrl, ch << DMA_CH0_CTRL_TRIG_CHAIN_TO_LSB,
-                        DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS);
-    dma_hw->abort = (1u << DMACH_PING) | (1u << DMACH_PONG);
-    // A channel has stopped once BUSY clears (the abort bits can clear
-    // first, while a transfer is still in flight).
-    while (dma_channel_is_busy(DMACH_PING) || dma_channel_is_busy(DMACH_PONG))
-        tight_loop_contents();
-    for (uint ch = DMACH_PING; ch <= DMACH_PONG; ++ch)
-        dma_hw->ch[ch].al1_ctrl = dma_hw->ch[ch].al1_ctrl;  // error flags are write-1-to-clear
-    // Reset the HSTX: that empties its FIFO and its command decoder, which
-    // may be part way through a junk command and would otherwise stay out
-    // of step with the lines for good.
-    reset_block_num(RESET_HSTX);
-    unreset_block_num_wait_blocking(RESET_HSTX);
-    hstx_setup();
-    scanout_late = false;
-    start_scanout();
+    stop_scanout();
+    restart_scanout();
     return true;
 }
 

@@ -9,6 +9,7 @@
 
 #include "usb_keyboard.h"
 
+#include "dvi.h"
 #include "hid_gamepad.h"
 #include "mouse.h"
 #include "radio.h"
@@ -225,6 +226,12 @@ static void handle_report(const hid_keyboard_report_t *r) {
         // so nothing gets tidied up first; the shell's reset command does).
         if (key == HID_KEY_DELETE && (r->modifier & CTRL) && (r->modifier & ALT))
             watchdog_reboot(0, 0, 0);
+        // Ctrl-Alt-R restarts the HDMI signal, for a display that has locked
+        // onto it badly (a red screen full of lines).
+        if (key == HID_KEY_R && (r->modifier & CTRL) && (r->modifier & ALT)) {
+            dvi_relock();
+            continue;
+        }
         if (key == HID_KEY_CAPS_LOCK) {
             caps_lock = !caps_lock;
             update_leds();

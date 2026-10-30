@@ -63,6 +63,12 @@ extern volatile uint32_t dvi_frames;
 /// 126 MHz, which gives the exact 25.2 MHz pixel clock for 640x480.
 void dvi_init(void);
 
+/// Turns the HDMI signal off for two seconds and starts it again, so the
+/// display locks onto it afresh: now and then one locks badly after a reset
+/// and shows a red screen full of lines. Ctrl-Alt-R on the USB keyboard.
+/// Safe from either core and from interrupts; the work is done later.
+void dvi_relock(void);
+
 /// How often the scanout has had to be restarted (and how many of those were
 /// because an interrupt came too late), and the longest gap seen between the
 /// scanout's interrupts in microseconds (normally 190, one per six lines).

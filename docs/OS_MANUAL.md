@@ -77,6 +77,7 @@ can type commands. It works as a full VT100 terminal.
 | Ctrl-L | Clear the screen and redraw the line |
 | Ctrl-G | Beep |
 | Ctrl-Alt-Del | Restart the board (USB keyboard) |
+| Ctrl-Alt-R | Restart the HDMI signal, if the display shows a red screen full of lines (USB keyboard) |
 
 - A line can be up to 255 characters.
 - Put quotes around names with spaces: `cat "my notes.txt"`.

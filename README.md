@@ -127,7 +127,9 @@ ROMs or games are included.
    unmounting the drive; `reset bootsel` starts the USB bootloader instead
    (only useful with the USB port wired to a PC, not the hub). Ctrl-Alt-Del
    on the USB keyboard restarts at once, like a reset button, without
-   tidying up first.
+   tidying up first. If the display ever comes up as a red screen full of
+   lines (now and then one locks onto the signal badly after a reset),
+   Ctrl-Alt-R turns the HDMI signal off for two seconds so it locks again.
 5. **VT100 console.** The video console understands the common VT100/ANSI
    escape sequences: cursor movement and positioning, erase, insert and
    delete of characters and lines, scroll regions, 16 colours with bold and
