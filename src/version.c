@@ -31,6 +31,7 @@ const app_version_t app_versions[] = {
     {"wifi", "WiFi setup", VER_WIFI},
     {"radio", "internet radio", VER_RADIO},
     {"www", "web browser (text)", VER_WWW},
+    {"irc", "IRC chat client", VER_IRC},
     {"wget", "download a file", VER_WGET},
     {"telnet", "remote terminal", VER_TELNET},
     {"ssh", "remote shell (SSH)", VER_SSH},

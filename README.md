@@ -15,7 +15,7 @@ keyboard, mouse and flash drive, WiFi, and a set of programs to go with it.
   WAV sound editor, a hex editor, a Markdown viewer with pictures, a serial terminal with X/Y/ZMODEM, an internet radio (MP3 and AAC),
   a radio receiver for RTL-SDR dongles (wide and narrow FM, AM, with a waterfall),
   Swarm, an arcade space shooter, Lancer, a side-scrolling shooter, and `say`, text to speech over HDMI.
-- **Network:** WiFi, a text web browser like lynx (`www`), `wget` (HTTP/HTTPS), `telnet` with a BBS directory,
+- **Network:** WiFi, a text web browser like lynx (`www`), an IRC chat client (`irc`), `wget` (HTTP/HTTPS), `telnet` with a BBS directory,
   `ssh` and `scp`, network shares (`mount`), NTP.
 - **BASIC:** a GW-BASIC style BASIC with graphics, sprites, font sheets,
   music, files, the serial port, GPIO, I2C and SPI.
@@ -54,7 +54,7 @@ Captured with `screenshot` on the board, or drawn by the PC tests in
 
 PDFs in [manuals/](manuals/), one for the OS and one for each application
 (BASIC, the editor, mc, the tracker, the radio, the clock generator, the
-FM radio, the sprite editor, the WAV editor, the hex editor, the Markdown viewer, the SDR receiver, Swarm, Lancer, the network tools, the web browser, the serial terminal, the emulators). They are made from
+FM radio, the sprite editor, the WAV editor, the hex editor, the Markdown viewer, the SDR receiver, Swarm, Lancer, the network tools, the web browser, the IRC client, the serial terminal, the emulators). They are made from
 [docs/](docs/) with `tools/make_manual.py`. The code's API documentation is
 made with `doxygen` (the `Doxyfile` here; it goes to `docs/api/html`, and
 the docs workflow builds it on each push; it can publish it to GitHub
@@ -488,6 +488,12 @@ the video's, so they never collide.
   redirects, cookies, history, bookmarks, find, the page source, downloads,
   mc-style pull-down menus and the mouse; words typed are searched for.
   Everything it keeps is in PSRAM while it runs (see the *Web Browser* manual).
+- `irc [server [+port] [nick] [#channel...]]` chats on IRC in graphics:
+  a tab for each channel and private chat, the nick list, times, coloured
+  nicks and mIRC colours, highlights when you are named, Tab completion,
+  /commands, menus like the hex editor's and the mouse; TLS on port 6697.
+  `irc` alone opens the connect box; settings are kept in `/IRC.CFG`, and
+  everything it keeps is in PSRAM while it runs (see the *IRC Client* manual).
 - `wget [-k] URL [file]` downloads over HTTP or HTTPS to the drive, with
   progress, following up to 5 redirects (between http and https too). Esc
   or Ctrl-C stops it and deletes the partial file.

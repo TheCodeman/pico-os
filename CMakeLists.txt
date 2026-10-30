@@ -116,6 +116,7 @@ add_executable(pico2_os
     src/www/www.c
     src/www/www_html.c
     src/www/www_net.c
+    src/irc/irc.c
     src/sdr/rtl_usb.c
     src/sdr/rtl2832.c
     src/sdr/sdr_dsp.c
@@ -140,7 +141,7 @@ add_executable(pico2_os
 )
 
 # tusb_config.h lives in src/; FatFs R0.15 (with our ffconf.h) in src/fatfs/.
-target_include_directories(pico2_os PRIVATE src src/fatfs src/basic src/net src/image src/applesoft src/xfer src/apple2e src/c64 src/smb src/mc src/mod src/radio src/radio/helix src/si5351 src/fmradio src/sprite src/wav src/hex src/md src/font src/www src/sdr src/swarm src/say src/lancer
+target_include_directories(pico2_os PRIVATE src src/fatfs src/basic src/net src/image src/applesoft src/xfer src/apple2e src/c64 src/smb src/mc src/mod src/radio src/radio/helix src/si5351 src/fmradio src/sprite src/wav src/hex src/md src/font src/www src/irc src/sdr src/swarm src/say src/lancer
     src/genesis src/genesis/core/bus src/genesis/core/cpus/M68K src/genesis/core/cpus/Z80
     src/genesis/core/io src/genesis/core/savestate src/genesis/core/sound src/genesis/core/vdp)
 

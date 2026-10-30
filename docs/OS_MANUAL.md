@@ -108,21 +108,22 @@ cyan, command names in white):
                                               wifi        WiFi status and setup
     Programs                                  radio       internet radio
       edit        text editor                 www         web browser (text)
-      basic       GW-BASIC style BASIC        wget        download a file
-      applesoft   Applesoft BASIC (Apple II)  telnet      remote terminal
-      term        serial terminal (COM1)      ssh         remote shell (SSH)
-      apple2e     Apple IIe emulator          scp         copy files over SSH
-      c64         Commodore 64 emulator       mount       network share (SMB)
-      genesis     Sega Genesis emulator       ntp         set the clock (NTP)
-      mc          file manager
-                                            System
-      tracker     MOD music tracker           clock       processor clock (MHz)
-      si5351      Si5351A clock generator     date        show or set the clock
-      fm          FM radio (Si4703)           mem         memory use
-      sprite      sprite editor (RGB332)      mouse       mouse status and speed
-      wav         WAV sound editor            memtest     test the PSRAM
-      sdr         radio receiver (RTL-SDR)    reset       restart the board
-      view        show a picture              run         run a script
+      basic       GW-BASIC style BASIC        irc         IRC chat client
+      applesoft   Applesoft BASIC (Apple II)  wget        download a file
+      term        serial terminal (COM1)      telnet      remote terminal
+      apple2e     Apple IIe emulator          ssh         remote shell (SSH)
+      c64         Commodore 64 emulator       scp         copy files over SSH
+      genesis     Sega Genesis emulator       mount       network share (SMB)
+      mc          file manager                ntp         set the clock (NTP)
+
+      tracker     MOD music tracker         System
+      si5351      Si5351A clock generator     clock       processor clock (MHz)
+      fm          FM radio (Si4703)           date        show or set the clock
+      sprite      sprite editor (RGB332)      mem         memory use
+      wav         WAV sound editor            mouse       mouse status and speed
+      sdr         radio receiver (RTL-SDR)    memtest     test the PSRAM
+      view        show a picture              reset       restart the board
+                                              run         run a script
                                               ver         OS and program versions
                                               help        this list
 
@@ -242,6 +243,7 @@ Esc or Ctrl-C stops between files. Copying a file onto itself is refused.
 | `wifi wait [seconds]` | Waits until WiFi is connected (default 20 s): for /AUTORUN. |
 | `wifi forget` | Deletes `WIFI.CFG`. |
 | `www [address \| file \| words]` (`lynx`) | A text web browser: pages as text with their links and forms, history, bookmarks, find (see the *Web Browser* manual). |
+| `irc [server [+port] [nick] [#channel...]]` | IRC chat: a window for each channel and private chat, the nick list, mIRC colours, TLS; alone, the connect box (see the *IRC Client* manual). |
 | `wget [-k] URL [file]` | Downloads a file over http or https. |
 | `telnet host [port]` | Telnet terminal (default port 23); **Ctrl-]** quits. `telnet` alone: a directory of BBSes to pick from. |
 | `ssh [-p port] [user@]host [command]` | Terminal session on an SSH server, or one command's output. |
@@ -350,7 +352,8 @@ The time is always UTC; there are no time zones.
 | Path | Use |
 |---|---|
 | `/WIFI.CFG` | Saved WiFi network (`ssid=` and `password=` lines) |
-| `/CACERT.PEM` | CA certificates for `wget` and `www` https |
+| `/CACERT.PEM` | CA certificates for `wget` and `www` https, and `irc` over TLS |
+| `/IRC.CFG` | The IRC client's server, port, nick, channels and View choices |
 | `/WWW/HOME.HTM`, `/WWW/BOOKMARK.HTM` | The web browser's own start page (optional) and its bookmarks |
 | `/SSH/KNOWN_HOSTS` | Trusted SSH server keys |
 | `/SSH/ID_ECDSA`, `/SSH/ID_RSA` | Optional private key for scp login |
@@ -584,5 +587,6 @@ Each manual is a PDF in the `manuals` folder (made from `docs/*.md` with
 | Lancer, the side-scrolling shooter (`lancer`) | `manuals/Pico 2 mini OS Lancer.pdf` |
 | `wget`, `telnet` and its BBS directory, `ssh`, `scp` | `manuals/Pico 2 mini OS Network Tools.pdf` |
 | The web browser (`www`, `lynx`) | `manuals/Pico 2 mini OS Web Browser.pdf` |
+| The IRC client (`irc`) | `manuals/Pico 2 mini OS IRC Client.pdf` |
 | The serial terminal (`term`) and XMODEM/YMODEM/ZMODEM | `manuals/Pico 2 mini OS Serial Terminal.pdf` |
 | Applesoft, the Apple IIe, the Commodore 64 and the Sega Genesis | `manuals/Pico 2 mini OS Emulators.pdf` |

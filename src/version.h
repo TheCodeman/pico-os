@@ -34,6 +34,7 @@
 #define VER_WIFI "1.0"       ///< wifi: WiFi setup
 #define VER_RADIO "1.0"      ///< radio: internet radio
 #define VER_WWW "1.0"        ///< www: text web browser
+#define VER_IRC "1.0"        ///< irc: IRC chat client
 #define VER_WGET "1.1"       ///< wget: downloader
 #define VER_TELNET "1.0"     ///< telnet: remote terminal
 #define VER_SSH "1.0"        ///< ssh: remote shell
