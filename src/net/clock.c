@@ -63,8 +63,11 @@ static const struct {
     {"JST", "JST-9"},                    {"AEST", "AEST-10AEDT,M10.1.0,M4.1.0/3"},
 };
 
-/// Times shown as 9:14:55 PM rather than 21:14:55 (tz 12 / tz 24).
-static bool hours12;
+/// How times are shown: 24 (2026-10-29 21:14:55), 12 (2026-10-29 9:14:55 PM)
+/// or US (10/29/2026 9:14:55 PM), set with tz 24, tz 12 and tz us.
+static enum { FMT_24, FMT_12, FMT_US } fmt;
+/// The formats' names, as tz takes them and /TZ.CFG keeps them.
+static const char *const fmt_names[] = {"24", "12", "us"};
 
 /// Uses a POSIX TZ string from now on.
 /// @param posix the TZ string
@@ -83,8 +86,12 @@ void net_tz_load(void) {
         if (line[0])
             use_tz(line);
     }
-    if (f_gets(line, sizeof line, &f))  // the second line: 12 or 24
-        hours12 = atoi(line) == 12;
+    if (f_gets(line, sizeof line, &f)) {  // the second line: 24, 12 or us
+        line[strcspn(line, "\r\n")] = 0;
+        for (int i = 0; i < 3; ++i)
+            if (!strcasecmp(line, fmt_names[i]))
+                fmt = i;
+    }
     f_close(&f);
 }
 
@@ -95,11 +102,11 @@ void net_tz_load(void) {
 static void local_text(time_t t, char *out, size_t size) {
     struct tm tm;
     localtime_r(&t, &tm);
-    if (hours12) {
+    if (fmt != FMT_24) {
         char zone[16];
         strftime(zone, sizeof zone, "%Z", &tm);
         int h = tm.tm_hour % 12 ? tm.tm_hour % 12 : 12;
-        size_t n = strftime(out, size, "%a %Y-%m-%d ", &tm);
+        size_t n = strftime(out, size, fmt == FMT_US ? "%a %m/%d/%Y " : "%a %Y-%m-%d ", &tm);
         snprintf(out + n, size - n, "%d:%02d:%02d %s %s", h, tm.tm_min, tm.tm_sec,
                  tm.tm_hour < 12 ? "AM" : "PM", zone);
     } else {
@@ -109,11 +116,15 @@ static void local_text(time_t t, char *out, size_t size) {
 
 void net_cmd_tz(int argc, char **argv) {
     if (argc > 2) {
-        printf("usage: tz [PST | MST | CST | EST | UTC | ... | POSIX TZ string | 12 | 24]\n");
+        printf("usage: tz [PST | MST | CST | EST | UTC | ... | POSIX TZ string | 24 | 12 | us]\n");
         return;
     }
-    if (argc == 2 && (!strcmp(argv[1], "12") || !strcmp(argv[1], "24"))) {
-        hours12 = argv[1][0] == '1';
+    int which = -1;
+    for (int i = 0; i < 3 && argc == 2; ++i)
+        if (!strcasecmp(argv[1], fmt_names[i]))
+            which = i;
+    if (which >= 0) {
+        fmt = which;
     } else if (argc == 2) {
         const char *posix = argv[1];
         for (unsigned i = 0; i < sizeof zones / sizeof *zones; ++i)
@@ -132,14 +143,14 @@ void net_cmd_tz(int argc, char **argv) {
     if (argc == 2) {  // saved: the zone, then 12 or 24
         FIL f;
         if (f_open(&f, TZ_FILE, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
-            f_printf(&f, "%s\r\n%d\r\n", tz ? tz : "UTC0", hours12 ? 12 : 24);
+            f_printf(&f, "%s\r\n%s\r\n", tz ? tz : "UTC0", fmt_names[fmt]);
             f_close(&f);
         } else {
             printf("(not saved: no drive)\n");
         }
     }
-    printf("Time zone: %s, %d-hour clock\n", tz ? tz : "UTC0 (tz PST etc. changes it)",
-           hours12 ? 12 : 24);
+    static const char *const shown[] = {"24-hour clock", "12-hour clock", "US dates, 12-hour clock"};
+    printf("Time zone: %s; %s\n", tz ? tz : "UTC0 (tz PST etc. changes it)", shown[fmt]);
     time_t now = time(NULL);
     if (now >= 1700000000) {
         char text[48];
@@ -152,9 +163,11 @@ void net_cmd_date(int argc, char **argv) {
     if (argc == 3) {
         // date YYYY-MM-DD HH:MM[:SS], in the time zone
         struct tm tm = {0};
-        if (sscanf(argv[1], "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) != 3 ||
+        bool us = strchr(argv[1], '/') != NULL;  // MM/DD/YYYY
+        if ((us ? sscanf(argv[1], "%d/%d/%d", &tm.tm_mon, &tm.tm_mday, &tm.tm_year)
+                : sscanf(argv[1], "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday)) != 3 ||
             sscanf(argv[2], "%d:%d:%d", &tm.tm_hour, &tm.tm_min, &tm.tm_sec) < 2) {
-            printf("usage: date [YYYY-MM-DD HH:MM[:SS]]   (local time; see tz)\n");
+            printf("usage: date [YYYY-MM-DD or MM/DD/YYYY HH:MM[:SS]]   (local, 24-hour; see tz)\n");
             return;
         }
         tm.tm_year -= 1900;
@@ -164,7 +177,7 @@ void net_cmd_date(int argc, char **argv) {
         settimeofday(&tv, NULL);
         synced = false;
     } else if (argc != 1) {
-        printf("usage: date [YYYY-MM-DD HH:MM[:SS]]   (local time; see tz)\n");
+        printf("usage: date [YYYY-MM-DD or MM/DD/YYYY HH:MM[:SS]]   (local, 24-hour; see tz)\n");
         return;
     }
     time_t now = time(NULL);

@@ -472,13 +472,14 @@ static const help_t help_system[] = {
      "  to start at it twice, it starts at 252 instead."},
     {"date", NULL, "show or set the clock",
      "date\n"
-     "date YYYY-MM-DD HH:MM[:SS]\n"
+     "date YYYY-MM-DD HH:MM[:SS]   (or MM/DD/YYYY; 24-hour)\n"
      "  Set from the network once WiFi connects; shown in the time zone (tz)."},
     {"tz", NULL, "time zone",
      "tz                         the time zone and the time there\n"
      "tz PST | MST | CST | EST | AKST | HST | ARIZONA | UTC | UK | CET | ...\n"
      "tz POSIX-TZ-string         any other, e.g. tz PST8PDT,M3.2.0,M11.1.0\n"
-     "tz 12 | tz 24              times as 9:14 PM or as 21:14\n"
+     "tz 24 | tz 12 | tz us      2026-10-29 21:14, 2026-10-29 9:14 PM, or\n"
+     "                           10/29/2026 9:14 PM\n"
      "  Saved in /TZ.CFG; daylight saving time is followed."},
     {"mem", NULL, "memory use", "mem"},
     {"mouse", NULL, "mouse status and speed",
