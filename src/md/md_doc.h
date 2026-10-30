@@ -27,6 +27,7 @@ enum {
     MF_ULINE = 8,    ///< a line under it (links)
     MF_BG = 16,      ///< its background is filled (bg), else left as it is
     MF_CODE = 32,    ///< code
+    MF_MONO = 64,    ///< in the 8x16 font whatever the widths (code blocks, the source, bullets)
 };
 
 /// The fonts: the 8x16 one, and it drawn at 12x24 and 16x32.
@@ -35,6 +36,12 @@ enum { MD_FONT_8x16, MD_FONT_12x24, MD_FONT_16x32 };
 #define MD_CW(f) (8 + 4 * (f))
 /// A font's character height.
 #define MD_CH(f) (16 + 8 * (f))
+
+/// Proportional text (TrueType fonts in the viewer): each CP437 character's
+/// width in pixels, by font (MD_FONT_) and style (1 bold, 2 italic).
+typedef struct {
+    uint8_t adv[3][4][256];  ///< the widths
+} md_widths_t;
 
 /// No item is taller than this, so the ones on a screen are found from the
 /// first one starting this far above it.
@@ -131,6 +138,16 @@ typedef bool (*md_size_fn)(void *arg, const char *src, int *w, int *h);
 /// @param arg passed to it
 /// @return the document (free with md_free), or NULL if there was no memory at all
 md_doc_t *md_layout(const char *src, uint32_t len, int width, bool source, md_size_fn size_of, void *arg);
+/// Sets the widths md_layout lays text out with: proportional ones, or NULL
+/// for the 8x16 font's (MD_CW). Code, the source view and bullets keep the
+/// 8x16 font's. They must stay put while documents laid out with them are shown.
+/// @param w the widths, or NULL
+void md_set_widths(const md_widths_t *w);
+/// A character's width in a text item, as it was laid out.
+/// @param it the item
+/// @param c the character (CP437)
+/// @return its width in pixels
+int md_char_w(const md_item_t *it, uint8_t c);
 /// Frees a document.
 /// @param d it (NULL: nothing)
 void md_free(md_doc_t *d);

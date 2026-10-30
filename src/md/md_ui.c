@@ -39,6 +39,7 @@
 #include "image.h"
 #include "mc.h"
 #include "md_doc.h"
+#include "md_ttf.h"
 #include "mouse.h"
 #include "pico/stdlib.h"
 #include "psram_heap.h"
@@ -99,7 +100,7 @@ enum {
 /// The menus' commands.
 enum {
     CMD_OPEN = 1, CMD_RELOAD, CMD_BACK, CMD_FORWARD, CMD_QUIT, CMD_TOC, CMD_SOURCE, CMD_PICTURES, CMD_TOP,
-    CMD_END, CMD_FIND, CMD_NEXT, CMD_HELP, CMD_ABOUT, CMD_FOLLOW, CMD_NEXT_LINK, CMD_PREV_LINK,
+    CMD_END, CMD_FIND, CMD_NEXT, CMD_HELP, CMD_ABOUT, CMD_FOLLOW, CMD_NEXT_LINK, CMD_PREV_LINK, CMD_TTF,
 };
 
 /// A menu item.
@@ -124,7 +125,8 @@ static const mitem_t file_items[] = {
 /// The View menu.
 static const mitem_t view_items[] = {
     {"Contents...", CMD_TOC, "Ctrl-T"}, {"-", 0, NULL},
-    {"Source text", CMD_SOURCE, "F6"},  {"Pictures", CMD_PICTURES, "*"}, {"-", 0, NULL},
+    {"Source text", CMD_SOURCE, "F6"},  {"Pictures", CMD_PICTURES, "*"},
+    {"TrueType text", CMD_TTF, "F7"},   {"-", 0, NULL},
     {"Top", CMD_TOP, "Home"},           {"End", CMD_END, "End"},          {NULL, 0, NULL},
 };
 /// The Search menu.
@@ -718,7 +720,7 @@ static void scroll_to(int32_t top) {
 /// @param sy its top
 static void draw_text(const md_item_t *it, int idx, int sx, int sy) {
     const char *s = M->doc->pool + it->ref;
-    int cw = MD_CW(it->font);
+    bool tt = md_ttf_item(it);
     bool chosen = it->link && it->link == M->cur_link;
     bool hover = it->link && it->link == M->hover_link && !chosen;
     if (chosen)
@@ -728,11 +730,20 @@ static void draw_text(const md_item_t *it, int idx, int sx, int sy) {
     int f0 = -1, f1 = -1;  // the text found in it
     if (idx == M->find_item) {
         f0 = M->find_off, f1 = f0 + (int)strlen(M->find);
-        fill(sx + f0 * cw, sy, (f1 - f0) * cw, it->h, C_FOUND);
+        int x0 = sx, x1;
+        for (int i = 0; i < f0 && i < it->len; ++i)
+            x0 += md_char_w(it, (uint8_t)s[i]);
+        x1 = x0;
+        for (int i = f0; i < f1 && i < it->len; ++i)
+            x1 += md_char_w(it, (uint8_t)s[i]);
+        fill(x0, sy, x1 - x0, it->h, C_FOUND);
     }
-    for (int i = 0; i < it->len; ++i) {
+    for (int i = 0, x = sx; i < it->len && x < SB_X - 2; x += md_char_w(it, (uint8_t)s[i]), ++i) {
         uint8_t fg = i >= f0 && i < f1 ? C_BG : chosen ? C_TEXT : it->fg;
-        glyph(sx + i * cw, sy, (uint8_t)s[i], it->font, it->flags, fg, SB_X - 2);
+        if (tt)
+            md_ttf_char(it, (uint8_t)s[i], M->t + M->cy0 * W, W, SB_X - 2, M->cy1 - M->cy0, x, sy - M->cy0, fg);
+        else
+            glyph(x, sy, (uint8_t)s[i], it->font, it->flags, fg, SB_X - 2);
     }
     if (it->flags & MF_STRIKE)
         fill(sx, sy + it->h / 2, it->w, 1 + it->font, it->fg);
@@ -901,7 +912,8 @@ static bool usable(const mitem_t *it) {
 /// @param it the item
 /// @return it does
 static bool ticked(const mitem_t *it) {
-    return (it->id == CMD_SOURCE && M->source) || (it->id == CMD_PICTURES && M->pictures);
+    return (it->id == CMD_SOURCE && M->source) || (it->id == CMD_PICTURES && M->pictures) ||
+           (it->id == CMD_TTF && md_ttf_on());
 }
 
 /// The items of the menu open.
@@ -1192,6 +1204,7 @@ static void draw_help(void) {
         "Ctrl-F, /       find text         F3, n   find it again",
         "F6, s           the source text, and back",
         "*, p            pictures, or boxes with their names",
+        "F7, f           TrueType text (fonts from /FONTS), or the 8x16 font",
         "F5, r           read the file again",
         "Ctrl-O, o       open another file",
         "F10, F9         the menus (Alt and a letter opens one)",
@@ -1674,6 +1687,23 @@ static void command(int id) {
             pics_clear();
         message(M->pictures ? "Pictures shown" : "Pictures as boxes");
         break;
+    case CMD_TTF:
+        if (!md_ttf_loaded()) {
+            char msg[100];
+            if (!md_ttf_open(msg, sizeof msg)) {
+                message("%s", msg);
+                break;
+            }
+        } else {
+            md_ttf_use(!md_ttf_on());
+        }
+        if (M->doc) {
+            int32_t h = M->doc->height, at = M->top;
+            relayout();
+            scroll_to(h ? (int32_t)((int64_t)at * M->doc->height / h) : 0);
+        }
+        message(md_ttf_on() ? "TrueType text" : "The 8x16 font");
+        break;
     case CMD_TOP: scroll_to(0); break;
     case CMD_END: scroll_to(top_max()); break;
     case CMD_FIND:
@@ -1810,6 +1840,7 @@ static void key(int k) {
     case KEY_F3: case 'n': command(CMD_NEXT); break;
     case KEY_F6: case 's': command(CMD_SOURCE); break;
     case '*': case 'p': command(CMD_PICTURES); break;
+    case KEY_F7: case 'f': command(CMD_TTF); break;
     case KEY_F5: case 'r': case CTRL('r'): command(CMD_RELOAD); break;
     case CTRL('o'): case 'o': command(CMD_OPEN); break;
     case KEY_F1: case '?': command(CMD_HELP); break;
@@ -2030,6 +2061,7 @@ static void viewer(void) {
 static void stop(void) {
     pics_clear();
     md_free(M->doc);
+    md_ttf_close();
     psram_free(M->text);
     psram_free(M->g);
     if (M->saved) {
@@ -2067,6 +2099,8 @@ static bool start(void) {
     memcpy(M->saved, dvi_framebuf, W * H);
     if (f_getcwd(M->dir, sizeof M->dir) != FR_OK)
         strcpy(M->dir, "/");
+    md_ttf_open(M->msg, sizeof M->msg);  // TrueType text if there are fonts (else the 8x16 font)
+    M->msg_until = now_ms() + 4000;
     return true;
 }
 

@@ -868,6 +868,40 @@ static void rich(const char *s, int n) {
 
 // ---- Wrapping ------------------------------------------------------------------------------------
 
+static const md_widths_t *Widths;  ///< proportional widths (md_set_widths), or NULL
+
+void md_set_widths(const md_widths_t *w) {
+    Widths = w;
+}
+
+/// A character's width.
+/// @param c the character (CP437)
+/// @param font MD_FONT_
+/// @param fl its MF_ flags
+/// @return its width in pixels
+static int char_w(uint8_t c, int font, uint8_t fl) {
+    if (!Widths || (fl & (MF_CODE | MF_MONO)))
+        return MD_CW(font);
+    return Widths->adv[font][(fl & MF_BOLD ? 1 : 0) | (fl & MF_ITALIC ? 2 : 0)][c];
+}
+
+int md_char_w(const md_item_t *it, uint8_t c) {
+    return char_w(c, it->font, it->flags);
+}
+
+/// A rich character's width.
+/// @param r it
+/// @param font MD_FONT_
+/// @param mf MF_ flags for all of the text
+/// @return its width in pixels
+static int rc_w(const rc_t *r, int font, uint8_t mf) {
+    uint8_t f = mf;
+    f |= r->f & RF_BOLD ? MF_BOLD : 0;
+    f |= r->f & RF_ITALIC ? MF_ITALIC : 0;
+    f |= r->f & RF_CODE ? MF_CODE : 0;
+    return char_w(r->c, font, f);
+}
+
 /// Text laid out into lines: items from the rich characters r[0..n), in lines no wider than w, from (x, y).
 /// Each line's place goes in B.ln.
 /// @param r the text
@@ -905,10 +939,10 @@ static int32_t flow(const rc_t *r, int n, int x, int w, int32_t y, int font, uin
                 e = i + 1, ww = pw > w ? w : pw;
             } else if (r[i].c == ' ') {
                 while (e < n && r[e].c == ' ' && !(r[e].f & RF_BREAK))
-                    ++e, ww += cw;
+                    ww += rc_w(&r[e++], font, mf);
             } else {
                 while (e < n && r[e].c != ' ' && r[e].c != 0 && !(r[e].f & RF_BREAK))
-                    ++e, ww += cw;
+                    ww += rc_w(&r[e++], font, mf);
             }
             if (lx + ww > w && lx > 0) {
                 if (r[i].c == ' ')  // spaces at the end of a line go too
@@ -941,8 +975,12 @@ static int32_t flow(const rc_t *r, int n, int x, int w, int32_t y, int font, uin
                 continue;
             }
             // A word too long for a line on its own is cut.
-            if (ww > w - lx)
-                e = i + (w - lx) / cw > i ? i + (w - lx) / cw : i + 1;
+            if (ww > w - lx) {
+                int fit = 0, k = i;
+                while (k < e && fit + rc_w(&r[k], font, mf) <= w - lx)
+                    fit += rc_w(&r[k++], font, mf);
+                e = k > i ? k : i + 1;
+            }
             for (; i < e; ++i) {
                 const rc_t *c = &r[i];
                 uint8_t f = mf;
@@ -974,8 +1012,9 @@ static int32_t flow(const rc_t *r, int n, int x, int w, int32_t y, int font, uin
                 d->pool[d->npool++] = (char)c->c;
                 d->pool[d->npool] = 0;
                 run->len++;
-                run->w = (uint16_t)(run->w + cw);
-                lx += cw;
+                int cwi = char_w(c->c, font, f);
+                run->w = (uint16_t)(run->w + cwi);
+                lx += cwi;
             }
         }
         // Spaces at the end come off.
@@ -983,8 +1022,9 @@ static int32_t flow(const rc_t *r, int n, int x, int w, int32_t y, int font, uin
             md_item_t *it = &d->items[k];
             if (it->kind != MI_TEXT)
                 break;
+            int sw = char_w(' ', it->font, it->flags);
             while (it->len && d->pool[it->ref + it->len - 1] == ' ')
-                it->len--, it->w = (uint16_t)(it->w - cw), lx -= cw;
+                it->len--, it->w = (uint16_t)(it->w - sw), lx -= sw;
             if (it->len)
                 break;
             d->nitems--;  // (only ever the last)
@@ -1074,7 +1114,7 @@ static void decorate(int32_t top, int first_h) {
         it->kind = MI_TEXT;
         it->font = MD_FONT_8x16;
         it->fg = c->task > 0 ? MD_C_TICK : MD_C_BULLET;
-        it->flags = c->task > 0 ? MF_BOLD : 0;
+        it->flags = (c->task > 0 ? MF_BOLD : 0) | MF_MONO;
         it->len = (uint16_t)n;
         it->w = (uint16_t)(n * 8);
         it->h = 16;
@@ -1185,7 +1225,7 @@ static void emit_code(const char *s, int n, bool band) {
             it->kind = MI_TEXT;
             it->font = MD_FONT_8x16;
             it->fg = band ? MD_C_CODE : MD_C_TEXT;
-            it->flags = band ? MF_CODE : 0;
+            it->flags = band ? MF_CODE | MF_MONO : MF_MONO;
             it->x = (int16_t)(x + (band ? 8 : 0));
             it->y = B.y + 1;
             it->h = 16;
@@ -1335,7 +1375,7 @@ static void emit_table(const char *s, int n) {
                     picture_size(B.rc[i].img - 1, &pw, &ph);
                     wd += pw;
                 } else {
-                    wd += 8;
+                    wd += rc_w(&B.rc[i], MD_FONT_8x16, r ? 0 : MF_BOLD);
                 }
             }
             wd += 2 * CELL_PAD;

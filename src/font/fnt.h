@@ -9,9 +9,10 @@
  * read from the file as they are. Text is blended into an RGB332 picture
  * (the framebuffer, or one like it), with or without dithering.
  *
- * Memory: the state and the glyph cache in PSRAM, and while a font is open
- * a small arena in the SRAM heap (FNT_ARENA) for stb_truetype's working
- * buffers, so drawing a glyph doesn't go through the PSRAM heap.
+ * Memory: the state and the glyph cache in PSRAM, and while any outline
+ * font is open one small arena in the SRAM heap (FNT_ARENA), shared by them,
+ * for stb_truetype's working buffers, so drawing a glyph doesn't go through
+ * the PSRAM heap.
  *
  * @author Ken Segler
  * @copyright Copyright (c) 2026 Ken Segler
@@ -95,6 +96,25 @@ void fnt_vmetrics(fnt_t *f, int px, int *ascent, int *descent, int *gap);
 /// @return the pen's x after it
 int fnt_draw(fnt_t *f, int px, uint8_t *dst, int stride, int cw, int ch, int x, int y, const char *s,
              uint8_t fg);
+/// A character's advance (no kerning).
+/// @param f the font
+/// @param px the size
+/// @param cp the character
+/// @return its advance, 1/64 px (0 if the font lacks it)
+int32_t fnt_advance(fnt_t *f, int px, int cp);
+/// Draws one character with its origin (the pen on the baseline) at (x, y):
+/// for text laid out by the caller.
+/// @param f the font
+/// @param px the size
+/// @param dst the picture
+/// @param stride its bytes per row
+/// @param cw its width (clipped to it)
+/// @param ch its height
+/// @param x the pen
+/// @param y the baseline
+/// @param cp the character
+/// @param fg the colour (RGB332)
+void fnt_draw_cp(fnt_t *f, int px, uint8_t *dst, int stride, int cw, int ch, int x, int y, int cp, uint8_t fg);
 /// The width text would take.
 /// @param f the font
 /// @param px the size

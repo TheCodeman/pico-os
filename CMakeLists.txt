@@ -108,6 +108,7 @@ add_executable(pico2_os
     src/hex/hex_ui.c
     src/md/md_doc.c
     src/md/md_ui.c
+    src/md/md_ttf.c
     src/font/fnt.c
     src/font/fnt_stb.c
     src/font/font_app.c

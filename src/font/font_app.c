@@ -479,7 +479,7 @@ static void bench(int argc, char **argv) {
                outline ? (double)b[i].raster_us[0] : 0.0, outline ? (double)b[i].raster_us[1] : 0.0,
                (double)b[i].nocache_gps[0], (double)b[i].nocache_gps[1], (double)b[i].cache_gps[1]);
     }
-    printf("\nmemory while open: SRAM heap %ld KB (the arenas), PSRAM %lu KB (files, state, caches)\n",
+    printf("\nmemory while open: SRAM heap %ld KB (the shared arena), PSRAM %lu KB (files, state, caches)\n",
            (sram0 - sram1) / 1024, (unsigned long)((ps0 - ps2) >> 10));
     (void)ps1;
     for (int i = 0; i < n; ++i)

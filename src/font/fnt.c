@@ -71,20 +71,23 @@ struct fnt {
     int used;                 ///< entries in it
     size_t budget;            ///< see fnt_cache_budget
     fnt_stats_t st;           ///< figures
-    uint8_t *ar;              ///< the SRAM arena
-    size_t ar_used;           ///< bytes of it given out for this glyph
 };
+
+/// The SRAM arena, shared by the fonts open (they draw one glyph at a time).
+static uint8_t *Ar;
+static int ar_users;    ///< fonts open that use it
+static size_t ar_used;  ///< bytes of it given out for this glyph
 
 // ---- stb_truetype's memory ------------------------------------------------------------------------
 
 void *fnt_stb_alloc(size_t n, void *user) {
     fnt_t *f = user;
     n = (n + 7) & ~(size_t)7;
-    if (f->ar && f->ar_used + n <= FNT_ARENA) {
-        void *p = f->ar + f->ar_used;
-        f->ar_used += n;
-        if (f->ar_used > f->st.arena_peak)
-            f->st.arena_peak = f->ar_used;
+    if (Ar && ar_used + n <= FNT_ARENA) {
+        void *p = Ar + ar_used;
+        ar_used += n;
+        if (ar_used > f->st.arena_peak)
+            f->st.arena_peak = ar_used;
         return p;
     }
     f->st.spills++;
@@ -92,8 +95,8 @@ void *fnt_stb_alloc(size_t n, void *user) {
 }
 
 void fnt_stb_free(void *p, void *user) {
-    fnt_t *f = user;
-    if (p && !(f->ar && (uint8_t *)p >= f->ar && (uint8_t *)p < f->ar + FNT_ARENA))
+    (void)user;
+    if (p && !(Ar && (uint8_t *)p >= Ar && (uint8_t *)p < Ar + FNT_ARENA))
         psram_free(p);  // the arena's blocks go all at once, at the next glyph
 }
 
@@ -240,8 +243,11 @@ fnt_t *fnt_open(const uint8_t *data, size_t size, const char **err) {
     }
     f->kind = f->info.cff.size > 0 ? FNT_CFF : FNT_TTF;
     f->slots = psram_malloc(SLOTS * sizeof(slot_t));
-    f->ar = malloc(FNT_ARENA);
-    if (!f->slots || !f->ar) {
+    if (!Ar)
+        Ar = malloc(FNT_ARENA);
+    if (Ar)
+        ar_users++;
+    if (!f->slots || !Ar) {
         *err = "no memory";
         fnt_close(f);
         return NULL;
@@ -257,7 +263,10 @@ void fnt_close(fnt_t *f) {
         fnt_cache_clear(f);
         psram_free(f->slots);
     }
-    free(f->ar);
+    if (f->kind != FNT_PFN && Ar && --ar_users == 0) {
+        free(Ar);
+        Ar = NULL;
+    }
     psram_free(f);
 }
 
@@ -351,7 +360,7 @@ static void outline_glyph(fnt_t *f, float sc, int gi, glyph_t *g) {
     g->h = y1 - y0;
     g->nib = false;
     g->bm = NULL;
-    f->ar_used = 0;
+    ar_used = 0;
     if (g->w <= 0 || g->h <= 0) {
         g->w = g->h = 0;
         return;
@@ -437,7 +446,7 @@ int fnt_sdf_one(fnt_t *f, int px, int cp) {
     if (f->kind == FNT_PFN)
         return -1;
     int w = 0, h = 0, xo, yo;
-    f->ar_used = 0;
+    ar_used = 0;
     unsigned char *s = stbtt_GetCodepointSDF(&f->info, stbtt_ScaleForMappingEmToPixels(&f->info, (float)px), cp, 4,
                                              128, 32.0f, &w, &h, &xo, &yo);
     if (s)
@@ -516,7 +525,9 @@ static void blit(const fnt_t *f, const glyph_t *g, uint8_t *dst, int stride, int
             g8 += ((fgr - g8) * a1) >> 8;
             b8 += ((fb - b8) * a1) >> 8;
             int t = f->dither ? th[(x + c) & 3] * 16 + 8 : 127;
-            int q3r = (r8 * 7 + t) / 255, q3g = (g8 * 7 + t) / 255, q2 = (b8 * 3 + t) / 255;
+            // (v * levels + t) / 255, as a multiply: exact for these ranges
+            int q3r = ((r8 * 7 + t) * 257 + 257) >> 16, q3g = ((g8 * 7 + t) * 257 + 257) >> 16;
+            int q2 = ((b8 * 3 + t) * 257 + 257) >> 16;
             d[c] = (uint8_t)(q3r << 5 | q3g << 2 | q2);
         }
     }
@@ -540,6 +551,27 @@ int fnt_draw(fnt_t *f, int px, uint8_t *dst, int stride, int cw, int ch, int x, 
         pen += g.adv;
     }
     return (pen + 32) >> 6;
+}
+
+int32_t fnt_advance(fnt_t *f, int px, int cp) {
+    if (f->kind == FNT_PFN) {
+        strike_t *t = strike_for(f, px);
+        int i = pfn_find(t, cp);
+        return i < 0 ? 0 : rd16(t->g + 12 * i + 6);
+    }
+    int gi = stbtt_FindGlyphIndex(&f->info, cp), adv, lsb;
+    if (!gi)
+        return 0;
+    stbtt_GetGlyphHMetrics(&f->info, gi, &adv, &lsb);
+    return (int32_t)(adv * stbtt_ScaleForMappingEmToPixels(&f->info, (float)px) * 64.0f + 0.5f);
+}
+
+void fnt_draw_cp(fnt_t *f, int px, uint8_t *dst, int stride, int cw, int ch, int x, int y, int cp, uint8_t fg) {
+    float sc = f->kind == FNT_PFN ? 0 : stbtt_ScaleForMappingEmToPixels(&f->info, (float)px);
+    glyph_t g;
+    glyph_get(f, px, sc, cp, &g);
+    if (g.bm)
+        blit(f, &g, dst, stride, cw, ch, x + g.xoff, y + g.yoff, fg);
 }
 
 int fnt_width(fnt_t *f, int px, const char *s) {

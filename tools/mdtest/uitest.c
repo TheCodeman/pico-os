@@ -61,6 +61,7 @@ FRESULT f_read(FIL *f, void *buf, UINT n, UINT *got) { *got = (UINT)fread(buf, 1
 FRESULT f_write(FIL *f, const void *buf, UINT n, UINT *put) { *put = (UINT)fwrite(buf, 1, n, f->f); return FR_OK; }
 FRESULT f_lseek(FIL *f, FSIZE_t at) { return fseek(f->f, (long)at, SEEK_SET) ? 1 : FR_OK; }
 FRESULT f_close(FIL *f) { return fclose(f->f) ? 1 : FR_OK; }
+char *f_gets(char *buf, int n, FIL *f) { return fgets(buf, n, f->f); }
 FSIZE_t f_tell(FIL *f) { return (FSIZE_t)ftell(f->f); }
 FSIZE_t f_size(FIL *f) {
     long at = ftell(f->f);

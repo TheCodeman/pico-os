@@ -23,6 +23,7 @@ FRESULT f_read(FIL *f, void *buf, UINT n, UINT *got);      ///< reads
 FRESULT f_write(FIL *f, const void *buf, UINT n, UINT *put);  ///< writes
 FRESULT f_lseek(FIL *f, FSIZE_t at);                        ///< moves to a byte
 FRESULT f_close(FIL *f);                                    ///< closes
+char *f_gets(char *buf, int n, FIL *f);                     ///< reads a line
 FSIZE_t f_size(FIL *f);                                     ///< its size
 FSIZE_t f_tell(FIL *f);                                     ///< where it is
 FRESULT f_opendir(DIR *d, const char *path);                ///< opens a folder

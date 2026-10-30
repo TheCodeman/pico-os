@@ -65,6 +65,50 @@ keyboard alone; a USB mouse helps.
 
 ![a table and pictures](md_table.png)
 
+## TrueType text
+
+![TrueType text](md_ttf_top.png)
+
+If there are fonts in `/FONTS` on the drive, `md` draws its text with them:
+proportional and anti-aliased, with real bold and italic letters. Code,
+code blocks, the source view and list bullets stay in the 8x16 font, so
+code still lines up. F7 or `f` (or View > TrueType text) switches between
+the fonts and the 8x16 font.
+
+The fonts drawn are:
+
+| Style | File (the default) |
+|---|---|
+| regular | `/FONTS/SS3.TTF` |
+| bold | `/FONTS/SS3-B.TTF` |
+| italic | `/FONTS/SS3-I.TTF` |
+| bold italic | `/FONTS/SS3-BI.TTF` |
+
+Only the regular font is needed. Without a bold font, bold is drawn as the
+regular font twice, one pixel apart. Without an italic font, italic text
+is upright. To use other fonts, write `/FONTS/MD.CFG` with lines like these
+(a name without a `/` is in `/FONTS`):
+
+```
+regular=DejaVuSans.ttf
+bold=DejaVuSans-Bold.ttf
+italic=/MYFONTS/DejaVuSans-Oblique.ttf
+```
+
+Any font the `font` command reads will do: `.ttf`, `.otf` or `.pfn` (see
+the *Font Viewer* manual). Body text is drawn at 16 pixels per em,
+`##` headings at 24 and `#` headings at 32. Lines keep the 8x16 font's
+heights. Each glyph is drawn once and kept in a cache, so scrolling
+redraws from the cache. Kerning is not used.
+
+Loading takes longer with big font files. Source Sans 3 cut down to the
+characters the viewer can show is about 19 KB per style, against 430 KB for
+the whole font. To make such a file on a PC with fontTools, run
+`pyftsubset SourceSans3-Regular.ttf --unicodes=U+20-7E,U+A0-FF
+--no-hinting --output-file=SS3.TTF`. The fonts are kept in PSRAM, with a
+16 KB working area in SRAM, only while `md` is open. If there are no
+fonts, or not enough memory, the 8x16 font is used.
+
 ## Links
 
 ![the link chosen](md_link.png)
@@ -128,6 +172,7 @@ the pointer, Back, Forward, Contents, Find, Source text and Reload.
 | F3, `n` | find the next |
 | F6, `s` | the source text, or the page |
 | `*`, `p` | pictures, or boxes |
+| F7, `f` | TrueType text, or the 8x16 font |
 | F5, `r` | read the file again |
 | Ctrl-O, `o` | open a file |
 | F1, `?` | the keys |
@@ -144,5 +189,5 @@ the pointer, Back, Forward, Contents, Find, Source text and Reload.
   are shown as their alt text.
 - HTML blocks are shown as their text, with the tags left out; footnotes
   and math are shown as they are written.
-- The 8x16 font is code page 437: characters it lacks (most of those
-  outside Western European languages, and emoji) are left out.
+- Text is kept as code page 437, in both fonts: characters it lacks (most
+  of those outside Western European languages, and emoji) are left out.
