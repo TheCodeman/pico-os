@@ -25,7 +25,9 @@
 #include <strings.h>
 
 #include "console.h"
+#include "dvi.h"
 #include "ff.h"
+#include "image.h"
 #include "mc.h"
 #include "mouse.h"
 #include "pico/stdio.h"
@@ -50,6 +52,8 @@
 #define HOME_FILE  "/WWW/HOME.HTM"
 /// The bookmarks.
 #define BOOKMARKS  "/WWW/BOOKMARK.HTM"
+/// A picture being shown: the viewer reads it from the drive.
+#define IMAGE_TMP  "/WWW/IMAGE.TMP"
 /// Where a search goes: the words are put on the end.
 #define SEARCH_URL "https://html.duckduckgo.com/html/?q="
 
@@ -58,6 +62,8 @@
 #define C_PAGE      A(LGRAY, BLACK)
 /// A link.
 #define C_LINK      A(LGREEN, BLACK)
+/// A picture (its alt text) that is a link of its own, to view it.
+#define C_IMG_LINK  A(LMAGENTA, BLACK)
 /// The link chosen.
 #define C_LINK_CUR  A(BLACK, CYAN)
 /// A form field.
@@ -163,6 +169,7 @@ static const char help_page[] =
     "m                 the start page\n"
     "a, F7             bookmark this page      v, F8  the bookmarks\n"
     "d                 download the link to the drive\n"
+    "i                 show the chosen picture (or the link's) on the whole screen\n"
     "s                 save the page's source  p      save it as text\n"
     "=                 about this page and the link\n"
     "F9, Alt+letter    the menus\n"
@@ -185,7 +192,7 @@ enum {
     M_SOURCE, M_INFO, M_VERIFY,
     M_MARK, M_MARKS,
     M_HELP, M_ABOUT,
-    M_FOLLOW,
+    M_FOLLOW, M_IMAGE,
 };
 
 static const menu_item_t file_items[] = {
@@ -204,7 +211,7 @@ static const menu_item_t nav_items[] = {
 };  ///< Go
 static const menu_item_t view_items[] = {
     {"Page source", M_SOURCE, "\\", false},  {"Page info", M_INFO, "=", false},
-    {"-", 0, NULL, false},
+    {"View image", M_IMAGE, "i", false},     {"-", 0, NULL, false},
     {"Check certificates", M_VERIFY, NULL, false}, {NULL, 0, NULL, false},
 };  ///< View
 static const menu_item_t mark_items[] = {
@@ -352,7 +359,11 @@ static void describe_link(char *out, size_t size) {
     switch (l->type) {
     case WL_HREF:
         www_resolve(base_url(), name, W->url2, sizeof W->url2);
-        snprintf(out, size, "%s", W->url2);
+        snprintf(out, size, "%s%s", W->url2, l->img ? "   (i: its picture)" : "");
+        return;
+    case WL_IMAGE:
+        www_resolve(base_url(), name, W->url2, sizeof W->url2);
+        snprintf(out, size, "Picture: Enter shows it: %s", W->url2);
         return;
     case WL_TEXT:
     case WL_TEXTAREA:
@@ -427,8 +438,12 @@ static void draw(void) {
     // The links on the screen, in their colours.
     for (int32_t s = www_seg_from(d, W->top); s < d->nsegs && d->segs[s].line < W->top + PAGE_ROWS; ++s) {
         const www_seg_t *g = &d->segs[s];
-        bool field = d->links[g->link].type != WL_HREF;
-        uint8_t at = g->link == W->cur ? (field ? C_FIELD_CUR : C_LINK_CUR) : (field ? C_FIELD : C_LINK);
+        int type = d->links[g->link].type;
+        bool field = type != WL_HREF && type != WL_IMAGE;
+        uint8_t at = g->link == W->cur ? (field ? C_FIELD_CUR : C_LINK_CUR)
+                     : field           ? C_FIELD
+                     : type == WL_IMAGE ? C_IMG_LINK
+                                        : C_LINK;
         const www_cell_t *cells = d->cells + d->lines[g->line].cell + g->col;
         for (int i = 0; i < g->len; ++i)
             scr_put(PAGE_TOP + g->line - W->top, 1 + g->col + i, cells[i].ch, at);
@@ -873,6 +888,71 @@ static void edit_field(int link) {
         submit(l->form, button);
 }
 
+/// Shows the chosen link's picture on the whole screen (PNG, JPEG or BMP,
+/// as the view command does) until a key or a click.
+static void view_image(void) {
+    const www_doc_t *d = W->doc;
+    if (W->cur < 0 || !visible(W->cur) || !d->links[W->cur].img) {
+        snprintf(W->note, sizeof W->note, "Choose a [picture], or a link with one, first");
+        return;
+    }
+    www_resolve(base_url(), www_str(d, d->links[W->cur].img), W->url, sizeof W->url);
+    if (strncasecmp(W->url, "http://", 7) && strncasecmp(W->url, "https://", 8) &&
+        strncasecmp(W->url, "file://", 7)) {
+        snprintf(W->note, sizeof W->note, "Can't load a %.*s: picture", (int)strcspn(W->url, ":"), W->url);
+        return;
+    }
+    if (!fetch(W->url, NULL))
+        return;
+    // The viewer reads files: the picture goes to the drive for a moment.
+    f_mkdir("/WWW");
+    FIL f;
+    UINT put = 0;
+    bool ok = f_open(&f, IMAGE_TMP, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK;
+    if (ok) {
+        ok = f_write(&f, W->reply.body, W->reply.len, &put) == FR_OK && put == W->reply.len;
+        f_close(&f);
+    }
+    psram_free(W->reply.body);
+    W->reply.body = NULL;
+    image_t img;
+    const char *err = "can't write " IMAGE_TMP;
+    if (ok) {
+        status_now("Decoding the picture...");
+        ok = image_load(IMAGE_TMP, DVI_WIDTH, DVI_HEIGHT, &img, &err);
+    }
+    f_unlink(IMAGE_TMP);
+    uint8_t *saved = ok ? psram_malloc(DVI_WIDTH * DVI_HEIGHT) : NULL;
+    if (!saved) {
+        if (ok)
+            image_free(&img);
+        char text[160];
+        snprintf(text, sizeof text, "Can't show it: %s\n(PNG, JPEG and BMP can be shown;\nnot GIF, WebP or SVG)",
+                 ok ? "not enough memory" : err);
+        dlg_message("Picture", text, "OK", true);
+        return;
+    }
+    // Drawn over the screen, which is put back afterwards.
+    mouse_pointer(MOUSE_POINTER_OFF);
+    console_freeze(true);
+    memcpy(saved, dvi_framebuf, DVI_WIDTH * DVI_HEIGHT);
+    memset(dvi_framebuf, 0, DVI_WIDTH * DVI_HEIGHT);
+    int x = 0, y = 0, w = DVI_WIDTH, h = DVI_HEIGHT;
+    image_fit(&img, &x, &y, &w, &h);
+    image_draw(&img, dvi_framebuf, x, y, w, h, NULL);
+    snprintf(W->note, sizeof W->note, "Picture %d x %d: %s", img.w, img.h, W->url);
+    image_free(&img);
+    for (;;) {
+        mouse_event_t e;
+        int k = key_get_mouse(&e);
+        if (k != KEY_MOUSE || e.type == MOUSE_DOWN)
+            break;
+    }
+    memcpy(dvi_framebuf, saved, DVI_WIDTH * DVI_HEIGHT);
+    psram_free(saved);
+    console_freeze(false);
+}
+
 /// Enter on the link chosen: follows it, or works the form field.
 static void activate(void) {
     www_doc_t *d = W->doc;
@@ -926,6 +1006,9 @@ static void activate(void) {
     }
     case WL_SUBMIT:
         submit(l->form, W->cur);
+        break;
+    case WL_IMAGE:
+        view_image();
         break;
     }
 }
@@ -1007,7 +1090,8 @@ static void save_text(void) {
 /// Downloads the chosen link's address to the drive.
 static void download(void) {
     const www_doc_t *d = W->doc;
-    if (W->cur < 0 || !visible(W->cur) || d->links[W->cur].type != WL_HREF) {
+    int type = W->cur >= 0 ? d->links[W->cur].type : -1;
+    if (!visible(W->cur) || (type != WL_HREF && type != WL_IMAGE)) {
         snprintf(W->note, sizeof W->note, "Choose a link to download first");
         return;
     }
@@ -1159,6 +1243,7 @@ static void command(int id) {
         show(NULL);
         break;
     case M_INFO: info(); break;
+    case M_IMAGE: view_image(); break;
     case M_VERIFY:
         W->verify = !W->verify;
         snprintf(W->note, sizeof W->note, W->verify ? "https certificates are checked"
@@ -1177,7 +1262,7 @@ static void command(int id) {
 /// Opens the menus at menu `open`.
 /// @param open the menu
 static void run_menu(int open) {
-    W->view[3].check = W->verify;
+    W->view[4].check = W->verify;
     int id = menu_run(W->menus, NMENUS, open);
     if (id > 0)
         command(id);
@@ -1186,7 +1271,7 @@ static void run_menu(int open) {
 /// The right button's pop-up menu: what it can do (the link items only over a link).
 static const menu_item_t popup_items[] = {
     {"Follow link", M_FOLLOW, "Enter", false},  {"Download link...", M_DOWNLOAD, "d", false},
-    {"-", 0, NULL, false},
+    {"View image", M_IMAGE, "i", false},        {"-", 0, NULL, false},
     {"Back", M_BACK, "Left", false},            {"Forward", M_FORWARD, "Ctrl-F", false},
     {"Reload", M_RELOAD, "r", false},           {"Start page", M_HOME, "m", false},
     {"-", 0, NULL, false},
@@ -1205,7 +1290,18 @@ static const menu_item_t popup_items[] = {
 static void popup(int row, int col, bool link) {
     const menu_item_t *items[NPOPUP];
     int n = 0, w = 0;
-    for (int i = link ? 0 : 3; i < NPOPUP; ++i) {  // (without a link: from Back)
+    const www_link_t *l = link ? &W->doc->links[W->cur] : NULL;
+    for (int i = 0; i < NPOPUP; ++i) {
+        int id = popup_items[i].id;
+        // Over a link: its items (View image if it has a picture). Elsewhere, from Back.
+        if ((id == M_FOLLOW || id == M_DOWNLOAD || (id == 0 && i < 4)) && !l)
+            continue;
+        if (id == M_FOLLOW && l->type == WL_IMAGE)
+            continue;
+        if (id == M_IMAGE && (!l || !l->img))
+            continue;
+        if (id == M_DOWNLOAD && l->type != WL_HREF && l->type != WL_IMAGE)
+            continue;
         items[n++] = &popup_items[i];
         int len = (int)strlen(popup_items[i].text) +
                   (popup_items[i].key ? (int)strlen(popup_items[i].key) + 2 : 0);
@@ -1327,6 +1423,7 @@ static void handle(int k) {
     case 's': command(M_SAVE_SRC); break;
     case 'p': command(M_SAVE_TEXT); break;
     case '=': command(M_INFO); break;
+    case 'i': command(M_IMAGE); break;
     case CTRL('y'): command(M_HISTORY); break;
     case KEY_F9: run_menu(0); break;
     case 'q': case 'Q': case KEY_F10: case CTRL('c'): command(M_QUIT); break;

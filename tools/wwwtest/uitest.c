@@ -8,7 +8,8 @@
  *     ./uitest.sh  (builds this, writes www_*.png into the folder given)
  *
  * The pretend server answers any host: / (a demo page, sent chunked),
- * /redirect (a 302 that sets a cookie), /cookie (shows the cookie sent back),
+ * /redirect (a 302 that sets a cookie), /pics (pictures: /pic.bmp and
+ * /pic.gif), /cookie (shows the cookie sent back),
  * /search?q= (shows the query), /post (shows the form data posted), /long (a
  * long page), /file.bin (a download) and anything else a 404.
  *
@@ -77,6 +78,7 @@ void console_get_cell(int row, int col, uint8_t *ch, uint8_t *attr) {
     *attr = cell_at[row][col];
 }
 void console_get_cursor(int *row, int *col) { *row = *col = 0; }
+void console_freeze(bool on) { (void)on; }
 uint64_t time_us_64(void) { return now_us; }
 void sleep_ms(uint32_t ms) { now_us += ms * 1000ull; }
 absolute_time_t make_timeout_time_ms(uint32_t ms) { return now_us + ms * 1000ull; }
@@ -118,6 +120,8 @@ FSIZE_t f_size(FIL *f) {
     fseek(f->f, at, SEEK_SET);
     return (FSIZE_t)n;
 }
+FRESULT f_lseek(FIL *f, FSIZE_t at) { return fseek(f->f, (long)at, SEEK_SET) ? 1 : FR_OK; }
+FSIZE_t f_tell(FIL *f) { return (FSIZE_t)ftell(f->f); }
 FRESULT f_stat(const char *path, FILINFO *fi) {
     struct stat st;
     if (stat(local(path), &st))
@@ -203,6 +207,25 @@ static void answer(struct net_conn *c) {
             n += snprintf(page + n, sizeof page - n, "<p>Paragraph %d. Some text to read %s</p>%s", i,
                           i == 77 ? "with the word needle in it." : "on the way down.",
                           i % 10 == 0 ? "<p><a href=\"/\">Back to the demo</a></p>" : "");
+    } else if (!strcmp(path, "/pics")) {
+        n = snprintf(page, sizeof page, "<title>Pictures</title><h1>Pictures</h1>"
+                     "<p><img src=\"pic.bmp\" alt=\"A test picture\"> beside text</p>"
+                     "<p><a href=\"/\"><img src=\"/pic.gif\" alt=\"logo\"> Home</a></p>");
+    } else if (!strcmp(path, "/pic.bmp")) {  // a 64 x 48 colour ramp, 24-bit BMP
+        static const uint8_t hdr[54] = {'B', 'M', 0x36, 0x24, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0,
+                                        64, 0, 0, 0, 48, 0, 0, 0, 1, 0, 24, 0};
+        memcpy(page, hdr, sizeof hdr);
+        n = sizeof hdr;
+        for (int y = 47; y >= 0; --y)  // bottom row first, BGR
+            for (int x = 0; x < 64; ++x) {
+                page[n++] = (char)(255 - x * 4);
+                page[n++] = (char)(y * 5);
+                page[n++] = (char)(x * 4);
+            }
+        type = "image/bmp";
+    } else if (!strcmp(path, "/pic.gif")) {
+        n = snprintf(page, sizeof page, "GIF89a not really");
+        type = "image/gif";
     } else if (!strcmp(path, "/file.bin")) {
         type = "application/octet-stream";
         for (n = 0; n < 1000; ++n)
@@ -308,6 +331,20 @@ static void shot(const char *name) {
     fclose(f);
 }
 
+/// Writes the pixels (a picture over the text) as RGB bytes to shot_<name>.raw.
+/// @param name the screenshot's name
+static void shot_pixels(const char *name) {
+    char path[64];
+    snprintf(path, sizeof path, "shot_%s.raw", name);
+    FILE *f = fopen(path, "wb");
+    for (int i = 0; i < DVI_WIDTH * DVI_HEIGHT; ++i) {
+        uint8_t v = dvi_framebuf[i];
+        uint8_t px[3] = {(uint8_t)((v >> 5) * 255 / 7), (uint8_t)(((v >> 2) & 7) * 255 / 7), (uint8_t)((v & 3) * 85)};
+        fwrite(px, 1, 3, f);
+    }
+    fclose(f);
+}
+
 /// Whether the screen shows `text`.
 /// @param text the text
 /// @return it does
@@ -336,6 +373,7 @@ static void dump_screen(void) {
 enum {
     S_KEYS,     ///< types s
     S_SHOT,     ///< takes screenshot s
+    S_PIXELS,   ///< takes screenshot s of the pixels (a picture shown)
     S_SEE,      ///< checks the screen shows s
     S_NOTSEE,   ///< checks it doesn't
     S_FILE,     ///< checks file s has size a
@@ -490,6 +528,26 @@ static const step_t script[] = {
     {S_SEE, "History"},
     {S_KEYS, "\x1b"},
     {S_PAUSE, NULL, 0, 0, 0},
+    // Pictures: one with alt text is a link of its own; Enter shows it.
+    {S_KEYS, "ghttp://demo.test/pics\r"},
+    {S_SEE, "[A test picture] beside text"},
+    {S_SEE, "Picture: Enter shows it: http://demo.test/pic.bmp"},
+    {S_KEYS, "\r"},
+    {S_PIXELS, "image"},
+    {S_KEYS, " "},
+    {S_SEE, "Picture 64 x 48: http://demo.test/pic.bmp"},
+    // A link with a picture: i shows it (a GIF: it can't).
+    {S_KEYS, DOWN},
+    {S_SEE, "http://demo.test/   (i: its picture)"},
+    {S_KEYS, "i"},
+    {S_SEE, "Can't show it: not a BMP, PNG or JPEG file"},
+    {S_KEYS, "\r"},
+    // The right button's menu over the picture: View image, no Follow link.
+    {S_CLICK, NULL, 4, 3, MOUSE_RIGHT},
+    {S_SEE, "View image"},
+    {S_NOTSEE, "Follow link"},
+    {S_KEYS, "\x1b"},
+    {S_PAUSE, NULL, 0, 0, 0},
     {S_KEYS, "h"},
     {S_SEE, "www: keys"},
     {S_SHOT, "help"},
@@ -517,6 +575,9 @@ static void run_steps(void) {
             continue;
         case S_SHOT:
             shot(s->s);
+            break;
+        case S_PIXELS:
+            shot_pixels(s->s);
             break;
         case S_SEE:
         case S_NOTSEE:

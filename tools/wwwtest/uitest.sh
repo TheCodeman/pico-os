@@ -10,7 +10,10 @@ T=$(mktemp -d)
 SRC=../../src
 FLAGS="-O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-format-truncation -fsanitize=address,undefined -include stubs/pc_printf.h -Istubs -I$SRC -I$SRC/mc -I$SRC/net -I$SRC/www"
 for f in $SRC/mc/mc_scr.c $SRC/mc/mc_ui.c $SRC/www/www_html.c $SRC/www/www_net.c $SRC/www/www.c uitest.c; do
-    cc $FLAGS -c "$f" -o "$T/$(basename "$f" .c).o"
+    cc $FLAGS -I$SRC/image -c "$f" -o "$T/$(basename "$f" .c).o"
+done
+for f in image lodepng tjpgd; do  # the picture viewer
+    cc -O1 -w -fsanitize=address,undefined -include stubs/pc_printf.h -Istubs -I$SRC -I$SRC/image -c $SRC/image/$f.c -o "$T/$f.o"
 done
 cc -fsanitize=address,undefined "$T"/*.o -o "$T/uitest"
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Istubs -I$SRC/www htmltest.c $SRC/www/www_html.c -o "$T/htmltest"

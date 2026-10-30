@@ -46,6 +46,7 @@ enum {
     WL_SELECT,    ///< <select>
     WL_SUBMIT,    ///< <input type=submit|image>, <button>
     WL_HIDDEN,    ///< <input type=hidden>: sent, never shown
+    WL_IMAGE,     ///< an <img> with alt text, not in a link: href is its src
 };
 
 /// A character on the page.
@@ -80,6 +81,7 @@ typedef struct {
     uint16_t sel;    ///< the option chosen
     uint8_t width;   ///< a field's width on the page
     int32_t seg;     ///< its first run of characters, or -1 if it has none
+    uint32_t img;    ///< the address of a picture in it (in the pool), or 0 for none
 } www_link_t;
 
 /// A form.

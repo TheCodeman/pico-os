@@ -29,6 +29,8 @@ FRESULT f_read(FIL *f, void *buf, UINT n, UINT *got);      ///< reads
 FRESULT f_write(FIL *f, const void *buf, UINT n, UINT *put);  ///< writes
 FRESULT f_close(FIL *f);                                    ///< closes
 FSIZE_t f_size(FIL *f);                                     ///< its size
+FRESULT f_lseek(FIL *f, FSIZE_t at);                        ///< moves to a byte
+FSIZE_t f_tell(FIL *f);                                     ///< where it is
 FRESULT f_stat(const char *path, FILINFO *fi);              ///< about a file
 FRESULT f_getcwd(char *buf, UINT n);                        ///< the folder now
 FRESULT f_unlink(const char *path);                         ///< deletes a file

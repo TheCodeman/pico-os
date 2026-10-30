@@ -3,7 +3,8 @@
 `www` (or `lynx`) is a text web browser in the manner of lynx: it loads
 pages over http and https (the same network and TLS code as `wget`) and
 shows them as text on the 80x30 screen, with their links and simple
-forms. There are no pictures, scripts or styles; most news, reference
+forms. Pictures are shown one at a time on the whole screen when chosen;
+there are no scripts or styles; most news, reference
 and search pages read well. It needs WiFi (`wifi connect`), and for https
 the certificate file `CACERT.PEM` in the drive's root (as for `wget`).
 
@@ -60,6 +61,7 @@ the certificate file `CACERT.PEM` in the drive's root (as for `wget`).
 | d | Download the chosen link's file to the drive. |
 | s / p | Save the page's source / save it as text (as shown). |
 | = | About the page and the chosen link. |
+| i | Show the chosen picture, or the chosen link's picture, on the whole screen. |
 | Ctrl-Y | The history: pick a page to go back (or forward) to. |
 | h, F1 | Help (the keys). |
 | q, F10 | Quit. |
@@ -74,7 +76,7 @@ bar, the key bar or the scroll bar.
 **The right button** opens a menu where you click: Back, Forward, Reload,
 Start page, Bookmark this page, Find, Page source, Save as text and Page
 info, and over a link also Follow link and Download link (the link is
-chosen). Click an item, or hold the right button, move to an item and let
+chosen), and View image when it is a picture or has one. Click an item, or hold the right button, move to an item and let
 go; Up, Down and Enter work too; Esc or a click outside closes it.
 
 ## Forms
@@ -105,6 +107,22 @@ and sites that need a cookie work while it is open.
 `/` asks for the text; the page scrolls to it and it is shown in yellow
 (and a link on that line is chosen). `n` finds the next one.
 
+## Pictures
+
+Pages show a picture's alt text in `[brackets]`. A picture with alt text
+that isn't in a link is a link of its own (magenta): choose it and press
+Enter (or `i`) to see it on the whole screen, as the `view` command shows
+a file. A link with a picture in it says `(i: its picture)` on the status
+line: `i` shows the picture, Enter still follows the link. The right
+button's menu has **View image** for both. Any key or click goes back to
+the page.
+
+PNG, JPEG and BMP pictures can be shown (scaled to fit, dithered to the
+screen's 256 colours); GIF, WebP and SVG can't, and say so. The picture is
+loaded into PSRAM and written to `/WWW/IMAGE.TMP` on the drive for a
+moment while it is decoded. Pictures without alt text (often spacers and
+icons) aren't shown on the page.
+
 ## Bookmarks, saving and downloading
 
 - **a** adds the page to `/WWW/BOOKMARK.HTM` (an HTML page of links: edit
@@ -128,7 +146,8 @@ and sites that need a cookie work while it is open.
   meta refreshes (as links), forms, entities and UTF-8 or Latin-1 text.
   Characters the screen's font (code page 437) lacks are shown as the
   nearest one (accents dropped, curly quotes straight) or `?`.
-- Not done: pictures, JavaScript, CSS, layout tables side by side, text
+- Not done: pictures in the page (they are shown on their own, see
+  Pictures), JavaScript, CSS, layout tables side by side, text
   areas of more than one line, file uploads, compressed replies (the
   browser doesn't ask for them), HTTP/2.
 - Pages up to 4 MB are loaded; bigger ones are cut there.
@@ -151,7 +170,7 @@ https).
 
 `tools/wwwtest/uitest.sh /absolute/out/folder` builds the browser for a
 PC with its real screen, menus, dialogs and fetcher against a pretend web
-server, drives it with keys and the mouse (pages, links, the right button's menu, a redirect that
+server, drives it with keys and the mouse (pages, links, the right button's menu, pictures, a redirect that
 sets a cookie, the forms by GET and POST, find, the source, a download,
 bookmarks, the history, help), checks what the screen shows, and writes
 the screenshots in this manual (`www_*.png`). It also lays out thousands

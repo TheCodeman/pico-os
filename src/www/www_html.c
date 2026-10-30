@@ -1240,13 +1240,31 @@ static void start_tag(bld_t *b) {
             }
         }
     } else if (IS("img")) {
-        const char *alt = attr(b, "alt");
+        // A picture shows its [alt text]. In a link, the link keeps its address
+        // (the first one's); else, with alt text, it is a link of its own (to
+        // view it). Without alt text, only an empty link shows it, as [IMG].
+        const char *alt = attr(b, "alt"), *src = attr(b, "src");
         char buf[200];
-        if (alt && *alt) {
+        uint32_t at = src && *src ? pool_add(d, src, strlen(src)) : 0;
+        if (b->link >= 0) {
+            if (!d->links[b->link].img)
+                d->links[b->link].img = at;
+            snprintf(buf, sizeof buf, "[%s]", alt && *alt ? alt : "IMG");
+            if ((alt && *alt) || b->link_cells == 0)
+                text_utf8(b, buf, WS_IMG);
+        } else if (alt && *alt) {
+            int link = at ? new_link(b, WL_IMAGE) : -1;
+            if (link >= 0) {
+                d->links[link].href = d->links[link].img = at;
+                if (b->space && b->len > b->start)
+                    put(b, ' ', WS_TEXT, true, -1);
+                b->space = false;
+                b->link = link;
+                b->link_cells = 0;
+            }
             snprintf(buf, sizeof buf, "[%s]", alt);
             text_utf8(b, buf, WS_IMG);
-        } else if (b->link >= 0 && b->link_cells == 0) {
-            text_utf8(b, "[IMG]", WS_IMG);
+            b->link = -1;
         }
     } else if (IS("iframe") || IS("frame")) {
         const char *src = attr(b, "src");
@@ -1676,7 +1694,7 @@ bool www_form_data(const www_doc_t *d, int form, int button, char *out, size_t s
     out[0] = 0;
     for (int i = 0; i < d->nlinks; ++i) {
         const www_link_t *l = &d->links[i];
-        if (l->form != form || l->type == WL_HREF)
+        if (l->form != form || l->type == WL_HREF || l->type == WL_IMAGE)
             continue;
         const char *name = www_str(d, l->href);
         if (!name[0])
