@@ -252,6 +252,10 @@ typedef struct {
     bool quit;             ///< leaving
     bool www;              ///< open ask_url in www (from the loop: www wants the stack)
     uint8_t *saved;        ///< the screen as it was before (put back after)
+    // Times, for the About box.
+    uint32_t page_ms;      ///< the page last took to draw
+    uint32_t layout_ms;    ///< the document last took to lay out
+    uint32_t ttf_ms;       ///< the fonts took to load
 } md_t;
 
 static md_t *M;  ///< PSRAM, while the viewer runs
@@ -1220,7 +1224,7 @@ static void draw_help(void) {
 
 /// Draws the About box.
 static void draw_about(void) {
-    int w = 480, h = 190, x = (W - w) / 2, y = 140;
+    int w = 480, h = 230, x = (W - w) / 2, y = 120;
     box(x, y, w, h, "Markdown viewer " VER_MD);
     static const char *const lines[] = {
         "Shows Markdown files (CommonMark with GitHub's tables,",
@@ -1234,6 +1238,10 @@ static void draw_about(void) {
               (unsigned long)M->len, M->doc->nitems, M->doc->nlinks, M->doc->nimgs,
               (unsigned long)(M->pic_bytes >> 10));
     textf(x + 16, y + 132, C_DIM, C_FACE, "PSRAM free %lu KB", (unsigned long)(psram_free_total() >> 10));
+    textf(x + 16, y + 152, C_DIM, C_FACE, "%s: page drawn in %lu ms, laid out in %lu ms",
+          md_ttf_on() ? "TrueType" : "8x16 font", (unsigned long)M->page_ms, (unsigned long)M->layout_ms);
+    if (md_ttf_loaded())
+        textf(x + 16, y + 172, C_DIM, C_FACE, "fonts loaded in %lu ms", (unsigned long)M->ttf_ms);
     text(x + 16, y + h - 26, "(any key or click closes this)", C_DIM, C_FACE);
 }
 
@@ -1243,7 +1251,9 @@ static void draw(void) {
     M->collect = true;
     M->nhits = 0;
     M->cy0 = 0, M->cy1 = H;
+    uint32_t t0 = now_ms();
     draw_page();
+    M->page_ms = now_ms() - t0;
     draw_bar();
     draw_status();
     switch (M->dlg) {
@@ -1269,7 +1279,9 @@ static void relayout(void) {
     md_free(M->doc);
     pics_clear();
     M->cur_item = -1, M->cur_link = 0, M->hover_link = 0, M->find_item = -1;
+    uint32_t t0 = now_ms();
     M->doc = md_layout(M->text, M->len, PAGE_W, M->source, size_of, NULL);
+    M->layout_ms = now_ms() - t0;
     if (!M->doc)
         message("Not enough memory to show it");
     else if (M->doc->short_of_memory)
@@ -2099,7 +2111,9 @@ static bool start(void) {
     memcpy(M->saved, dvi_framebuf, W * H);
     if (f_getcwd(M->dir, sizeof M->dir) != FR_OK)
         strcpy(M->dir, "/");
+    uint32_t t0 = now_ms();
     md_ttf_open(M->msg, sizeof M->msg);  // TrueType text if there are fonts (else the 8x16 font)
+    M->ttf_ms = now_ms() - t0;
     M->msg_until = now_ms() + 4000;
     return true;
 }
