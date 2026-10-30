@@ -401,8 +401,17 @@ void dvi_init(void) {
     hdmi_audio_init();
 
     hstx_setup();
-    for (uint pin = 12; pin <= 19; ++pin)
+    // The pads' defaults (4 mA, slow edges, a pull-down) leave a 252 Mbps
+    // lane so little margin that a display could sometimes lock onto one
+    // badly after a reset and show it as noise (a red screen full of lines,
+    // from lane 2). Fast edges and 8 mA, no pulls, no input.
+    for (uint pin = 12; pin <= 19; ++pin) {
         gpio_set_function(pin, 0);  // function 0 is HSTX on these pins
+        gpio_disable_pulls(pin);
+        gpio_set_input_enabled(pin, false);
+        gpio_set_slew_rate(pin, GPIO_SLEW_RATE_FAST);
+        gpio_set_drive_strength(pin, GPIO_DRIVE_STRENGTH_8MA);
+    }
 
     dma_claim_mask((1u << DMACH_PING) | (1u << DMACH_PONG));
     irq_set_exclusive_handler(DMA_IRQ_0, dma_irq_handler);
