@@ -265,6 +265,8 @@ typedef struct {
     int pic_n;             ///< pictures loaded, and the time they took (us), by part:
     uint32_t pic_read, pic_decode, pic_convert, pic_draw;  ///< read, decode, to RGB, dithered and kept
     uint32_t pic_sram;     ///< SRAM the last one's decoder had
+    uint32_t pic_rows;     ///< of pic_decode, rows unfiltered and dithered (us)
+    uint32_t pic_far;      ///< copies from PSRAM's window
 } md_t;
 
 static md_t *M;  ///< PSRAM, while the viewer runs
@@ -550,6 +552,8 @@ static bool pic_load_one(void) {
     }
     uint32_t t = clock_us() - t0;
     M->pic_sram = image_times.sram_bytes;
+    M->pic_rows += image_times.row_us;
+    M->pic_far += image_times.far_copies;
     M->pic_n++;
     M->pic_read += image_times.read_us;
     M->pic_decode += image_times.decode_us;
@@ -1290,7 +1294,8 @@ static void draw_about(void) {
               (unsigned long)(M->pic_read / 1000), (unsigned long)(M->pic_decode / 1000),
               (unsigned long)(M->pic_convert / 1000), (unsigned long)(M->pic_draw / 1000));
     if (M->pic_n)
-        textf(x + 16, y + 212, C_DIM, C_FACE, "(the last decoded with %lu KB of SRAM)", (unsigned long)(M->pic_sram >> 10));
+        textf(x + 16, y + 212, C_DIM, C_FACE, "(rows %lu ms, %lu far copies, last %lu KB SRAM)",
+              (unsigned long)(M->pic_rows / 1000), (unsigned long)M->pic_far, (unsigned long)(M->pic_sram >> 10));
     text(x + 16, y + h - 26, "(any key or click closes this)", C_DIM, C_FACE);
 }
 

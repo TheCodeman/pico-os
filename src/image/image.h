@@ -50,6 +50,8 @@ typedef struct {
     uint32_t decode_us;   ///< decoding it (PNG: inflating and unfiltering)
     uint32_t convert_us;  ///< making it RGB (PNG: blending its alpha)
     uint32_t sram_bytes;  ///< SRAM the row-at-a-time PNG decoder had for its buffers
+    uint32_t row_us;      ///< of decode_us, its rows' unfiltering and dithering
+    uint32_t far_copies;  ///< its copies from further back than its SRAM window
 } image_times_t;
 /// The last load's times.
 extern image_times_t image_times;
