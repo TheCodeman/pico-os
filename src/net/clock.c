@@ -1,6 +1,6 @@
 /**
  * @file clock.c
- * @brief The real-time clock: set from the network by SNTP (pool.ntp.org) once WiFi is up, or by hand with `date`.
+ * @brief The real-time clock: set from the network (NTP, pool.ntp.org) once WiFi is up and every hour after, or by hand with `date`.
  *
  * It keeps UTC; the C library's time() and FatFs file dates (get_fattime in
  * usb_storage.c) use it.
@@ -16,7 +16,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-#include "lwip/apps/sntp.h"
+#include "lwip/dns.h"
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
 #include "net.h"
@@ -33,17 +33,6 @@ void net_set_time(uint32_t sec, uint32_t us) {
     synced = true;
 }
 
-void net_clock_start(void) {
-    static bool started;
-    if (started)
-        return;
-    started = true;
-    cyw43_arch_lwip_begin();
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, "pool.ntp.org");
-    sntp_init();
-    cyw43_arch_lwip_end();
-}
 
 void net_cmd_date(int argc, char **argv) {
     if (argc == 3) {
@@ -272,4 +261,157 @@ void net_cmd_ntp(int argc, char **argv) {
         printf(offset < 0 ? " ahead" : " behind");
     }
     printf("; round trip %lld ms, stratum %d\n", (long long)(round_trip / 1000), stratum);
+}
+
+// ---- Setting the clock in the background -----------------------------------------
+// lwIP's SNTP client never set the clock here, so the main loop asks
+// pool.ntp.org itself, as the ntp command does, without printing or waiting:
+// a lookup, then a request (sent again if no answer comes), then the clock is
+// set from the answer. Until it is set it tries every 30 s, then every hour.
+
+#define BG_SERVER   "pool.ntp.org"  ///< who is asked
+#define BG_RETRY_MS 30000           ///< again this soon while the clock isn't set
+#define BG_EVERY_MS 3600000         ///< and this often once it is
+#define BG_WAIT_MS  2000            ///< how long an answer (or a lookup) may take
+#define BG_TRIES    3               ///< requests sent before giving up for now
+
+/// The background sync's state.
+static enum { BG_OFF, BG_IDLE, BG_LOOKUP, BG_ASKED } bg_state;
+static absolute_time_t bg_when;       ///< the next step's time (start, or give up)
+static ip_addr_t bg_addr;             ///< the server's address
+static volatile int bg_dns;           ///< 0 waiting, 1 found, -1 not found
+static struct udp_pcb *bg_pcb;        ///< the socket, while asking
+static volatile bool bg_got;          ///< an answer came
+static uint8_t bg_reply[48];          ///< it
+static uint64_t bg_rx_us;             ///< time_us_64() when it came
+static uint8_t bg_stamp[8];           ///< the request's send time, echoed in the answer
+static int64_t bg_t1;                 ///< the wall clock then
+static uint64_t bg_t1_us;             ///< and time_us_64()
+static int bg_tries;                  ///< requests sent this time
+
+/// lwIP's DNS callback for the background sync.
+/// @param name the name
+/// @param addr its address, or NULL
+/// @param arg unused
+static void bg_on_dns(const char *name, const ip_addr_t *addr, void *arg) {
+    if (addr)
+        bg_addr = *addr;
+    bg_dns = addr ? 1 : -1;
+}
+
+/// lwIP's UDP callback for the background sync: keeps the answer.
+/// @param arg unused
+/// @param pcb the socket
+/// @param p the packet
+/// @param addr the sender
+/// @param port its port
+static void bg_on_udp(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr,
+                      u16_t port) {
+    if (!bg_got && p->tot_len >= sizeof bg_reply) {
+        bg_rx_us = time_us_64();
+        pbuf_copy_partial(p, bg_reply, sizeof bg_reply, 0);
+        bg_got = true;
+    }
+    pbuf_free(p);
+}
+
+/// Sends a request (from the main loop; takes the lwIP lock).
+static void bg_send(void) {
+    bg_t1 = wall_us();
+    bg_t1_us = time_us_64();
+    put32(bg_stamp, (uint32_t)((uint64_t)(bg_t1 / 1000000) + NTP_UNIX_OFFSET));
+    put32(bg_stamp + 4, (uint32_t)(((uint64_t)(bg_t1 % 1000000) << 32) / 1000000));
+    cyw43_arch_lwip_begin();
+    if (!bg_pcb && (bg_pcb = udp_new()) != NULL)
+        udp_recv(bg_pcb, bg_on_udp, NULL);
+    struct pbuf *p = bg_pcb ? pbuf_alloc(PBUF_TRANSPORT, 48, PBUF_RAM) : NULL;
+    if (p) {
+        uint8_t *b = p->payload;
+        memset(b, 0, 48);
+        b[0] = 0 << 6 | 4 << 3 | 3;  // no leap warning, version 4, client
+        memcpy(b + 40, bg_stamp, 8);
+        bg_got = false;
+        udp_sendto(bg_pcb, p, &bg_addr, NTP_PORT);
+        pbuf_free(p);
+    }
+    cyw43_arch_lwip_end();
+    ++bg_tries;
+    bg_state = BG_ASKED;
+    bg_when = make_timeout_time_ms(BG_WAIT_MS);
+}
+
+/// Ends a try: the socket goes, and the next try is due in `ms`.
+/// @param ms when to try again
+static void bg_done(uint32_t ms) {
+    cyw43_arch_lwip_begin();
+    if (bg_pcb)
+        udp_remove(bg_pcb);
+    cyw43_arch_lwip_end();
+    bg_pcb = NULL;
+    bg_state = BG_IDLE;
+    bg_when = make_timeout_time_ms(ms);
+}
+
+void net_clock_start(void) {
+    if (bg_state == BG_OFF || bg_state == BG_IDLE) {
+        bg_state = BG_IDLE;
+        bg_when = get_absolute_time();  // now (WiFi has just come up)
+    }
+}
+
+void net_clock_task(void) {
+    switch (bg_state) {
+    case BG_OFF:
+        return;
+    case BG_IDLE:
+        if (!time_reached(bg_when))
+            return;
+        bg_tries = 0;
+        bg_dns = 0;
+        cyw43_arch_lwip_begin();
+        err_t e = dns_gethostbyname(BG_SERVER, &bg_addr, bg_on_dns, NULL);
+        cyw43_arch_lwip_end();
+        if (e == ERR_OK) {
+            bg_send();
+        } else if (e == ERR_INPROGRESS) {
+            bg_state = BG_LOOKUP;
+            bg_when = make_timeout_time_ms(BG_WAIT_MS * 3);
+        } else {
+            bg_done(synced ? BG_EVERY_MS : BG_RETRY_MS);
+        }
+        return;
+    case BG_LOOKUP:
+        if (bg_dns > 0)
+            bg_send();
+        else if (bg_dns < 0 || time_reached(bg_when))
+            bg_done(synced ? BG_EVERY_MS : BG_RETRY_MS);
+        return;
+    case BG_ASKED:
+        if (bg_got) {
+            const uint8_t *r = bg_reply;
+            int stratum = r[1];
+            if ((r[0] & 7) != 4 || memcmp(r + 24, bg_stamp, 8)) {
+                bg_got = false;  // not ours: keep waiting
+                return;
+            }
+            if ((r[0] >> 6) == 3 || stratum == 0 || stratum > 15) {  // its clock isn't set
+                bg_done(BG_RETRY_MS);
+                return;
+            }
+            int64_t t2 = ntp_to_us(r + 32), t3 = ntp_to_us(r + 40);
+            int64_t t4 = bg_t1 + (int64_t)(bg_rx_us - bg_t1_us);
+            int64_t now = wall_us() + ((t2 - bg_t1) + (t3 - t4)) / 2;
+            struct timeval tv = {.tv_sec = (time_t)(now / 1000000),
+                                 .tv_usec = (suseconds_t)(now % 1000000)};
+            settimeofday(&tv, NULL);
+            synced = true;
+            bg_done(BG_EVERY_MS);
+        } else if (time_reached(bg_when)) {
+            if (bg_tries < BG_TRIES)
+                bg_send();  // lost: ask again
+            else
+                bg_done(synced ? BG_EVERY_MS : BG_RETRY_MS);
+        }
+        return;
+    }
 }

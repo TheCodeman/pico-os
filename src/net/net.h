@@ -148,8 +148,13 @@ void net_tls_end(net_tls_t *t);
 
 // ---- Clock --------------------------------------------------------------------
 
-/// Starts SNTP (pool.ntp.org) to set the clock; called once WiFi is up.
+/// WiFi is up: the clock is set from the network (pool.ntp.org) soon, by
+/// net_clock_task, and every hour after.
 void net_clock_start(void);
+
+/// From the main loop (net_task) while WiFi is up: the background clock sync's
+/// next step, if one is due. It never waits or prints.
+void net_clock_task(void);
 
 /// Sets the clock (called by SNTP).
 /// @param sec seconds since 1970

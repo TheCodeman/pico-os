@@ -209,6 +209,8 @@ void net_task(void) {
     if (want && s != CYW43_LINK_UP && s != CYW43_LINK_JOIN && s != CYW43_LINK_NOIP &&
         time_reached(retry_at))
         start_connect();
+    if (s == CYW43_LINK_UP)
+        net_clock_task();
 }
 
 bool net_need_link(void) {

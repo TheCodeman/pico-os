@@ -311,7 +311,8 @@ folder.
 ### Date and time
 
 `date` shows e.g. `Sun 2026-10-25 23:00:28 UTC`. Once WiFi is up, the clock
-is set from `pool.ntp.org` (SNTP) by itself, and kept right from then on.
+is set from `pool.ntp.org` (NTP) by itself within a few seconds (tried again
+every 30 s if there is no answer), and again every hour.
 `date YYYY-MM-DD HH:MM[:SS]` sets it by hand; `date` then adds
 `(set by hand)` until the clock is next set from the network.
 
