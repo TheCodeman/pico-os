@@ -539,7 +539,9 @@ static bool pic_load_one(void) {
     bool had_strip = M->strip != NULL;
     free(M->strip);
     M->strip = NULL;
+    md_ttf_lend(true);  // and the fonts' arena
     bool ok = image_load_compact(path, px, item->w, item->h, &err);
+    md_ttf_lend(false);
     if (had_strip)
         M->strip = malloc(STRIP * W);  // (without it: the PSRAM picture)
     if (!ok) {

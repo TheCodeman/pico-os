@@ -146,6 +146,12 @@ void fnt_cache_budget(fnt_t *f, size_t bytes);
 /// @param out filled in
 void fnt_get_stats(const fnt_t *f, fnt_stats_t *out);
 
+/// Lends the SRAM arena out (frees it) while something else needs SRAM for a
+/// moment, or takes it back. Glyphs drawn meanwhile use PSRAM for their
+/// working buffers (slower, still right).
+/// @param lend true to free it, false to have it again
+void fnt_arena_lend(bool lend);
+
 /// Draws one glyph from its outline into a buffer of the font's own and
 /// throws it away: what drawing costs without the cache (outline fonts only).
 /// @param f the font

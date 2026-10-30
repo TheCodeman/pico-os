@@ -243,16 +243,20 @@ fnt_t *fnt_open(const uint8_t *data, size_t size, const char **err) {
     }
     f->kind = f->info.cff.size > 0 ? FNT_CFF : FNT_TTF;
     f->slots = psram_malloc(SLOTS * sizeof(slot_t));
+    if (!f->slots) {
+        *err = "no memory";
+        psram_free(f);
+        return NULL;
+    }
+    memset(f->slots, 0, SLOTS * sizeof(slot_t));
     if (!Ar)
         Ar = malloc(FNT_ARENA);
-    if (Ar)
-        ar_users++;
-    if (!f->slots || !Ar) {
+    ar_users++;
+    if (!Ar) {
         *err = "no memory";
         fnt_close(f);
         return NULL;
     }
-    memset(f->slots, 0, SLOTS * sizeof(slot_t));
     return f;
 }
 
@@ -263,7 +267,7 @@ void fnt_close(fnt_t *f) {
         fnt_cache_clear(f);
         psram_free(f->slots);
     }
-    if (f->kind != FNT_PFN && Ar && --ar_users == 0) {
+    if (f->kind != FNT_PFN && f->slots && --ar_users == 0) {
         free(Ar);
         Ar = NULL;
     }
@@ -432,6 +436,15 @@ static void glyph_get(fnt_t *f, int px, float sc, int cp, glyph_t *g) {
     }
     f->st.hits++;
     *g = (glyph_t){s->w, s->h, s->xoff, s->yoff, s->adv, s->gi, s->bm, false};
+}
+
+void fnt_arena_lend(bool lend) {
+    if (lend) {
+        free(Ar);
+        Ar = NULL;
+    } else if (!Ar && ar_users > 0) {
+        Ar = malloc(FNT_ARENA);  // (if not: working buffers come from PSRAM, slower)
+    }
 }
 
 int fnt_raster_one(fnt_t *f, int px, int cp) {

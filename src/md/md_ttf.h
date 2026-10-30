@@ -26,6 +26,9 @@
 bool md_ttf_open(char *msg, int size);
 /// Frees the fonts and sets md_layout back to the 8x16 font's widths.
 void md_ttf_close(void);
+/// Lends the fonts' 16 KB SRAM arena out for a moment (a picture decoding), or takes it back.
+/// @param lend true to lend it, false to take it back
+void md_ttf_lend(bool lend);
 /// @return the fonts are loaded
 bool md_ttf_loaded(void);
 /// Whether text is drawn with the fonts (and laid out with their widths).

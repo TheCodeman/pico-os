@@ -157,6 +157,11 @@ void md_ttf_close(void) {
     T = NULL;
 }
 
+void md_ttf_lend(bool lend) {
+    if (T)
+        fnt_arena_lend(lend);
+}
+
 bool md_ttf_loaded(void) {
     return T != NULL;
 }

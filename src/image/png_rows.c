@@ -35,7 +35,7 @@
 
 #include "psram_heap.h"
 
-#define SRAM_KEEP (8 * 1024)  ///< the SRAM heap is only used if this much is left free after (a decode is short)
+#define SRAM_KEEP (6 * 1024)  ///< the SRAM heap is only used if this much is left free after (a decode is short)
 
 extern char __StackLimit;  ///< top of the heap, from the SDK's linker script
 
@@ -565,7 +565,8 @@ int png_rows_decode(const uint8_t *d, size_t len, uint8_t *px, int w, int h, con
     // SRAM, or the last 16 KB there and the whole of it in PSRAM too.
     s->cur = buf_alloc((size_t)s->rowlen);
     s->prev = buf_alloc((size_t)s->rowlen);
-    s->rgb = buf_alloc((size_t)iw * 3);
+    if (!(ctype == 2 && depth == 8))  // (RGB rows are used as they are)
+        s->rgb = buf_alloc((size_t)iw * 3);
     if ((s->near = sram_alloc(s->wsize)) != NULL) {
         s->nsize = s->wsize;
     } else {
@@ -576,7 +577,7 @@ int png_rows_decode(const uint8_t *d, size_t len, uint8_t *px, int w, int h, con
             s->nsize *= 2;  // (halved once more on the way out)
     }
     int result = -1;
-    if ((!s->win && !s->near) || !s->cur || !s->prev || !s->rgb) {
+    if ((!s->win && !s->near) || !s->cur || !s->prev || (!s->rgb && !(ctype == 2 && depth == 8))) {
         *err = "not enough memory";
     } else {
         memset(s->prev, 0, (size_t)s->rowlen);
