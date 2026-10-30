@@ -222,7 +222,7 @@ Esc or Ctrl-C stops between files. Copying a file onto itself is refused.
 | `memtest soak stop` | | Stops the soak test. |
 | `date` | | Shows the date and time (section 4). |
 | `date YYYY-MM-DD HH:MM[:SS]` | | Sets the clock by hand (local time). |
-| `tz [zone]` | | Shows or sets the time zone: `PST`, `MST`, `CST`, `EST`, `UTC`, `UK`, `CET`... or a POSIX TZ string (section 4). |
+| `tz [zone \| 12 \| 24]` | | Shows or sets the time zone: `PST`, `MST`, `CST`, `EST`, `UTC`, `UK`, `CET`... or a POSIX TZ string; or a 12- or 24-hour clock (section 4). |
 | `ntp [server]` | | Gets the time from an NTP server now and sets the clock (section 4). |
 | `reset` | `reboot` | Restarts the board. |
 | `reset bootsel` | | Restarts into the RP2350 USB bootloader, for copying a `.uf2` file. |
@@ -320,8 +320,9 @@ every 30 s if there is no answer), and again every hour.
 The clock keeps UTC and shows local time in the time zone set with `tz`:
 `tz PST` (Pacific, with daylight saving), `MST`, `ARIZONA`, `CST`, `EST`,
 `AKST`, `HST`, `UTC`, `UK`, `CET`, `EET`, `JST`, `AEST`, or any POSIX TZ
-string (`tz PST8PDT,M3.2.0,M11.1.0`). It is saved in `/TZ.CFG` and used from
-start-up; `tz` alone shows it. File dates on the drive, BASIC's `DATE$` and
+string (`tz PST8PDT,M3.2.0,M11.1.0`). `tz 12` shows times as `9:14:55 PM`,
+`tz 24` as `21:14:55` (the default). Both are saved in `/TZ.CFG` and used
+from start-up; `tz` alone shows them. File dates on the drive, BASIC's `DATE$` and
 `TIME$`, and times set by hand are local time.
 
 `ntp [server]` asks an NTP server for the time straight away and sets the

@@ -478,6 +478,7 @@ static const help_t help_system[] = {
      "tz                         the time zone and the time there\n"
      "tz PST | MST | CST | EST | AKST | HST | ARIZONA | UTC | UK | CET | ...\n"
      "tz POSIX-TZ-string         any other, e.g. tz PST8PDT,M3.2.0,M11.1.0\n"
+     "tz 12 | tz 24              times as 9:14 PM or as 21:14\n"
      "  Saved in /TZ.CFG; daylight saving time is followed."},
     {"mem", NULL, "memory use", "mem"},
     {"mouse", NULL, "mouse status and speed",

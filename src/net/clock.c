@@ -63,6 +63,9 @@ static const struct {
     {"JST", "JST-9"},                    {"AEST", "AEST-10AEDT,M10.1.0,M4.1.0/3"},
 };
 
+/// Times shown as 9:14:55 PM rather than 21:14:55 (tz 12 / tz 24).
+static bool hours12;
+
 /// Uses a POSIX TZ string from now on.
 /// @param posix the TZ string
 static void use_tz(const char *posix) {
@@ -80,6 +83,8 @@ void net_tz_load(void) {
         if (line[0])
             use_tz(line);
     }
+    if (f_gets(line, sizeof line, &f))  // the second line: 12 or 24
+        hours12 = atoi(line) == 12;
     f_close(&f);
 }
 
@@ -90,15 +95,26 @@ void net_tz_load(void) {
 static void local_text(time_t t, char *out, size_t size) {
     struct tm tm;
     localtime_r(&t, &tm);
-    strftime(out, size, "%a %Y-%m-%d %H:%M:%S %Z", &tm);
+    if (hours12) {
+        char zone[16];
+        strftime(zone, sizeof zone, "%Z", &tm);
+        int h = tm.tm_hour % 12 ? tm.tm_hour % 12 : 12;
+        size_t n = strftime(out, size, "%a %Y-%m-%d ", &tm);
+        snprintf(out + n, size - n, "%d:%02d:%02d %s %s", h, tm.tm_min, tm.tm_sec,
+                 tm.tm_hour < 12 ? "AM" : "PM", zone);
+    } else {
+        strftime(out, size, "%a %Y-%m-%d %H:%M:%S %Z", &tm);
+    }
 }
 
 void net_cmd_tz(int argc, char **argv) {
     if (argc > 2) {
-        printf("usage: tz [PST | MST | CST | EST | UTC | ... | POSIX TZ string]\n");
+        printf("usage: tz [PST | MST | CST | EST | UTC | ... | POSIX TZ string | 12 | 24]\n");
         return;
     }
-    if (argc == 2) {
+    if (argc == 2 && (!strcmp(argv[1], "12") || !strcmp(argv[1], "24"))) {
+        hours12 = argv[1][0] == '1';
+    } else if (argc == 2) {
         const char *posix = argv[1];
         for (unsigned i = 0; i < sizeof zones / sizeof *zones; ++i)
             if (!strcasecmp(argv[1], zones[i].name))
@@ -111,16 +127,19 @@ void net_cmd_tz(int argc, char **argv) {
             return;
         }
         use_tz(posix);
+    }
+    const char *tz = getenv("TZ");
+    if (argc == 2) {  // saved: the zone, then 12 or 24
         FIL f;
         if (f_open(&f, TZ_FILE, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
-            f_printf(&f, "%s\r\n", posix);
+            f_printf(&f, "%s\r\n%d\r\n", tz ? tz : "UTC0", hours12 ? 12 : 24);
             f_close(&f);
         } else {
             printf("(not saved: no drive)\n");
         }
     }
-    const char *tz = getenv("TZ");
-    printf("Time zone: %s\n", tz ? tz : "UTC0 (tz PST etc. changes it)");
+    printf("Time zone: %s, %d-hour clock\n", tz ? tz : "UTC0 (tz PST etc. changes it)",
+           hours12 ? 12 : 24);
     time_t now = time(NULL);
     if (now >= 1700000000) {
         char text[48];
