@@ -9,8 +9,10 @@
 
 #include "image.h"
 
+#include <malloc.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "ff.h"
 #include "lodepng.h"
@@ -65,6 +67,47 @@ static void *big_realloc(void *p, size_t n) {
         return psram_realloc(p, n);
     return n <= 64 * 1024 ? realloc(p, n) : NULL;
 }
+
+#define SMALL     4096         ///< LodePNG's blocks up to this go in SRAM (its Huffman tables)
+#define SRAM_KEEP (24 * 1024)  ///< if that leaves this much of the heap free
+
+extern char __StackLimit;  ///< top of the heap, from the SDK's linker script
+
+/// LodePNG's small blocks: from the SRAM heap if there is room to spare (its
+/// Huffman tables are looked up for every code, and in PSRAM each look-up can
+/// miss the cache the picture's bytes keep filling), else as big ones.
+/// @param n the size
+/// @return the block, or NULL
+static void *small_alloc(size_t n) {
+    if (n <= SMALL) {
+        struct mallinfo mi = mallinfo();
+        long room = (long)(&__StackLimit - (char *)sbrk(0)) + (long)mi.fordblks;
+        if (room > (long)(n + SRAM_KEEP)) {
+            void *p = malloc(n ? n : 1);
+            if (p)
+                return p;
+        }
+    }
+    return big_alloc(n);
+}
+
+/// LodePNG's realloc: a block from SRAM that grows past SMALL moves to PSRAM.
+/// @param p the block
+/// @param n its new size
+/// @return it, or NULL (p kept)
+static void *small_realloc(void *p, size_t n) {
+    if (!p)
+        return small_alloc(n);
+    if (in_psram(p) || n <= SMALL)
+        return big_realloc(p, n);
+    void *q = big_alloc(n);
+    if (!q)
+        return NULL;
+    size_t old = malloc_usable_size(p);
+    memcpy(q, p, old < n ? old : n);
+    free(p);
+    return q;
+}
 #else
 /// @return 0: no times on the PC
 static uint32_t us_now(void) {
@@ -88,20 +131,31 @@ static void big_free(void *p) {
 static void *big_realloc(void *p, size_t n) {
     return realloc(p, n);
 }
+/// @param n the size
+/// @return the block (host builds: malloc)
+static void *small_alloc(size_t n) {
+    return malloc(n);
+}
+/// @param p the block
+/// @param n its new size
+/// @return it (host builds: realloc)
+static void *small_realloc(void *p, size_t n) {
+    return realloc(p, n);
+}
 #endif
 
 /// LodePNG's allocators (LODEPNG_NO_COMPILE_ALLOCATORS).
 /// @param size the size
 /// @return the memory, or NULL
 void *lodepng_malloc(size_t size) {
-    return big_alloc(size);
+    return small_alloc(size);
 }
 /// LodePNG's realloc.
 /// @param ptr the memory
 /// @param new_size its new size
 /// @return it, or NULL
 void *lodepng_realloc(void *ptr, size_t new_size) {
-    return big_realloc(ptr, new_size);
+    return small_realloc(ptr, new_size);
 }
 /// LodePNG's free.
 /// @param ptr the memory
@@ -591,10 +645,15 @@ static void draw_part(const image_t *img, uint8_t *fb, int stride, int x, int y,
     // Which picture column each screen column shows: 16.16 steps (a
     // multiply a pixel, no table: SRAM is short).
     int64_t step = ((int64_t)img->w << 16) / w;
+    // Each row is made in SRAM, then copied out whole: a picture in PSRAM is
+    // then written a row at a time, not byte by byte between reads.
+    uint8_t buf[SCREEN_W];
+    bool via = x1 - x0 <= SCREEN_W;
     for (int dy = y0; dy < y1; ++dy) {
         int sy = (int)((long long)(dy - y) * img->h / h);
         const uint8_t *row = img->rgb + (size_t)sy * img->w * 3;
-        uint8_t *out = fb + (size_t)dy * stride;
+        uint8_t *dst = fb + (size_t)dy * stride;
+        uint8_t *out = via ? buf - x0 : dst;
         const uint8_t *b = bayer[dy & 3];
         for (int dx = x0; dx < x1; ++dx) {
             int sx = (int)(((int64_t)(dx - x) * step) >> 16);
@@ -605,6 +664,8 @@ static void draw_part(const image_t *img, uint8_t *fb, int stride, int x, int y,
             int r = level(p[0], 7, d), g = level(p[1], 7, d), bl = level(p[2], 3, d);
             out[dx] = (uint8_t)(r << 5 | g << 2 | bl);
         }
+        if (via)
+            memcpy(dst + x0, buf, (size_t)(x1 - x0));
     }
 }
 
