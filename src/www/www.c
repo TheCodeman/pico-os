@@ -1076,6 +1076,10 @@ static bool load_picture(void) {
     capture(false);
     if (res != WF_OK)
         return true;
+    snprintf(W->note, sizeof W->note, "Decoding a picture (%lu KB): %s",
+             (unsigned long)(W->reply.len >> 10), W->url);
+    status_now(W->note);
+    W->note[0] = 0;
     image_t img;
     const char *err;
     bool ok = image_load_mem((const uint8_t *)W->reply.body, W->reply.len, p->w, p->h, &img, &err);
