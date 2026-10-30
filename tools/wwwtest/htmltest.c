@@ -104,7 +104,7 @@ int main(void) {
         "\n", "\t", "<!-- c -->", "<!--", "<script>x</script>", "<style>", "<blockquote>",
         "</blockquote>", "<dl><dt>t<dd>", "<a name=n>", "<meta charset=latin1>", "<", "<x y='z>",
         "<a href=\"", "<iframe src=f>", "<nav aria-label=\"Site\">", "</nav>", "<details>",
-        "<details open><summary>More <b>here</b></summary>", "</details>", "<summary>s", "<div class=\"vector-dropdown x\"><label>L <i>x</i></label>", "<div>", "</div>", "<meta http-equiv=refresh content=\"0;url=/r\">",
+        "<details open><summary>More <b>here</b></summary>", "</details>", "<summary>s", "<div class=\"vector-dropdown x\"><label>L <i>x</i></label>", "<div>", "</div>", "<li class=\"a more-dropdown\"><h4>T</h4>", "</li>", "<button type=button>B", "<meta http-equiv=refresh content=\"0;url=/r\">",
     };
     const int nbits = (int)(sizeof bits / sizeof *bits);
     static char page[65536];

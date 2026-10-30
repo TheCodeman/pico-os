@@ -285,7 +285,10 @@ static void answer(struct net_conn *c) {
                      "<li><a href=\"/\">Home link</a><li><a href=\"/long\">Long link</a></ul></nav>"
                      "<p>Some text.</p><details><summary>More <b>info</b></summary><p>Hidden text."
                      "</p></details><div class=\"vector-dropdown\"><input type=checkbox><label>Languages"
-                     "</label><div><ul><li><a href=\"/\">Deutsch</a></ul></div></div><p>The end.</p>");
+                     "</label><div><ul><li><a href=\"/\">Deutsch</a></ul></div></div><ul>"
+                     "<li class=\"more-section-dropdown\"><h4><a href=\"/\">Games</a></h4><button "
+                     "type=\"button\">Expand/Collapse Menu</button><ul><li><a href=\"/\">Sudoku</a></ul>"
+                     "</li></ul><p>The end.</p>");
     } else if (!strcmp(path, "/based")) {  // a relative <base href>, as archive.org's
         n = snprintf(page, sizeof page, "<html><head><base href=\"/files/\"/><title>Based</title></head>"
                      "<body><a href=\"x%%20y.bin\">a file</a></body></html>");
@@ -591,6 +594,8 @@ static const step_t script[] = {
     {S_NOTSEE, "Hidden text."},
     {S_SEE, "[+] Languages"},
     {S_NOTSEE, "Deutsch"},
+    {S_SEE, "[+] Games"},
+    {S_NOTSEE, "Sudoku"},
     {S_SEE, "The end."},
     {S_SEE, "Enter opens it"},
     {S_KEYS, "\r"},
@@ -601,6 +606,8 @@ static const step_t script[] = {
     {S_KEYS, "e"},
     {S_SEE, "Hidden text."},
     {S_SEE, "Deutsch"},
+    {S_SEE, "Sudoku"},
+    {S_NOTSEE, "Expand/Collapse"},  // (a button for scripts: not shown)
     {S_SEE, "Every menu is shown open"},
     {S_KEYS, "e"},
     {S_NOTSEE, "Hidden text."},

@@ -1244,12 +1244,19 @@ static bool dropdown_class(const char *cls, size_t n) {
     return false;
 }
 
-/// Whether the raw tag at `s` (just after its '<') is a drop-down <div>.
+/// The elements a drop-down class makes a menu (Wikipedia's <div>s, Fox's <li>s).
+static const char *const dropdown_tags[] = {"div", "li", "section", NULL};
+
+/// Whether the raw tag at `s` (just after its '<') is a drop-down: one of
+/// dropdown_tags with a drop-down class.
 /// @param s the tag
 /// @param end the page's end
 /// @return it is
 static bool dropdown_div(const uint8_t *s, const uint8_t *end) {
-    const uint8_t *gt = memchr(s, '>', end - s);
+    bool known = false;
+    for (int i = 0; dropdown_tags[i]; ++i)
+        known |= tag_is(s, end, dropdown_tags[i]);
+    const uint8_t *gt = known ? memchr(s, '>', end - s) : NULL;
     if (!gt)
         return false;
     for (const uint8_t *c = s; c + 6 < gt; ++c)
@@ -1266,7 +1273,8 @@ static bool dropdown_div(const uint8_t *s, const uint8_t *end) {
 /// @param b the state
 /// @param name the block's tag
 static void skip_block(bld_t *b, const char *name) {
-    int depth = 1;
+    int depth = 1, lists = 0;  // (lists: inside an <li>, the lists opened in it)
+    bool li = !strcmp(name, "li");
     const uint8_t *s = b->p, *end = b->end;
     while (s < end) {
         if (*s != '<') {
@@ -1292,9 +1300,25 @@ static void skip_block(bld_t *b, const char *name) {
             continue;
         }
         if (!close && (tag_is(t, end, "nav") || tag_is(t, end, "details") ||
-                       (tag_is(t, end, "div") && dropdown_div(t, end))))
+                       dropdown_div(t, end)))
             ++b->ncoll;
-        if (tag_is(t, end, name)) {
+        if (li) {  // an <li> often has no </li>: it ends at its list's next item or end too
+            if (tag_is(t, end, "ul") || tag_is(t, end, "ol")) {
+                if (close && !lists) {
+                    b->p = s;  // (the list's end is the list's)
+                    return;
+                }
+                lists += close ? -1 : 1;
+            } else if (!lists && tag_is(t, end, "li")) {
+                if (!close) {
+                    b->p = s;  // the next item
+                    return;
+                }
+                const uint8_t *gt = memchr(s, '>', end - s);
+                b->p = gt ? gt + 1 : end;
+                return;
+            }
+        } else if (tag_is(t, end, name)) {
             depth += close ? -1 : 1;
             if (!depth) {
                 const uint8_t *gt = memchr(s, '>', end - s);
@@ -1314,7 +1338,7 @@ static void skip_block(bld_t *b, const char *name) {
 static bool collapsible(bld_t *b) {
     www_doc_t *d = b->d;
     int id = b->ncoll++;
-    bool details = IS("details"), div = IS("div");
+    bool details = IS("details"), div = !details && !IS("nav");  // (div: a drop-down)
     bool open = details && attr(b, "open");
     if (!b->toggled)
         open = true;
@@ -1325,15 +1349,22 @@ static bool collapsible(bld_t *b) {
     const char *label = attr(b, "aria-label");
     if (label && *label)
         to_cp437(label, name, sizeof name);
-    if (div && !name[0]) {  // a drop-down: the text of its <label>, or its button's aria-label
+    if (div && !name[0]) {  // a drop-down: the text of its first <label>, heading or link
         const uint8_t *s = b->p, *lim = b->p + 2000 < b->end ? b->p + 2000 : b->end;
-        for (; s + 7 < lim; ++s)
-            if (*s == '<' && tag_is(s + 1, lim, "label")) {
+        static const char *const names[] = {"label", "h1", "h2", "h3", "h4", "h5", "h6", "a", NULL};
+        for (; s + 7 < lim; ++s) {
+            const char *which = NULL;
+            for (int i = 0; *s == '<' && names[i] && !which; ++i)
+                if (tag_is(s + 1, lim, names[i]))
+                    which = names[i];
+            if (which) {
+                char close[8];
+                snprintf(close, sizeof close, "</%s", which);
                 const uint8_t *from = memchr(s, '>', lim - s), *to;
                 if (!from)
                     break;
                 ++from;
-                for (to = from; to + 8 < lim && strncasecmp((const char *)to, "</label", 7); ++to) {
+                for (to = from; to + 8 < lim && strncasecmp((const char *)to, close, strlen(close)); ++to) {
                 }
                 char raw[160];
                 size_t n = 0;
@@ -1349,6 +1380,7 @@ static bool collapsible(bld_t *b) {
                 raw_text(b, (const uint8_t *)raw, (const uint8_t *)raw + n, name, sizeof name);
                 break;
             }
+        }
     }
     if (details) {
         for (const uint8_t *s = b->p; s + 9 < b->end; ++s) {
@@ -1397,7 +1429,7 @@ static bool collapsible(bld_t *b) {
     }
     newline(b);
     if (!open)
-        skip_block(b, details ? "details" : div ? "div" : "nav");
+        skip_block(b, b->tag);
     return !open;
 }
 
@@ -1428,7 +1460,8 @@ static void start_tag(bld_t *b) {
         d->anchors[d->nanchors++].line = d->nlines;
     }
     if ((IS("nav") || IS("details") ||
-         (IS("div") && dropdown_class(attr(b, "class"), attr(b, "class") ? strlen(attr(b, "class")) : 0))) &&
+         ((IS("div") || IS("li") || IS("section")) &&
+          dropdown_class(attr(b, "class"), attr(b, "class") ? strlen(attr(b, "class")) : 0))) &&
         b->toggled && collapsible(b))
         return;  // (closed: skipped)
     if (IS("summary") && b->toggled) {  // (its text is the [-] line's)
@@ -1578,7 +1611,10 @@ static void start_tag(bld_t *b) {
         input(b);
     } else if (IS("button")) {
         const char *t = attr(b, "type");
-        if (!t || !strcasecmp(t, "submit")) {
+        if ((t && strcasecmp(t, "submit")) || (!t && b->form < 0)) {
+            // A button for scripts ("Expand/Collapse Menu", "Toggle search"): nothing here.
+            skip_to_end_tag(b, "button", NULL);
+        } else {
             end_link(b);
             int link = field(b, WL_SUBMIT, attr(b, "value"), false);
             if (link >= 0) {

@@ -83,12 +83,14 @@ go; Up, Down and Enter work too; Esc or a click outside closes it.
 
 ## Menus
 
-Pages' menus (`<nav>` blocks, and drop-down menus such as Wikipedia's) and
+Pages' menus (`<nav>` blocks, and drop-down menus such as Wikipedia's and
+Fox News' Games and Deals) and
 `<details>` sections start closed, as one line each: **[+] Main menu**,
 **[+] 65 languages**, **[+] More info**. They are links: Enter (or a click)
 opens one, **[-]**, and again closes it; the page keeps its place. So a
 page starts with what it is about, not its menus. **e** (or View > Open all
-menus) shows every menu open, as before, and **e** again closes them. A
+menus) shows every menu open, as before, and **e** again closes them.
+Buttons that only work with scripts ("Expand/Collapse Menu") aren't shown. A
 `<details open>` starts open. Each page's menus start closed again when it is
 loaded.
 
