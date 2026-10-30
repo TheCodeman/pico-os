@@ -414,8 +414,10 @@ void net_cmd_wifi(int argc, char **argv) {
         while ((s = link_status()) != CYW43_LINK_UP && !time_reached(until) && !net_stop_key())
             sleep_ms(50);
         reported = s;
-        if (s == CYW43_LINK_UP)
+        if (s == CYW43_LINK_UP) {
+            net_clock_start();
             status();
+        }
         else
             printf("WiFi isn't connected (waited %d s)\n", secs > 0 ? secs : 20);
     } else if (strcmp(sub, "forget") == 0) {

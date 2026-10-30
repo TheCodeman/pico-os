@@ -361,7 +361,8 @@ void net_clock_start(void) {
 
 void net_clock_task(void) {
     switch (bg_state) {
-    case BG_OFF:
+    case BG_OFF:  // WiFi is up, however it came up (wifi wait doesn't call net_clock_start)
+        net_clock_start();
         return;
     case BG_IDLE:
         if (!time_reached(bg_when))
