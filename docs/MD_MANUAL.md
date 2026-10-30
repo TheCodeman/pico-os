@@ -186,6 +186,11 @@ the pointer, Back, Forward, Contents, Find, Source text and Reload.
   30 ms a frame with the 8x16 font and 47 ms with TrueType text, against
   120 and 142 ms through a picture in PSRAM. Ctrl-B switches between the
   two, and About gives the times.
+- Pictures are decoded when they come into view. A PNG without
+  transparency is decoded a row at a time, straight into the picture kept
+  for the page, never whole: a 640x480 screenshot takes about a third of a
+  second, against 1.9 s before. While one decodes, `md` lends it its
+  strip's and the fonts' SRAM. About gives the pictures' times.
 - Files up to 8 MB. The text, the page laid out and the pictures drawn
   (up to 3 MB of them; those furthest from the screen are let go first and
   drawn again when they come back) are kept in PSRAM, only while `md` is
