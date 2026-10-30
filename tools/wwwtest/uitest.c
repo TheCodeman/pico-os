@@ -280,6 +280,12 @@ static void answer(struct net_conn *c) {
     } else if (!strcmp(path, "/pic.gif")) {
         n = snprintf(page, sizeof page, "GIF89a not really");
         type = "image/gif";
+    } else if (!strcmp(path, "/menus")) {  // a menu and a <details>, closed at first
+        n = snprintf(page, sizeof page, "<title>Menus</title><nav aria-label=\"Main menu\"><ul>"
+                     "<li><a href=\"/\">Home link</a><li><a href=\"/long\">Long link</a></ul></nav>"
+                     "<p>Some text.</p><details><summary>More <b>info</b></summary><p>Hidden text."
+                     "</p></details><div class=\"vector-dropdown\"><input type=checkbox><label>Languages"
+                     "</label><div><ul><li><a href=\"/\">Deutsch</a></ul></div></div><p>The end.</p>");
     } else if (!strcmp(path, "/based")) {  // a relative <base href>, as archive.org's
         n = snprintf(page, sizeof page, "<html><head><base href=\"/files/\"/><title>Based</title></head>"
                      "<body><a href=\"x%%20y.bin\">a file</a></body></html>");
@@ -577,6 +583,28 @@ static const step_t script[] = {
     {S_KEYS, "\r"},
     {S_SEE, "Saved 300000 bytes to BIG.ZIP"},
     {S_FILE, "BIG.ZIP", 300000},
+    // Menus: closed at first; Enter opens one; e opens all of them.
+    {S_KEYS, "ghttp://demo.test/menus\r"},
+    {S_SEE, "[+] Main menu"},
+    {S_NOTSEE, "Home link"},
+    {S_SEE, "[+] More info"},
+    {S_NOTSEE, "Hidden text."},
+    {S_SEE, "[+] Languages"},
+    {S_NOTSEE, "Deutsch"},
+    {S_SEE, "The end."},
+    {S_SEE, "Enter opens it"},
+    {S_KEYS, "\r"},
+    {S_SEE, "[-] Main menu"},
+    {S_SEE, "Home link"},
+    {S_SEE, "Enter closes it"},
+    {S_NOTSEE, "Hidden text."},
+    {S_KEYS, "e"},
+    {S_SEE, "Hidden text."},
+    {S_SEE, "Deutsch"},
+    {S_SEE, "Every menu is shown open"},
+    {S_KEYS, "e"},
+    {S_NOTSEE, "Hidden text."},
+    {S_KEYS, LEFT},
     // A relative <base href>: links are made absolute against the page.
     {S_KEYS, "ghttp://demo.test/based\r"},
     {S_SEE, "http://demo.test/files/x%20y.bin"},

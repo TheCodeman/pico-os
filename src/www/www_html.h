@@ -47,6 +47,7 @@ enum {
     WL_SUBMIT,    ///< <input type=submit|image>, <button>
     WL_HIDDEN,    ///< <input type=hidden>: sent, never shown
     WL_IMAGE,     ///< an <img> with alt text, not in a link: href is its src
+    WL_TOGGLE,    ///< a menu (<nav>) or <details> opened or closed: opts is its number
 };
 
 /// A character on the page.
@@ -147,6 +148,11 @@ typedef struct {
 /// [alt text] is shown).
 typedef bool (*www_size_fn)(const char *src, int *w, int *h);
 
+/// Whether the page's collapsible block number `id` (its <nav>s and
+/// <details>, counted in page order) has been opened or closed against its
+/// default (menus and <details> closed, <details open> open).
+typedef bool (*www_toggled_fn)(int id);
+
 /// Lays out HTML, or plain text if `html` is false.
 /// @param src the page's bytes (needn't be 0-terminated)
 /// @param len how many
@@ -156,9 +162,11 @@ typedef bool (*www_size_fn)(const char *src, int *w, int *h);
 /// @param pictures leave room for pictures (PNG, JPEG, BMP) in the page, to be
 /// drawn there (www_pic_t); else they are only their [alt text]
 /// @param size_of the sizes of pictures already loaded, or NULL
+/// @param toggled which menus and <details> are switched from their default,
+/// or NULL to show them all open (as before there were collapsible blocks)
 /// @return the page (PSRAM), or NULL if there was no memory at all
 www_doc_t *www_layout(const char *src, size_t len, bool html, bool latin1, bool pictures,
-                      www_size_fn size_of);
+                      www_size_fn size_of, www_toggled_fn toggled);
 
 /// Frees a page.
 /// @param d the page, or NULL

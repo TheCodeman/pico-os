@@ -63,6 +63,7 @@ the certificate file `CACERT.PEM` in the drive's root (as for `wget`).
 | = | About the page and the chosen link. |
 | i | Show the chosen picture, or the chosen link's picture, on the whole screen. |
 | \* | Pictures drawn in pages, or [alt text] only. |
+| e | Every menu shown open, or each closed ([+]) until opened. |
 | Ctrl-Y | The history: pick a page to go back (or forward) to. |
 | h, F1 | Help (the keys). |
 | q, F10 | Quit. |
@@ -79,6 +80,17 @@ Start page, Bookmark this page, Find, Page source, Save as text and Page
 info, and over a link also Follow link and Download link (the link is
 chosen), and View image when it is a picture or has one. Click an item, or hold the right button, move to an item and let
 go; Up, Down and Enter work too; Esc or a click outside closes it.
+
+## Menus
+
+Pages' menus (`<nav>` blocks, and drop-down menus such as Wikipedia's) and
+`<details>` sections start closed, as one line each: **[+] Main menu**,
+**[+] 65 languages**, **[+] More info**. They are links: Enter (or a click)
+opens one, **[-]**, and again closes it; the page keeps its place. So a
+page starts with what it is about, not its menus. **e** (or View > Open all
+menus) shows every menu open, as before, and **e** again closes them. A
+`<details open>` starts open. Each page's menus start closed again when it is
+loaded.
 
 ## Forms
 

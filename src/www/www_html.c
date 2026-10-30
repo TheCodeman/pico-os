@@ -52,6 +52,8 @@ typedef struct {
     bool latin1;             ///< ISO-8859-1 / Windows-1252 rather than UTF-8
     bool pictures;           ///< leave room for pictures in the page
     www_size_fn size_of;     ///< the sizes of pictures already loaded, or NULL
+    www_toggled_fn toggled;  ///< menus switched from their default, or NULL (all open)
+    int ncoll;               ///< collapsible blocks (<nav>, <details>) so far
     www_cell_t line[WWW_COLS + 1];  ///< the line being filled
     uint16_t lnk[WWW_COLS + 1];     ///< each cell's link
     bool brk[WWW_COLS + 1];         ///< a line may break at this cell (a space)
@@ -1208,6 +1210,197 @@ static bool picture(bld_t *b) {
     return true;
 }
 
+/// Whether the text at `s` is the tag `name` (after the '<' or "</").
+/// @param s the text
+/// @param end its end
+/// @param name the tag's name
+/// @return it is
+static bool tag_is(const uint8_t *s, const uint8_t *end, const char *name) {
+    size_t n = strlen(name);
+    return s + n < end && !strncasecmp((const char *)s, name, n) && !isalnum(s[n]);
+}
+
+/// Whether a class attribute makes a <div> a drop-down menu: a class
+/// "dropdown" or one ending "-dropdown" (Wikipedia's "vector-dropdown"), not
+/// its parts ("dropdown-content", "dropdown-menu").
+/// @param cls the classes, or NULL
+/// @param n their length
+/// @return it is
+static bool dropdown_class(const char *cls, size_t n) {
+    for (size_t i = 0; cls && i < n;) {
+        while (i < n && cls[i] == ' ')
+            ++i;
+        size_t k = i;
+        while (k < n && cls[k] != ' ' && cls[k] != '"' && cls[k] != '\'')
+            ++k;
+        size_t len = k - i;
+        if ((len == 8 && !strncmp(cls + i, "dropdown", 8)) ||
+            (len > 9 && !strncmp(cls + k - 9, "-dropdown", 9)))
+            return true;
+        if (k < n && (cls[k] == '"' || cls[k] == '\''))
+            break;
+        i = k;
+    }
+    return false;
+}
+
+/// Whether the raw tag at `s` (just after its '<') is a drop-down <div>.
+/// @param s the tag
+/// @param end the page's end
+/// @return it is
+static bool dropdown_div(const uint8_t *s, const uint8_t *end) {
+    const uint8_t *gt = memchr(s, '>', end - s);
+    if (!gt)
+        return false;
+    for (const uint8_t *c = s; c + 6 < gt; ++c)
+        if (!strncasecmp((const char *)c, "class=", 6)) {
+            const char *v = (const char *)c + 6 + (c[6] == '"' || c[6] == '\'');
+            return dropdown_class(v, (size_t)((const char *)gt - v));
+        }
+    return false;
+}
+
+/// Skips a closed block to its end tag (nested ones of the same name
+/// counted), counting the collapsible blocks inside it so the ones after keep
+/// their numbers. Comments and scripts are skipped whole.
+/// @param b the state
+/// @param name the block's tag
+static void skip_block(bld_t *b, const char *name) {
+    int depth = 1;
+    const uint8_t *s = b->p, *end = b->end;
+    while (s < end) {
+        if (*s != '<') {
+            ++s;
+            continue;
+        }
+        if (end - s >= 4 && !memcmp(s, "<!--", 4)) {
+            const uint8_t *e = s + 4;
+            while (e + 3 <= end && memcmp(e, "-->", 3))
+                ++e;
+            s = e + 3 <= end ? e + 3 : end;
+            continue;
+        }
+        bool close = s + 1 < end && s[1] == '/';
+        const uint8_t *t = s + 1 + close;
+        if (!close && (tag_is(t, end, "script") || tag_is(t, end, "style"))) {
+            const char *raw = tag_is(t, end, "script") ? "</script" : "</style";
+            const uint8_t *e = t;
+            while (e + 8 <= end && strncasecmp((const char *)e, raw, strlen(raw)))
+                ++e;
+            s = e;
+            ++s;
+            continue;
+        }
+        if (!close && (tag_is(t, end, "nav") || tag_is(t, end, "details") ||
+                       (tag_is(t, end, "div") && dropdown_div(t, end))))
+            ++b->ncoll;
+        if (tag_is(t, end, name)) {
+            depth += close ? -1 : 1;
+            if (!depth) {
+                const uint8_t *gt = memchr(s, '>', end - s);
+                b->p = gt ? gt + 1 : end;
+                return;
+            }
+        }
+        ++s;
+    }
+    b->p = end;
+}
+
+/// A menu (<nav>) or <details>: a line "[+] name" that opens it (a WL_TOGGLE
+/// link), and its contents only if it is open ("[-] name" then).
+/// @param b the state
+/// @return true if the block was skipped (closed), false to lay it out
+static bool collapsible(bld_t *b) {
+    www_doc_t *d = b->d;
+    int id = b->ncoll++;
+    bool details = IS("details"), div = IS("div");
+    bool open = details && attr(b, "open");
+    if (!b->toggled)
+        open = true;
+    else if (b->toggled(id))
+        open = !open;
+    // Its name: a <nav>'s aria-label, or the <summary> of a <details>.
+    char name[80] = "";
+    const char *label = attr(b, "aria-label");
+    if (label && *label)
+        to_cp437(label, name, sizeof name);
+    if (div && !name[0]) {  // a drop-down: the text of its <label>, or its button's aria-label
+        const uint8_t *s = b->p, *lim = b->p + 2000 < b->end ? b->p + 2000 : b->end;
+        for (; s + 7 < lim; ++s)
+            if (*s == '<' && tag_is(s + 1, lim, "label")) {
+                const uint8_t *from = memchr(s, '>', lim - s), *to;
+                if (!from)
+                    break;
+                ++from;
+                for (to = from; to + 8 < lim && strncasecmp((const char *)to, "</label", 7); ++to) {
+                }
+                char raw[160];
+                size_t n = 0;
+                bool in_tag = false;
+                for (const uint8_t *c = from; c < to && n + 1 < sizeof raw; ++c) {
+                    if (*c == '<')
+                        in_tag = true;
+                    else if (*c == '>')
+                        in_tag = false;
+                    else if (!in_tag)
+                        raw[n++] = (char)*c;
+                }
+                raw_text(b, (const uint8_t *)raw, (const uint8_t *)raw + n, name, sizeof name);
+                break;
+            }
+    }
+    if (details) {
+        for (const uint8_t *s = b->p; s + 9 < b->end; ++s) {
+            if (*s == '<' && (tag_is(s + 1, b->end, "details") || tag_is(s + 2, b->end, "details")))
+                break;  // (a nested one, or the end: no summary of its own)
+            if (*s == '<' && tag_is(s + 1, b->end, "summary")) {
+                const uint8_t *from = memchr(s, '>', b->end - s), *to = from;
+                if (!from)
+                    break;
+                ++from;
+                for (to = from; to + 9 < b->end && strncasecmp((const char *)to, "</summary", 9); ++to) {
+                }
+                // The summary's text, without its tags.
+                char raw[160];
+                size_t n = 0;
+                bool in_tag = false;
+                for (const uint8_t *c = from; c < to && n + 1 < sizeof raw; ++c) {
+                    if (*c == '<')
+                        in_tag = true;
+                    else if (*c == '>')
+                        in_tag = false;
+                    else if (!in_tag)
+                        raw[n++] = (char)*c;
+                }
+                raw_text(b, (const uint8_t *)raw, (const uint8_t *)raw + n, name, sizeof name);
+                break;
+            }
+        }
+    }
+    if (!name[0])
+        snprintf(name, sizeof name, "%s", details ? "Details" : "Menu");
+    newline(b);
+    int link = new_link(b, WL_TOGGLE);
+    if (link >= 0) {
+        d->links[link].opts = (uint32_t)id;
+        int was = b->link;
+        b->link = link;
+        b->link_cells = 0;
+        put(b, '[', WS_BOLD, false, link);
+        put(b, open ? '-' : '+', WS_BOLD, false, link);
+        put(b, ']', WS_BOLD, false, link);
+        put(b, ' ', WS_BOLD, false, link);
+        for (const char *c = name; *c; ++c)
+            put(b, (uint8_t)*c, WS_BOLD, *c == ' ', link);
+        b->link = was;
+    }
+    newline(b);
+    if (!open)
+        skip_block(b, details ? "details" : div ? "div" : "nav");
+    return !open;
+}
+
 /// A start tag.
 /// @param b the state
 static void start_tag(bld_t *b) {
@@ -1233,6 +1426,14 @@ static void start_tag(bld_t *b) {
     if (id && GROW(d, anchors, d->nanchors + 1)) {
         d->anchors[d->nanchors].name = pool_add(d, id, strlen(id));
         d->anchors[d->nanchors++].line = d->nlines;
+    }
+    if ((IS("nav") || IS("details") ||
+         (IS("div") && dropdown_class(attr(b, "class"), attr(b, "class") ? strlen(attr(b, "class")) : 0))) &&
+        b->toggled && collapsible(b))
+        return;  // (closed: skipped)
+    if (IS("summary") && b->toggled) {  // (its text is the [-] line's)
+        skip_to_end_tag(b, "summary", NULL);
+        return;
     }
     if (in(b->tag, para_tags) && !(is_list(b->tag) && in_list(b)))
         para(b);
@@ -1549,7 +1750,7 @@ static bool tag(bld_t *b) {
 // ---- The page -------------------------------------------------------------------------------------
 
 www_doc_t *www_layout(const char *src, size_t len, bool html, bool latin1, bool pictures,
-                      www_size_fn size_of) {
+                      www_size_fn size_of, www_toggled_fn toggled) {
     www_doc_t *d = psram_malloc(sizeof *d);
     bld_t *b = psram_malloc(sizeof *b);
     if (!d || !b) {
@@ -1566,6 +1767,7 @@ www_doc_t *www_layout(const char *src, size_t len, bool html, bool latin1, bool 
     b->latin1 = latin1;
     b->pictures = pictures;
     b->size_of = size_of;
+    b->toggled = toggled;
     b->link = b->form = b->select = b->cell_start = -1;
     if (len >= 3 && !memcmp(src, "\xef\xbb\xbf", 3)) {
         b->p += 3;
@@ -1784,7 +1986,7 @@ bool www_form_data(const www_doc_t *d, int form, int button, char *out, size_t s
     out[0] = 0;
     for (int i = 0; i < d->nlinks; ++i) {
         const www_link_t *l = &d->links[i];
-        if (l->form != form || l->type == WL_HREF || l->type == WL_IMAGE)
+        if (l->form != form || l->type == WL_HREF || l->type == WL_IMAGE || l->type == WL_TOGGLE)
             continue;
         const char *name = www_str(d, l->href);
         if (!name[0])

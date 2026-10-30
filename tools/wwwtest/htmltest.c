@@ -15,6 +15,11 @@
 #include "www_html.h"
 
 bool pc_psram_full;  ///< PSRAM has run out
+
+/// www_toggled_fn: every third menu opened by hand.
+/// @param id the menu
+/// @return it was
+static bool toggled(int id) { return id % 3 == 0; }
 static int failures;  ///< checks that failed
 
 /// Checks a URL resolves as expected.
@@ -35,7 +40,7 @@ static void resolve(const char *base, const char *rel, const char *want) {
 /// @param len its length
 /// @param html HTML rather than text
 static void check_layout(const char *src, size_t len, bool html) {
-    www_doc_t *d = www_layout(src, len, html, len & 1, len & 2, NULL);
+    www_doc_t *d = www_layout(src, len, html, len & 1, len & 2, NULL, (len & 4) ? NULL : toggled);
     if (!d) {
         printf("FAIL: no page\n");
         ++failures;
@@ -98,7 +103,8 @@ int main(void) {
         "\xc3\xa9", "\xe2\x80\x9c", "\xff", "word ", "longwordlongwordlongwordlongword", "  ",
         "\n", "\t", "<!-- c -->", "<!--", "<script>x</script>", "<style>", "<blockquote>",
         "</blockquote>", "<dl><dt>t<dd>", "<a name=n>", "<meta charset=latin1>", "<", "<x y='z>",
-        "<a href=\"", "<iframe src=f>", "<meta http-equiv=refresh content=\"0;url=/r\">",
+        "<a href=\"", "<iframe src=f>", "<nav aria-label=\"Site\">", "</nav>", "<details>",
+        "<details open><summary>More <b>here</b></summary>", "</details>", "<summary>s", "<div class=\"vector-dropdown x\"><label>L <i>x</i></label>", "<div>", "</div>", "<meta http-equiv=refresh content=\"0;url=/r\">",
     };
     const int nbits = (int)(sizeof bits / sizeof *bits);
     static char page[65536];
@@ -121,7 +127,7 @@ int main(void) {
     }
     // No PSRAM at all: no page, and no crash.
     pc_psram_full = true;
-    if (www_layout("<p>x", 4, true, false, true, NULL)) {
+    if (www_layout("<p>x", 4, true, false, true, NULL, NULL)) {
         printf("FAIL: a page with no memory\n");
         ++failures;
     }

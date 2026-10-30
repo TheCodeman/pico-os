@@ -154,6 +154,8 @@ typedef struct {
     uint32_t pic_bytes;       ///< the pixels kept for them
     int32_t row_key[SCR_H];   ///< which picture row each screen row showed (-1: none)
     bool relayout;            ///< a picture's size changed its box: lay the page out again
+    uint8_t toggled[64];      ///< the page's menus and <details> opened (or closed) by hand, a bit each
+    bool all_open;            ///< every menu shown open (View > Open all menus)
     struct {
         uint32_t hash;        ///< its src's hash (0: empty)
         uint16_t w, h;        ///< its size (0 x 0: it can't be drawn)
@@ -201,6 +203,7 @@ static const char help_page[] =
     "d                 download the link to the drive\n"
     "i                 show the chosen picture (or the link's) on the whole screen\n"
     "*                 pictures drawn in pages, or [alt text] only\n"
+    "e                 every menu open, or each closed ([+]) until opened\n"
     "s                 save the page's source  p      save it as text\n"
     "=                 about this page and the link\n"
     "F9, Alt+letter    the menus\n"
@@ -223,7 +226,7 @@ enum {
     M_SOURCE, M_INFO, M_VERIFY,
     M_MARK, M_MARKS,
     M_HELP, M_ABOUT,
-    M_FOLLOW, M_IMAGE, M_PICS,
+    M_FOLLOW, M_IMAGE, M_PICS, M_MENUS,
 };
 
 static const menu_item_t file_items[] = {
@@ -243,7 +246,7 @@ static const menu_item_t nav_items[] = {
 static const menu_item_t view_items[] = {
     {"Page source", M_SOURCE, "\\", false},  {"Page info", M_INFO, "=", false},
     {"View image", M_IMAGE, "i", false},     {"Pictures in pages", M_PICS, "*", false},
-    {"-", 0, NULL, false},
+    {"Open all menus", M_MENUS, "e", false}, {"-", 0, NULL, false},
     {"Check certificates", M_VERIFY, NULL, false}, {NULL, 0, NULL, false},
 };  ///< View
 static const menu_item_t mark_items[] = {
@@ -401,6 +404,11 @@ static void describe_link(char *out, size_t size) {
         www_resolve(base_url(), name, W->url2, sizeof W->url2);
         snprintf(out, size, "Picture: Enter shows it: %s", W->url2);
         return;
+    case WL_TOGGLE: {
+        const www_cell_t *c = d->cells + d->lines[d->segs[l->seg].line].cell + d->segs[l->seg].col;
+        snprintf(out, size, c[1].ch == '+' ? "Enter opens it (e opens all of them)" : "Enter closes it");
+        return;
+    }
     case WL_TEXT:
     case WL_TEXTAREA:
         snprintf(out, size, "Text field %s: Enter to type in it", name);
@@ -477,7 +485,7 @@ static void draw(void) {
     for (int32_t s = www_seg_from(d, W->top); s < d->nsegs && d->segs[s].line < W->top + PAGE_ROWS; ++s) {
         const www_seg_t *g = &d->segs[s];
         int type = d->links[g->link].type;
-        bool field = type != WL_HREF && type != WL_IMAGE;
+        bool field = type != WL_HREF && type != WL_IMAGE && type != WL_TOGGLE;
         uint8_t at = g->link == W->cur ? (field ? C_FIELD_CUR : C_LINK_CUR)
                      : field           ? C_FIELD
                      : type == WL_IMAGE ? C_IMG_LINK
@@ -590,6 +598,13 @@ static void remember_size(const char *src, int w, int h) {
     W->nsizes = (W->nsizes + 1) % n;
 }
 
+/// www_toggled_fn: the page's menu `id` opened (or closed) by hand.
+/// @param id the menu
+/// @return it was
+static bool toggled_cb(int id) {
+    return id >= 0 && id < (int)sizeof W->toggled * 8 && (W->toggled[id / 8] >> (id % 8) & 1);
+}
+
 /// Frees the page's pictures.
 static void pics_free(void) {
     if (W->pic)
@@ -614,9 +629,9 @@ static void show(const char *fragment) {
     pics_free();
     www_free(W->doc);
     W->doc = www_layout(h->src ? h->src : "", h->src ? h->len : 0, html, h->latin1,
-                        W->pictures && html, size_of);
+                        W->pictures && html, size_of, W->all_open ? NULL : toggled_cb);
     if (!W->doc)
-        W->doc = www_layout("", 0, false, false, false, NULL);  // (tiny: there is room for this)
+        W->doc = www_layout("", 0, false, false, false, NULL, NULL);  // (tiny: there is room for this)
     W->relayout = false;
     if (W->doc->npics && !(W->pic = psram_malloc(W->doc->npics * sizeof *W->pic)))
         W->doc->npics = 0;  // no room to keep them: the [alt text] only
@@ -856,6 +871,7 @@ static bool load(const char *url, const char *post, bool push) {
     if (post && (post_copy = psram_malloc(strlen(post) + 1)) != NULL)
         strcpy(post_copy, post);
     if (push) {
+        memset(W->toggled, 0, sizeof W->toggled);  // a new page: its menus as they come
         remember_place();
         for (int i = W->pos + 1; i < W->nhist; ++i)  // forward is forgotten
             hist_free(&W->hist[i]);
@@ -1240,16 +1256,33 @@ static bool load_picture(void) {
     return true;
 }
 
-/// Lays the page out again with the sizes of the pictures loaded (their boxes
-/// fit them now), keeping the pictures already made and the place on the page
-/// (the link at the top stays at the top).
-static void relayout(void) {
+/// The page's link that opens or closes menu `id`, or -1.
+/// @param d the page
+/// @param id the menu
+/// @return the link
+static int toggle_link(const www_doc_t *d, int id) {
+    for (int i = 0; i < d->nlinks; ++i)
+        if (d->links[i].type == WL_TOGGLE && (int)d->links[i].opts == id)
+            return i;
+    return -1;
+}
+
+/// Lays the page out again: with the sizes of the pictures loaded (their
+/// boxes fit them now), or with a menu opened or closed. The pictures already
+/// made are kept, and the place on the page: the link at the top stays at the
+/// top (or menu `id`'s line where it was, chosen).
+/// @param id the menu just opened or closed, or -1
+static void relayout(int id) {
     www_doc_t *old = W->doc;
     pic_t *oldpic = W->pic;
-    int anchor = visible(W->cur) ? W->cur : first_visible();
-    int32_t off = anchor >= 0 ? old->segs[old->links[anchor].seg].line - W->top : 0;
+    int anchor = id >= 0 ? toggle_link(old, id) : visible(W->cur) ? W->cur : first_visible();
+    int32_t off = anchor >= 0 && old->links[anchor].seg >= 0 ? old->segs[old->links[anchor].seg].line - W->top : 0;
     hist_t *h = &W->hist[W->pos];
-    www_doc_t *d = www_layout(h->src ? h->src : "", h->src ? h->len : 0, true, h->latin1, true, size_of);
+    bool html;
+    www_is_text(h->type, &html);
+    html = html && !W->source;
+    www_doc_t *d = www_layout(h->src ? h->src : "", h->src ? h->len : 0, html, h->latin1,
+                              W->pictures && html, size_of, W->all_open ? NULL : toggled_cb);
     W->relayout = false;
     if (!d)
         return;
@@ -1274,9 +1307,13 @@ static void relayout(void) {
     W->pic = np;
     for (int j = 0; j < d->npics; ++j)
         W->pic_bytes += np[j].px ? (uint32_t)np[j].pw * np[j].ph : 0;
+    if (id >= 0)
+        anchor = toggle_link(d, id);  // (its number is the same; its link's may not be)
     if (anchor >= 0 && anchor < d->nlinks && d->links[anchor].seg >= 0)
         W->top = d->segs[d->links[anchor].seg].line - off;
     clamp_top();
+    if (id >= 0 && anchor >= 0)
+        W->cur = anchor;
     if (W->cur >= d->nlinks || !visible(W->cur))
         W->cur = first_visible();
     W->find_line = -1;
@@ -1412,6 +1449,14 @@ static void activate(void) {
     case WL_IMAGE:
         view_image();
         break;
+    case WL_TOGGLE: {  // a menu opened or closed
+        int id = (int)l->opts;
+        if (id < (int)sizeof W->toggled * 8) {
+            W->toggled[id / 8] ^= (uint8_t)(1 << (id % 8));
+            relayout(id);
+        }
+        break;
+    }
     }
 }
 
@@ -1644,6 +1689,12 @@ static void command(int id) {
         break;
     case M_INFO: info(); break;
     case M_IMAGE: view_image(); break;
+    case M_MENUS:
+        W->all_open = !W->all_open;
+        relayout(-1);
+        snprintf(W->note, sizeof W->note, W->all_open ? "Every menu is shown open"
+                                                       : "Menus are closed until opened ([+])");
+        break;
     case M_PICS:
         W->pictures = !W->pictures;
         remember_place();
@@ -1674,7 +1725,8 @@ static void command(int id) {
 /// @param open the menu
 static void run_menu(int open) {
     W->view[3].check = W->pictures;
-    W->view[5].check = W->verify;
+    W->view[4].check = W->all_open;
+    W->view[6].check = W->verify;
     int id = menu_run(W->menus, NMENUS, open);
     if (id > 0)
         command(id);
@@ -1836,6 +1888,7 @@ static void handle(int k) {
     case 'p': command(M_SAVE_TEXT); break;
     case '=': command(M_INFO); break;
     case 'i': command(M_IMAGE); break;
+    case 'e': command(M_MENUS); break;
     case '*': command(M_PICS); break;
     case CTRL('y'): command(M_HISTORY); break;
     case CTRL('b'):  // pictures decoded whole first, or PNGs a row at a time (to compare their times in About)
@@ -1947,7 +2000,7 @@ void www_command(int argc, char **argv) {
     for (int i = 0; i < NMENUS; ++i)
         W->menus[i] = (menu_t){menu_titles[i], (menu_item_t *)items[i]};
     W->find_line = -1;
-    W->doc = www_layout("", 0, false, false, false, NULL);
+    W->doc = www_layout("", 0, false, false, false, NULL, NULL);
     W->pictures = false;  // (pictures in pages: View > Pictures in pages, or *)
     if (!W->doc) {
         psram_free(W);
@@ -1985,7 +2038,7 @@ void www_command(int argc, char **argv) {
         if (k == KEY_NONE && load_picture())
             continue;
         if (k == KEY_NONE && W->relayout) {  // the pictures on the screen are in: their sizes
-            relayout();
+            relayout(-1);
             continue;
         }
         if (k == KEY_NONE)
