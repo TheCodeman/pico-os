@@ -439,7 +439,11 @@ static const step_t script[] = {
     {S_SEE, "<title>A long page</title>"},
     {S_KEYS, "\\"},
     // Back to the demo with the right button; its anchor link; mailto; a 404.
+    // Back by the right button's menu (rows 11 and down, from column 10).
     {S_CLICK, NULL, 10, 10, MOUSE_RIGHT},
+    {S_SEE, "Bookmark this page..."},
+    {S_NOTSEE, "Download link..."},
+    {S_CLICK, NULL, 14, 12},
     {S_SEE, "Welcome to the demo page"},
     {S_KEYS, "\x1b[F"},
     {S_SEE, "The end."},
@@ -452,12 +456,21 @@ static const step_t script[] = {
     {S_SEE, "No /missing here."},
     {S_KEYS, LEFT},
     // Download a file: the link in the list.
-    {S_KEYS, "\x1b[H" DOWN DOWN},
+    // ... by the right button on it, then Download link: "a file to download", row 10.
+    {S_KEYS, "\x1b[H"},
+    {S_CLICK, NULL, 22, 10, MOUSE_RIGHT},
     {S_SEE, "http://demo.test/file.bin"},
-    {S_KEYS, "\r"},
-    {S_SEE, "Download (application/octet-stream, 1000 bytes)"},
+    {S_SEE, "Download link..."},
+    {S_SHOT, "popup"},
+    {S_KEYS, DOWN DOWN "\r"},
+    {S_SEE, "Save as (on the drive):"},
     {S_KEYS, "\x15" "/FILE.BIN\r"},
     {S_FILE, "FILE.BIN", 1000},
+    // Following a link to a file asks the same.
+    {S_KEYS, "\r"},
+    {S_SEE, "Download (application/octet-stream, 1000 bytes)"},
+    {S_KEYS, "\x1b"},
+    {S_PAUSE, NULL, 0, 0, 0},
     // Bookmark the page, then look at the bookmarks.
     {S_KEYS, "a"},
     {S_SEE, "Name it:"},

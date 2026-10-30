@@ -167,7 +167,8 @@ static const char help_page[] =
     "=                 about this page and the link\n"
     "F9, Alt+letter    the menus\n"
     "q, F10            quit\n"
-    "</pre><h2>The mouse</h2><p>Click a link to follow it, right-click to go back; "
+    "</pre><h2>The mouse</h2><p>Click a link to follow it; right-click for a menu (back, forward, reload, "
+    "download the link, bookmark, find...); "
     "the wheel scrolls; click the menu bar, the key bar or the scroll bar.</p>"
     "<h2>Notes</h2><ul><li>There are no pictures, scripts or styles: pages show their "
     "text, links and forms, as in lynx.<li>Pages up to 4 MB load into PSRAM; bigger files "
@@ -184,6 +185,7 @@ enum {
     M_SOURCE, M_INFO, M_VERIFY,
     M_MARK, M_MARKS,
     M_HELP, M_ABOUT,
+    M_FOLLOW,
 };
 
 static const menu_item_t file_items[] = {
@@ -1181,6 +1183,100 @@ static void run_menu(int open) {
         command(id);
 }
 
+/// The right button's pop-up menu: what it can do (the link items only over a link).
+static const menu_item_t popup_items[] = {
+    {"Follow link", M_FOLLOW, "Enter", false},  {"Download link...", M_DOWNLOAD, "d", false},
+    {"-", 0, NULL, false},
+    {"Back", M_BACK, "Left", false},            {"Forward", M_FORWARD, "Ctrl-F", false},
+    {"Reload", M_RELOAD, "r", false},           {"Start page", M_HOME, "m", false},
+    {"-", 0, NULL, false},
+    {"Bookmark this page...", M_MARK, "a", false}, {"Find...", M_FIND, "/", false},
+    {"Page source", M_SOURCE, "\\", false},    {"Save as text...", M_SAVE_TEXT, "p", false},
+    {"Page info", M_INFO, "=", false},
+};
+/// Their count.
+#define NPOPUP (int)(sizeof popup_items / sizeof *popup_items)
+
+/// Shows the pop-up menu at a cell and runs the item chosen (by the keys or
+/// the mouse: a click, or letting go of the right button over an item).
+/// @param row the row clicked
+/// @param col the column
+/// @param link true if the click was on a link (its items are shown)
+static void popup(int row, int col, bool link) {
+    const menu_item_t *items[NPOPUP];
+    int n = 0, w = 0;
+    for (int i = link ? 0 : 3; i < NPOPUP; ++i) {  // (without a link: from Back)
+        items[n++] = &popup_items[i];
+        int len = (int)strlen(popup_items[i].text) +
+                  (popup_items[i].key ? (int)strlen(popup_items[i].key) + 2 : 0);
+        if (len > w)
+            w = len;
+    }
+    w += 4;
+    int h = n + 2;
+    if (col + w > SCR_W)
+        col = SCR_W - w;
+    if (row + h > SCR_H - 1)
+        row = SCR_H - 1 - h;
+    if (row < 1)
+        row = 1;
+    void *saved = scr_save();
+    int sel = -1, id = 0;
+    bool moved = false;  // the pointer has left where the menu opened
+    for (;;) {
+        scr_fill(row, col, h, w, ' ', C_MENU);
+        scr_box(row, col, h, w, false, C_MENU);
+        for (int i = 0; i < n; ++i) {
+            if (items[i]->text[0] == '-') {
+                scr_hline(row + 1 + i, col, w, 0xc3, S_H, 0xb4, C_MENU);
+                continue;
+            }
+            uint8_t at = i == sel ? C_MENU_SEL : C_MENU;
+            scr_fill(row + 1 + i, col + 1, 1, w - 2, ' ', at);
+            scr_text(row + 1 + i, col + 2, -1, at, items[i]->text);
+            if (items[i]->key)
+                scr_text(row + 1 + i, col + w - 2 - (int)strlen(items[i]->key), -1, at, items[i]->key);
+        }
+        scr_cursor(-1, 0);
+        scr_flush();
+        mouse_event_t e;
+        int k = key_get_mouse(&e);
+        if (k == KEY_MOUSE) {
+            int r = e.y / 16, c = e.x / 8, i = r - row - 1;
+            bool inside = c > col && c < col + w - 1 && i >= 0 && i < n && items[i]->text[0] != '-';
+            if (e.type == MOUSE_MOVE) {
+                moved = true;
+                sel = inside ? i : -1;
+            } else if (e.type == MOUSE_WHEEL) {
+                continue;
+            } else if (inside && (e.type == MOUSE_DOWN || (e.type == MOUSE_UP && moved))) {
+                id = items[i]->id;
+                break;
+            } else if (e.type == MOUSE_DOWN) {
+                break;  // a click outside closes it
+            }
+            continue;
+        }
+        if (k == KEY_ESC || k == CTRL('c'))
+            break;
+        if (k == '\r' && sel >= 0) {
+            id = items[sel]->id;
+            break;
+        }
+        if (k == KEY_UP || k == KEY_DOWN) {
+            int d = k == KEY_UP ? n - 1 : 1;
+            sel = sel < 0 ? (k == KEY_UP ? n - 1 : 0) : (sel + d) % n;
+            while (items[sel]->text[0] == '-')
+                sel = (sel + d) % n;
+        }
+    }
+    scr_restore(saved);
+    if (id == M_FOLLOW)
+        activate();
+    else if (id)
+        command(id);
+}
+
 /// Handles a key.
 /// @param k the key
 static void handle(int k) {
@@ -1252,8 +1348,22 @@ static void mouse_click(const mouse_event_t *e) {
     }
     if (e->type != MOUSE_DOWN)
         return;
-    if (e->button == MOUSE_RIGHT) {
-        command(M_BACK);
+    if (e->button == MOUSE_RIGHT) {  // the pop-up menu (over a link: it is chosen)
+        bool on_link = false;
+        if (row >= PAGE_TOP && row < PAGE_TOP + PAGE_ROWS) {
+            int32_t line = W->top + row - PAGE_TOP;
+            const www_doc_t *d = W->doc;
+            for (int32_t s = www_seg_from(d, line); s < d->nsegs && d->segs[s].line == line; ++s)
+                if (col - 1 >= d->segs[s].col && col - 1 < d->segs[s].col + d->segs[s].len) {
+                    W->cur = d->segs[s].link;
+                    on_link = true;
+                }
+        }
+        if (on_link) {  // the link shows as chosen under the menu
+            draw();
+            scr_flush();
+        }
+        popup(row + 1, col, on_link);
         return;
     }
     if (row == 0) {

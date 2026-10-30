@@ -16,7 +16,7 @@ cc -fsanitize=address,undefined "$T"/*.o -o "$T/uitest"
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Istubs -I$SRC/www htmltest.c $SRC/www/www_html.c -o "$T/htmltest"
 "$T/htmltest"
 (cd "$T" && ./uitest)
-for s in home demo menu field results find info help; do
+for s in home demo menu field results find info help popup; do
     python3 - "$T/shot_$s.raw" "$OUT/www_$s.png" <<'P'
 import sys, zlib, struct
 d = open(sys.argv[1], 'rb').read()

@@ -66,8 +66,16 @@ the certificate file `CACERT.PEM` in the drive's root (as for `wget`).
 
 ![The menus](www_menu.png)
 
-The mouse: click a link to follow it, right-click to go back; the wheel
-scrolls; click the menu bar, the key bar or the scroll bar.
+The mouse: click a link to follow it; the wheel scrolls; click the menu
+bar, the key bar or the scroll bar.
+
+![The right button's menu](www_popup.png)
+
+**The right button** opens a menu where you click: Back, Forward, Reload,
+Start page, Bookmark this page, Find, Page source, Save as text and Page
+info, and over a link also Follow link and Download link (the link is
+chosen). Click an item, or hold the right button, move to an item and let
+go; Up, Down and Enter work too; Esc or a click outside closes it.
 
 ## Forms
 
@@ -143,7 +151,7 @@ https).
 
 `tools/wwwtest/uitest.sh /absolute/out/folder` builds the browser for a
 PC with its real screen, menus, dialogs and fetcher against a pretend web
-server, drives it with keys and the mouse (pages, links, a redirect that
+server, drives it with keys and the mouse (pages, links, the right button's menu, a redirect that
 sets a cookie, the forms by GET and POST, find, the source, a download,
 bookmarks, the history, help), checks what the screen shows, and writes
 the screenshots in this manual (`www_*.png`). It also lays out thousands
