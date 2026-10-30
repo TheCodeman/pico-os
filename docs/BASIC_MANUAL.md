@@ -147,7 +147,7 @@ The logical operators work bit by bit on integers, as in GW-BASIC.
 | `MID$(v$, start[, n]) = x$` | Replaces characters of `v$` in place (its length never changes). |
 | `OPTION BASE 0` or `1` | The lowest array subscript; before any array is used. |
 | `ERASE a, b$` | Deletes arrays, so they can be dimensioned again. |
-| `DATE$ = "mm-dd-yyyy"`, `TIME$ = "hh:mm:ss"` | Sets the clock (UTC; `-` or `/` and two-digit years are accepted). |
+| `DATE$ = "mm-dd-yyyy"`, `TIME$ = "hh:mm:ss"` | Sets the clock (local time, see `tz`; `-` or `/` and two-digit years are accepted). |
 | `CHDIR`, `MKDIR`, `RMDIR "path"` | Change, make or remove a folder on the drive. |
 | `KEY n, x$`, `KEY LIST`, `KEY ON` / `OFF` | Sets or lists the soft keys F1-F10. `KEY ON` shows their labels on text row 25, as on a PC (text above it then scrolls on its own); `KEY OFF` removes them. `KEY 15`-`KEY 20` (user trap keys) are accepted but never trigger. |
 | `PLAY "string"` | Music (below). |
@@ -174,7 +174,7 @@ Several statements can share a line, separated by `:`.
 | Maths | `ABS(x)` `INT(x)` (rounds down) `FIX(x)` (cuts off the fraction) `SGN(x)` `SQR(x)` `SIN(x)` `COS(x)` `TAN(x)` `ATN(x)` `EXP(x)` `LOG(x)` `CINT(x)` `CSNG(x)` `CDBL(x)` |
 | Random | `RND` or `RND(1)` gives the next number (0 to 1); `RND(0)` repeats the last one; `RND(-n)` reseeds. RUN always starts the same sequence: use `RANDOMIZE` for a different one. |
 | Strings | `LEN(s$)` `LEFT$(s$,n)` `RIGHT$(s$,n)` `MID$(s$,start[,n])` `CHR$(n)` `ASC(s$)` `STR$(x)` `VAL(s$)` `INSTR([start,] s$, find$)` `STRING$(n, c or c$)` `SPACE$(n)` `HEX$(n)` `OCT$(n)` `UCASE$(s$)` `LCASE$(s$)` |
-| System | `INKEY$` (the key waiting, or ""; function and cursor keys give CHR$(0) and the PC scan code, e.g. F1 is CHR$(0)+CHR$(59), Up CHR$(0)+CHR$(72)), `TIMER` (seconds since start-up), `FRE(0)` (free memory), `POS(0)` (cursor column), `CSRLIN` (cursor row), `DATE$`, `TIME$` (the clock, UTC), `ENVIRON$("name")` or `ENVIRON$(n)`, `SCREEN(row, col[, 1])` (the character on the screen there, or with 1 its colours), `PEEK(offset)` |
+| System | `INKEY$` (the key waiting, or ""; function and cursor keys give CHR$(0) and the PC scan code, e.g. F1 is CHR$(0)+CHR$(59), Up CHR$(0)+CHR$(72)), `TIMER` (seconds since start-up), `FRE(0)` (free memory), `POS(0)` (cursor column), `CSRLIN` (cursor row), `DATE$`, `TIME$` (the clock, local time: see `tz`), `ENVIRON$("name")` or `ENVIRON$(n)`, `SCREEN(row, col[, 1])` (the character on the screen there, or with 1 its colours), `PEEK(offset)` |
 | Music | `MUSIC(0)` -1 while music plays (0 when stopped, paused or finished), `MUSIC(1)` the song position, `MUSIC(2)` the row (0-63), `MUSIC(3)` the pattern: for keeping a program in time with the song |
 | Sprites | `SPRITEHIT(n[, first, last])`, `SPRITEX(n)`, `SPRITEY(n)`, `SPRITEON(n)` (see Sprites) |
 | Keyboard | `KEYDOWN(n)` (an extension): -1 while the key with PC scan code `n` is held down on the USB keyboard, else 0, for games that move while a key is held (INKEY$ only sees presses and auto-repeat). Codes as INKEY$ gives for cursor keys: 72 Up, 75 Left, 77 Right, 80 Down; also 57 Space, 28 Enter, 1 Esc, 29 Ctrl, 42/54 Shift, 56 Alt, letters by their place on the keyboard (16-25 Q-P, 30-38 A-L, 44-50 Z-M), 2-11 the digits 1-0, 59-68 F1-F10. `KEYDOWN(0)` is -1 if a USB keyboard is plugged in (keys typed on the serial console can't be seen held) |

@@ -283,7 +283,7 @@ static void fill_info(FILINFO *fno, const char *name, const smb_info_t *in) {
     if (in->mtime > 116444736000000000ull) {
         time_t t = (time_t)(in->mtime / 10000000ull - 11644473600ull);
         struct tm tm;
-        gmtime_r(&t, &tm);
+        localtime_r(&t, &tm);  // FAT dates are local time
         if (tm.tm_year >= 80) {
             fno->fdate = (tm.tm_year - 80) << 9 | (tm.tm_mon + 1) << 5 | tm.tm_mday;
             fno->ftime = tm.tm_hour << 11 | tm.tm_min << 5 | tm.tm_sec / 2;

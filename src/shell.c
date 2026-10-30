@@ -473,7 +473,12 @@ static const help_t help_system[] = {
     {"date", NULL, "show or set the clock",
      "date\n"
      "date YYYY-MM-DD HH:MM[:SS]\n"
-     "  The clock is UTC, set from the network once WiFi connects."},
+     "  Set from the network once WiFi connects; shown in the time zone (tz)."},
+    {"tz", NULL, "time zone",
+     "tz                         the time zone and the time there\n"
+     "tz PST | MST | CST | EST | AKST | HST | ARIZONA | UTC | UK | CET | ...\n"
+     "tz POSIX-TZ-string         any other, e.g. tz PST8PDT,M3.2.0,M11.1.0\n"
+     "  Saved in /TZ.CFG; daylight saving time is followed."},
     {"mem", NULL, "memory use", "mem"},
     {"mouse", NULL, "mouse status and speed",
      "mouse [speed 1-10 | accel on|off]\n"
@@ -1736,7 +1741,7 @@ static const struct {
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset}, {"clock", cmd_clock},
-    {"date", net_cmd_date}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"www", www_command}, {"lynx", www_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"lancer", lancer_command}, {"say", say_command}, {"screenshot", cmd_screenshot}, {"ver", cmd_ver}, {"version", cmd_ver},
+    {"date", net_cmd_date}, {"tz", net_cmd_tz}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"www", www_command}, {"lynx", www_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"lancer", lancer_command}, {"say", say_command}, {"screenshot", cmd_screenshot}, {"ver", cmd_ver}, {"version", cmd_ver},
 };  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.
@@ -2215,8 +2220,10 @@ void shell_drive_changed(bool present) {
             printf("can't read it, %s", fresult_name(r));
         }
         printf(started ? "]\n" : "\x1b[0m\n");
-        if (mounted)
+        if (mounted) {
+            net_tz_load();
             net_drive_ready();
+        }
     } else {
         f_unmount("0:");
         mounted = false;

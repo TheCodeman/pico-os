@@ -166,6 +166,14 @@ void net_set_time(uint32_t sec, uint32_t us);
 /// @param argv the arguments
 void net_cmd_date(int argc, char **argv);
 
+/// The tz command: shows or sets (and saves in /TZ.CFG) the time zone.
+/// @param argc the argument count
+/// @param argv the arguments
+void net_cmd_tz(int argc, char **argv);
+
+/// The USB drive is mounted: the time zone saved in /TZ.CFG is used.
+void net_tz_load(void);
+
 /// The ntp command: asks an NTP server for the time now and sets the clock.
 /// @param argc the argument count
 /// @param argv the arguments

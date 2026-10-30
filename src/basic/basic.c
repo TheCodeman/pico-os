@@ -1795,7 +1795,7 @@ static value_t builtin(void) {
     if (accept("DATE$") || accept("TIME$")) {
         time_t now = time(NULL);
         struct tm tm;
-        gmtime_r(&now, &tm);
+        localtime_r(&now, &tm);
         char buf[40];
         if (start[0] == 'D')
             snprintf(buf, sizeof buf, "%02d-%02d-%04d", tm.tm_mon + 1, tm.tm_mday, tm.tm_year + 1900);
@@ -3931,7 +3931,7 @@ static void do_erase(void) {
     } while (accept(","));
 }
 
-/// DATE$ = "mm-dd-yy[yy]" and TIME$ = "hh[:mm[:ss]]" set the clock (UTC).
+/// DATE$ = "mm-dd-yy[yy]" and TIME$ = "hh[:mm[:ss]]" set the clock (local time, see tz).
 /// @param v the value
 /// @param date DATE$ (else TIME$)
 static void set_date_or_time(const char *v, bool date) {
@@ -3939,7 +3939,7 @@ static void set_date_or_time(const char *v, bool date) {
     snprintf(text, sizeof text, "%.*s", (int)slen(v), v);
     time_t now = time(NULL);
     struct tm tm;
-    gmtime_r(&now, &tm);
+    localtime_r(&now, &tm);
     int a = 0, b = 0, c = 0;
     int got = sscanf(text, "%d%*[-/:]%d%*[-/:]%d", &a, &b, &c);
     if (date) {
@@ -3955,14 +3955,8 @@ static void set_date_or_time(const char *v, bool date) {
         tm.tm_min = got > 1 ? b : 0;
         tm.tm_sec = got > 2 ? c : 0;
     }
-    // timegm, done by hand (newlib may not have it).
-    int y = tm.tm_year + 1900, m = tm.tm_mon + 1;
-    if (m <= 2) {
-        y -= 1;
-        m += 12;
-    }
-    long days = 365L * y + y / 4 - y / 100 + y / 400 + (153 * (m - 3) + 2) / 5 + tm.tm_mday - 719469;
-    struct timeval tv = {(time_t)days * 86400 + tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec, 0};
+    tm.tm_isdst = -1;
+    struct timeval tv = {mktime(&tm), 0};  // local time (TZ) to UTC
     settimeofday(&tv, NULL);
 }
 

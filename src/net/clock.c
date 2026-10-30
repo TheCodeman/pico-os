@@ -2,7 +2,9 @@
  * @file clock.c
  * @brief The real-time clock: set from the network (NTP, pool.ntp.org) once WiFi is up and every hour after, or by hand with `date`.
  *
- * It keeps UTC; the C library's time() and FatFs file dates (get_fattime in
+ * It keeps UTC; times are shown in the time zone set with `tz` (saved in
+ * /TZ.CFG as a POSIX TZ string, for the C library's localtime). The C
+ * library's time() and FatFs file dates (get_fattime in
  * usb_storage.c) use it.
  *
  * @author Ken Segler
@@ -16,6 +18,7 @@
 #include <sys/time.h>
 #include <time.h>
 
+#include "ff.h"
 #include "lwip/dns.h"
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
@@ -34,35 +37,131 @@ void net_set_time(uint32_t sec, uint32_t us) {
 }
 
 
+// ---- Time zone ------------------------------------------------------------------
+
+/// Where the time zone is kept.
+#define TZ_FILE "/TZ.CFG"
+
+/// Time zones by name, as POSIX TZ strings (US and EU daylight saving rules).
+static const struct {
+    const char *name;  ///< what tz takes (any case)
+    const char *posix; ///< the TZ string
+} zones[] = {
+    {"UTC", "UTC0"},
+    {"PST", "PST8PDT,M3.2.0,M11.1.0"},   {"PDT", "PST8PDT,M3.2.0,M11.1.0"},
+    {"PACIFIC", "PST8PDT,M3.2.0,M11.1.0"},
+    {"MST", "MST7MDT,M3.2.0,M11.1.0"},   {"MDT", "MST7MDT,M3.2.0,M11.1.0"},
+    {"MOUNTAIN", "MST7MDT,M3.2.0,M11.1.0"}, {"ARIZONA", "MST7"},
+    {"CST", "CST6CDT,M3.2.0,M11.1.0"},   {"CDT", "CST6CDT,M3.2.0,M11.1.0"},
+    {"CENTRAL", "CST6CDT,M3.2.0,M11.1.0"},
+    {"EST", "EST5EDT,M3.2.0,M11.1.0"},   {"EDT", "EST5EDT,M3.2.0,M11.1.0"},
+    {"EASTERN", "EST5EDT,M3.2.0,M11.1.0"},
+    {"AKST", "AKST9AKDT,M3.2.0,M11.1.0"}, {"ALASKA", "AKST9AKDT,M3.2.0,M11.1.0"},
+    {"HST", "HST10"},                    {"HAWAII", "HST10"},
+    {"UK", "GMT0BST,M3.5.0/1,M10.5.0"},  {"GMT", "GMT0BST,M3.5.0/1,M10.5.0"},
+    {"CET", "CET-1CEST,M3.5.0,M10.5.0/3"}, {"EET", "EET-2EEST,M3.5.0/3,M10.5.0/4"},
+    {"JST", "JST-9"},                    {"AEST", "AEST-10AEDT,M10.1.0,M4.1.0/3"},
+};
+
+/// Uses a POSIX TZ string from now on.
+/// @param posix the TZ string
+static void use_tz(const char *posix) {
+    setenv("TZ", posix, 1);
+    tzset();
+}
+
+void net_tz_load(void) {
+    FIL f;
+    char line[64];
+    if (f_open(&f, TZ_FILE, FA_READ) != FR_OK)
+        return;
+    if (f_gets(line, sizeof line, &f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        if (line[0])
+            use_tz(line);
+    }
+    f_close(&f);
+}
+
+/// The local time as text: "Thu 2026-10-29 21:11:30 PDT".
+/// @param t the time
+/// @param out the text
+/// @param size room in out
+static void local_text(time_t t, char *out, size_t size) {
+    struct tm tm;
+    localtime_r(&t, &tm);
+    strftime(out, size, "%a %Y-%m-%d %H:%M:%S %Z", &tm);
+}
+
+void net_cmd_tz(int argc, char **argv) {
+    if (argc > 2) {
+        printf("usage: tz [PST | MST | CST | EST | UTC | ... | POSIX TZ string]\n");
+        return;
+    }
+    if (argc == 2) {
+        const char *posix = argv[1];
+        for (unsigned i = 0; i < sizeof zones / sizeof *zones; ++i)
+            if (!strcasecmp(argv[1], zones[i].name))
+                posix = zones[i].posix;
+        if (posix == argv[1] && !strpbrk(posix, "0123456789")) {
+            printf("Unknown time zone %s. Names: ", argv[1]);
+            for (unsigned i = 0; i < sizeof zones / sizeof *zones; ++i)
+                printf("%s%s", i ? " " : "", zones[i].name);
+            printf("\nor a POSIX TZ string, e.g. tz PST8PDT,M3.2.0,M11.1.0\n");
+            return;
+        }
+        use_tz(posix);
+        FIL f;
+        if (f_open(&f, TZ_FILE, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
+            f_printf(&f, "%s\r\n", posix);
+            f_close(&f);
+        } else {
+            printf("(not saved: no drive)\n");
+        }
+    }
+    const char *tz = getenv("TZ");
+    printf("Time zone: %s\n", tz ? tz : "UTC0 (tz PST etc. changes it)");
+    time_t now = time(NULL);
+    if (now >= 1700000000) {
+        char text[48];
+        local_text(now, text, sizeof text);
+        printf("It is %s\n", text);
+    }
+}
+
 void net_cmd_date(int argc, char **argv) {
     if (argc == 3) {
-        // date YYYY-MM-DD HH:MM[:SS], in UTC
+        // date YYYY-MM-DD HH:MM[:SS], in the time zone
         struct tm tm = {0};
         if (sscanf(argv[1], "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) != 3 ||
             sscanf(argv[2], "%d:%d:%d", &tm.tm_hour, &tm.tm_min, &tm.tm_sec) < 2) {
-            printf("usage: date [YYYY-MM-DD HH:MM[:SS]]   (UTC)\n");
+            printf("usage: date [YYYY-MM-DD HH:MM[:SS]]   (local time; see tz)\n");
             return;
         }
         tm.tm_year -= 1900;
         tm.tm_mon -= 1;
-        struct timeval tv = {.tv_sec = mktime(&tm)};  // newlib's TZ is UTC
+        tm.tm_isdst = -1;
+        struct timeval tv = {.tv_sec = mktime(&tm)};  // local time (TZ) to UTC
         settimeofday(&tv, NULL);
         synced = false;
     } else if (argc != 1) {
-        printf("usage: date [YYYY-MM-DD HH:MM[:SS]]   (UTC)\n");
+        printf("usage: date [YYYY-MM-DD HH:MM[:SS]]   (local time; see tz)\n");
         return;
     }
     time_t now = time(NULL);
     if (now < 1700000000) {
         printf("The clock isn't set: it's set from the network once WiFi connects,\n"
-               "or by hand with date YYYY-MM-DD HH:MM (UTC)\n");
+               "or by hand with date YYYY-MM-DD HH:MM (local time; see tz)\n");
         return;
     }
-    struct tm tm;
-    gmtime_r(&now, &tm);
-    char text[40];
-    strftime(text, sizeof text, "%a %Y-%m-%d %H:%M:%S UTC", &tm);
-    printf("%s%s\n", text, synced ? "" : " (set by hand)");
+    char text[48];
+    local_text(now, text, sizeof text);
+    struct tm utc;
+    gmtime_r(&now, &utc);
+    if (getenv("TZ"))
+        printf("%s (%02d:%02d UTC)%s\n", text, utc.tm_hour, utc.tm_min, synced ? "" : " (set by hand)");
+    else
+        printf("%s%s\n", text, synced ? "" : " (set by hand)");
 }
 
 // ---- The ntp command ----------------------------------------------------------
@@ -247,11 +346,8 @@ void net_cmd_ntp(int argc, char **argv) {
     settimeofday(&tv, NULL);
     synced = true;
 
-    time_t secs = tv.tv_sec;
-    struct tm tm;
-    gmtime_r(&secs, &tm);
-    char text[40];
-    strftime(text, sizeof text, "%a %Y-%m-%d %H:%M:%S UTC", &tm);
+    char text[48];
+    local_text(tv.tv_sec, text, sizeof text);
     printf("Time set from %s: %s\n", name, text);
     if (!was_set) {
         printf("The clock wasn't set before");

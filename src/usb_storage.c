@@ -293,7 +293,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff) {
 }
 
 #if !FF_FS_NORTC && !FF_FS_READONLY
-/// File dates come from the clock (UTC; see net/clock.c), or 2026-01-01
+/// File dates come from the clock (local time, see tz in net/clock.c), or 2026-01-01
 /// 00:00 until it has been set.
 /// @return the FAT time
 DWORD get_fattime(void) {
@@ -301,7 +301,7 @@ DWORD get_fattime(void) {
     if (now < 1700000000)
         return (DWORD)(2026 - 1980) << 25 | (DWORD)1 << 21 | (DWORD)1 << 16;
     struct tm tm;
-    gmtime_r(&now, &tm);
+    localtime_r(&now, &tm);
     return (DWORD)(tm.tm_year - 80) << 25 | (DWORD)(tm.tm_mon + 1) << 21 |
            (DWORD)tm.tm_mday << 16 | (DWORD)tm.tm_hour << 11 | (DWORD)tm.tm_min << 5 |
            (DWORD)(tm.tm_sec / 2);

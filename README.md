@@ -501,7 +501,8 @@ the video's, so they never collide.
   `wget -k` skips the check. The handshake runs in the wget command itself,
   not in lwIP's interrupt, and takes about a second.
 - `date` shows the clock (UTC). It is set over the network (NTP,
-  pool.ntp.org) once WiFi connects and every hour after, or by hand with
+  pool.ntp.org) once WiFi connects and every hour after, and shown in the
+  time zone set with `tz` (`tz PST`, saved in `/TZ.CFG`), or set by hand with
   `date YYYY-MM-DD HH:MM`. Files written to the drive get real dates once it
   is set. Certificate dates can't be checked until it is.
 - `ntp [server]` asks an NTP server (default pool.ntp.org, or any name or IP)
