@@ -46,7 +46,7 @@
 #define TEXT_BOTTOM (TEXT_TOP + TEXT_ROWS - 1)  ///< its last row
 #define BAR_ATTR   0x1f  ///< the menu bar and status line: bright white on blue
 #define BAR_SEL_ATTR 0x70  ///< a menu's title on the bar while it is open: black on light grey
-#define BAR_KEY_ATTR 0x1c  ///< a title's Alt letter: bright red on blue, as the editor's red
+#define BAR_KEY_ATTR 0x1e  ///< a title's Alt letter: yellow on blue
 #define BAR_SEL_KEY_ATTR 0x74  ///< and while its menu is open: red on light grey
 #define MENU_ATTR  0x70  ///< a menu
 #define SEL_ATTR   0x1f  ///< its item under the pointer: bright white on blue
