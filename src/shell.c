@@ -526,10 +526,10 @@ static const help_t help_system[] = {
      "  (Esc during start-up skips it), e.g.  wifi wait 20  then  mount //pc/share."},
     {"sercon", NULL, "the shell on the serial port",
      "sercon [on | off]\n"
-     "  The shell's text also on the debug UART (GP0/GP1, 115200 baud). Off at\n"
-     "  start-up (it slows the screen); a key typed there turns it on (until\n"
-     "  sercon is used: after  sercon off  it stays off), or put  sercon on  in\n"
-     "  /AUTORUN. Debug messages go there either way."},
+     "  The shell on the debug UART (GP0/GP1, 115200 baud): its text and keys\n"
+     "  typed there. At start-up the text is off (it slows the screen) and the\n"
+     "  first key typed there turns it on;  sercon off  stops both. Put\n"
+     "  sercon on  in /AUTORUN to have it always. Debug messages go there anyway."},
     {"ver", "version", "OS and program versions",
      "ver [command]\n"
      "  Shows the OS's version and build, and each program's version (or one\n"

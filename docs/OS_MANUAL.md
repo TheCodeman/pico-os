@@ -59,9 +59,10 @@ The prompt shows the current folder:
 
     /> ls
 
-The serial console (GP0/GP1, 115200 baud) can type commands at any time.
-What is printed goes there too once it is on: type a key there (this
-works until you use `sercon` once: after `sercon off` it stays off), or use
+The serial console (GP0/GP1, 115200 baud) can type commands (`sercon off`
+stops that too).
+What is printed goes there too once it is on: type a key there (at
+start-up), or use
 `sercon on` (put it in /AUTORUN to have it always). It is off at start-up
 because sending every character over the slow serial line held the screen
 back too. It works as a full VT100 terminal. Debug messages go to the

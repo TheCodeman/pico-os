@@ -34,9 +34,10 @@ static volatile uint32_t rx_head, rx_tail, tx_head, tx_tail;
 ///@}
 /// Characters dropped because the receive ring was full.
 static volatile unsigned rx_dropped;
-/// The shell's output goes to the UART too (sercon on); off by default, as
-/// sending it slowed the screen down. Keys typed there are always read, and
-/// the first one turns it on.
+/// The shell's output goes to the UART too, and keys typed there are read
+/// (sercon on). At start-up the output is off (sending it slowed the screen
+/// down) but keys are read, and the first one turns the output on; after
+/// sercon off, both are off.
 static volatile bool console_on;
 /// A key typed there may still turn it on: only until sercon says on or off.
 static bool auto_on = true;
@@ -143,12 +144,15 @@ void serial_console_drain(void) {
 /// @param len room in buf
 /// @return how many, or PICO_ERROR_NO_DATA
 static int serial_in_chars(char *buf, int len) {
+    if (!console_on && !auto_on) {  // sercon off: what is typed there is dropped too
+        rx_tail = rx_head;
+        return PICO_ERROR_NO_DATA;
+    }
     int n = 0;
     while (n < len && rx_tail != rx_head)
         buf[n++] = rx_buf[rx_tail++ % RX_SIZE];
-    if (n)
-        if (auto_on)
-            console_on = true;  // someone is typing there: they see the output
+    if (n && auto_on)
+        console_on = true;  // someone is typing there (at start-up): they see the output
     return n ? n : PICO_ERROR_NO_DATA;
 }
 
