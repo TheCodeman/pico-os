@@ -749,6 +749,21 @@ static const char *want_str(value_t v) {
 /// @param n the number
 /// @param out the text
 /// @param size room in out
+/// Takes the trailing zeros (and a bare point) off a number %G made: C's
+/// printf drops them (3.5, not 3.500000), but the Pico SDK's doesn't.
+/// @param buf the number, changed in place
+static void strip_g_zeros(char *buf) {
+    char *e = strchr(buf, 'E'), *dot = strchr(buf, '.');
+    if (!dot || (e && dot > e))
+        return;
+    char *end = e ? e : buf + strlen(buf), *z = end;
+    while (z > dot + 1 && z[-1] == '0')
+        --z;
+    if (z == dot + 1)
+        --z;  // no fraction left: no point either
+    memmove(z, end, strlen(end) + 1);
+}
+
 static void format_number(double n, char *out, int size) {
     char buf[40];
     if (n == 0) {
@@ -761,6 +776,7 @@ static void format_number(double n, char *out, int size) {
         snprintf(buf, sizeof buf, "%.7G", fabs(n));
     else
         snprintf(buf, sizeof buf, "%.9G", fabs(n));
+    strip_g_zeros(buf);
     const char *b = buf;
     if (b[0] == '0' && b[1] == '.')
         ++b;
@@ -2086,6 +2102,7 @@ static value_t builtin(void) {
             error(E_OVERFLOW);
         return num(lround(d));
     }
+    case 29: return num((float)one_num_arg());  // CSNG: single precision, 7 digits
     case 33: {
         expect("(");
         int pin = pin_arg();
@@ -2888,6 +2905,7 @@ static bool load_tokenised(const uint8_t *b, size_t len) {
                 add = tmp;
             } else if (c == 0x1D && i + 3 < len) {
                 snprintf(tmp, sizeof tmp, "%.7G", mbf_to_double(b + i, 4));
+                strip_g_zeros(tmp);
                 i += 4;
                 add = tmp;
             } else if (c == 0x1F && i + 7 < len) {
@@ -8134,6 +8152,13 @@ static int statement(void);
 /// @return S_END or S_SYSTEM
 static int execute(void) {
     for (;;) {
+        // TRON: each line's number as it starts, whether reached by running
+        // on or by a jump (the first line, GOTO, GOSUB, THEN n...).
+        if (trace && running && cur_line >= 0 && cur_line < line_count && p == lines[cur_line].text) {
+            char buf[16];
+            snprintf(buf, sizeof buf, "[%u]", lines[cur_line].num);
+            out_str(buf);
+        }
         skip_spaces();
         if (*p == ':') {
             ++p;
@@ -8147,11 +8172,6 @@ static int execute(void) {
             }
             ++cur_line;
             p = lines[cur_line].text;
-            if (trace) {
-                char buf[16];
-                snprintf(buf, sizeof buf, "[%u]", lines[cur_line].num);
-                out_str(buf);
-            }
             continue;
         }
         if (!strncmp(p, "ELSE", 4)) {
@@ -8771,6 +8791,8 @@ void basic_main(const char *file) {
     bool ok = true;  // "Ok" is shown after direct commands, not program lines
     for (;;) {
         if (ok) {
+            if (out_col)  // a PRINT ending in ; or , left the cursor on its line
+                out_newline();
             out_str("Ok");
             out_newline();
         }

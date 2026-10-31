@@ -51,7 +51,7 @@ runs straight away:
 | `CHAIN [MERGE] "file"[, [line][, ALL][, DELETE range]]` | Runs another program from a program, keeping open files. Only the variables named in `COMMON` statements are passed on, or all of them with `ALL`. `CHAIN MERGE` adds the file's lines to the program (after deleting `range`) and keeps all variables. With `ALL`, DEF FN functions work again whenever their own program is loaded back (as they happen to in GW-BASIC); elsewhere calling one is Undefined user function. |
 | `LLIST` | Same as LIST (there's no printer). |
 | `CONT` | Continues after Ctrl-C or STOP. |
-| `TRON` / `TROFF` | Turns line-number tracing on/off. |
+| `TRON` / `TROFF` | Turns line-number tracing on/off: each line's number is printed in brackets as it starts, `[10][20]`. |
 | `SYSTEM` / `BYE` | Leaves BASIC. |
 
 File names are relative to the shell's current folder and may include a
