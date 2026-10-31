@@ -34,6 +34,7 @@ main keys.
 | Ctrl-V | Paste (the same as Ctrl-U) |
 | Esc | Drop the selection |
 | Ctrl-L | Redraw the screen |
+| F10, Alt-F / E / S | Open the menu bar |
 
 **Finding:** Ctrl-F asks for the text on the bottom row; Enter goes to
 the next place it appears, and F3 finds the one after.
@@ -45,6 +46,18 @@ has changed, and Ctrl-Q asks whether to save: `y` saves and quits, `n`
 quits without saving, Esc goes back to editing.
 
 ![save](editor_save.png)
+
+## The menu bar
+
+The title row is a menu bar: **File** (Save, Redraw screen, Quit),
+**Edit** (Cut, Copy, Paste, Delete, Select all, Cut line) and **Search**
+(Find, Find next, Go to line), followed by the file's name. Click a title,
+or press F10 (File) or Alt and a title's first letter (Alt-F, Alt-E,
+Alt-S). Left / Right go to the next menu (or move the pointer onto its
+title), Up / Down and Enter choose, Esc closes. With the mouse you can also
+press on a title, move onto an item and let go. Each item shows its key.
+
+![menu bar](editor_menubar.png)
 
 ## The mouse
 

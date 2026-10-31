@@ -542,6 +542,45 @@ int main(void) {
     run("/T9.TXT");
     check_file("Ctrl-K, Ctrl-K, Down, Ctrl-U", "T9.TXT", "third\nhello world\nsecond line\n");
 
+    // The menu bar: a click on Edit opens it, Select all; Search by moving
+    // the pointer onto its title while Edit is open; F10 opens File, Right
+    // goes to Edit; Alt-S to Search; Esc; then File > Save by pressing on
+    // File, moving onto Save and letting go.
+    put_file("T11.TXT", three);
+    click(MOUSE_LEFT, 0, 8);  // Edit
+    snap(0);
+    mouse(MOUSE_MOVE, 0, 0, 0, 14, false);  // Search
+    snap(1);
+    keys("\x1b[A");  // Up: its last item, Go to line...
+    keys("\r2\r");   // line 2
+    keys("\x1b[21~");  // F10: File
+    snap(2);
+    keys("\x1b[C");  // Right: Edit
+    snap(3);
+    keys("\x1bs");    // Alt-S: Search
+    snap(4);
+    keys("\x1b");
+    wait_ms(100);
+    keys("Q");  // at the start of line 2
+    click(MOUSE_LEFT, 0, 8);  // Edit > Select all
+    click(MOUSE_LEFT, 7, 8);
+    mouse(MOUSE_DOWN, MOUSE_LEFT, MOUSE_LEFT, 0, 2, false);  // File, held
+    mouse(MOUSE_MOVE, 0, MOUSE_LEFT, 2, 4, false);
+    mouse(MOUSE_UP, MOUSE_LEFT, 0, 2, 4, false);  // Save
+    snap(5);
+    keys("\x11");
+    run("/T11.TXT");
+    check("menu bar: File Edit Search on the title row", !strncmp(row_text(&snaps[0], 0), " File  Edit  Search", 19));
+    check("menu bar: Edit open under its title", strstr(row_text(&snaps[0], 2), "Cut") && snaps[0].ch[1][6] == 0xda);
+    check("menu bar: Edit's title highlighted", snaps[0].bg[0][8] == 4);
+    check("menu bar: the pointer moved to Search", strstr(row_text(&snaps[1], 2), "Find...") && snaps[1].bg[0][14] == 4);
+    check("menu bar: F10 opens File", strstr(row_text(&snaps[2], 2), "Save") && snaps[2].bg[0][2] == 4);
+    check("menu bar: Right goes to Edit", strstr(row_text(&snaps[3], 2), "Cut") != NULL);
+    check("menu bar: Alt-S to Search", strstr(row_text(&snaps[4], 3), "Find next") != NULL);
+    check("menu bar: saved by press, move, let go", !strstr(row_text(&snaps[5], 0), "[modified]"));
+    check_file("menu bar: Go to line, Select all, Save", "T11.TXT", "hello world\nQsecond line\nthird\n");
+    shot(&snaps[0], "shot_bar.raw");
+
     // A selection drawn for the screenshot, with the status row.
     put_file("T10.TXT", "#include <stdio.h>\n\nint main(void) {\n    printf(\"hello\\n\");\n    return 0;\n}\n");
     mouse(MOUSE_DOWN, MOUSE_LEFT, MOUSE_LEFT, 3, 4, false);

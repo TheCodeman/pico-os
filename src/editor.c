@@ -46,8 +46,11 @@
 enum {
     KEY_ESC = 0x100, KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT, KEY_HOME, KEY_END,
     KEY_PGUP, KEY_PGDN, KEY_DEL, KEY_F3,
+    KEY_F10,
     KEY_MOUSE,  ///< a mouse event, in mouse_ev
 };
+/// Alt and a letter: KEY_ALT + the letter (lower case).
+#define KEY_ALT 0x200
 /// The control-key code of a letter.
 #define CTRL(c) ((c) & 0x1f)
 
@@ -487,13 +490,38 @@ static void scroll_to_cursor(void) {
             shown[r].ok = false;
 }
 
+/// The menu bar's titles, on the title row.
+static const char *const menu_titles[] = {"File", "Edit", "Search"};
+/// Their count.
+#define NMENUS 3
+
+/// A menu title's column on the title row.
+/// @param m the menu
+/// @return its first letter's column
+static int menu_col(int m) {
+    int c = 1;
+    for (int i = 0; i < m; ++i)
+        c += (int)strlen(menu_titles[i]) + 2;
+    return c;
+}
+
+/// The menu title at a column of the title row, or -1.
+/// @param col the column
+/// @return the menu, or -1
+static int menu_at(int col) {
+    for (int i = 0; i < NMENUS; ++i)
+        if (col >= menu_col(i) - 1 && col <= menu_col(i) + (int)strlen(menu_titles[i]))
+            return i;
+    return -1;
+}
+
 /// Draws the title and status bars.
 /// @param status the status line's text
 static void draw_bars(const char *status) {
     char row[COLS + 1];
     char right[24];
     snprintf(right, sizeof right, "%s ", crlf ? "CRLF" : "LF");
-    snprintf(row, sizeof row, " Edit: %-.*s%s", COLS - 20, path[0] ? path : "(new file)",
+    snprintf(row, sizeof row, " File  Edit  Search   %-.*s%s", COLS - 34, path[0] ? path : "(new file)",
              modified ? "  [modified]" : "");
     int n = strlen(row);
     memset(row + n, ' ', COLS - n);
@@ -612,6 +640,10 @@ static int read_key(void) {
         int c2 = get_byte(50000);
         return c2 == 'R' ? KEY_F3 : c2 == 'H' ? KEY_HOME : c2 == 'F' ? KEY_END : KEY_ESC;
     }
+    if (c1 >= 'a' && c1 <= 'z')
+        return KEY_ALT + c1;  // Alt-x arrives as Esc x
+    if (c1 >= 'A' && c1 <= 'Z')
+        return KEY_ALT + c1 - 'A' + 'a';
     if (c1 != '[')
         return KEY_ESC;
     int param = 0, c2;
@@ -632,6 +664,7 @@ static int read_key(void) {
         case 5: return KEY_PGUP;
         case 6: return KEY_PGDN;
         case 13: return KEY_F3;
+        case 21: return KEY_F10;
         }
     }
     return KEY_ESC;
@@ -1137,27 +1170,52 @@ static void select_word(int p) {
     cur = b;
 }
 
-/// One of the pop-up menu's items.
+/// An item in a menu.
 typedef struct {
     const char *text;  ///< its name ("-": a line between items)
     const char *keys;  ///< the keys that do the same
     int key;           ///< the key it runs
 } popup_item_t;
 
+/// A line between items.
+#define SEPARATOR {"-", NULL, 0}
+
 /// The right button's menu.
 static const popup_item_t popup_items[] = {
-    {"Cut", "Ctrl-X", CTRL('x')},       {"Copy", "Ctrl-C", CTRL('c')},
-    {"Paste", "Ctrl-V", CTRL('v')},     {"Delete", "Del", KEY_DEL},
-    {"-", NULL, 0},                     {"Select all", "Ctrl-A", CTRL('a')},
-    {"-", NULL, 0},                     {"Find...", "Ctrl-F", CTRL('f')},
-    {"Find next", "F3", KEY_F3},        {"Go to line...", "Ctrl-G", CTRL('g')},
-    {"-", NULL, 0},                     {"Save", "Ctrl-S", CTRL('s')},
+    {"Cut", "Ctrl-X", CTRL('x')},  {"Copy", "Ctrl-C", CTRL('c')},
+    {"Paste", "Ctrl-V", CTRL('v')}, {"Delete", "Del", KEY_DEL},
+    SEPARATOR,                     {"Select all", "Ctrl-A", CTRL('a')},
+    SEPARATOR,                     {"Find...", "Ctrl-F", CTRL('f')},
+    {"Find next", "F3", KEY_F3},   {"Go to line...", "Ctrl-G", CTRL('g')},
+    SEPARATOR,                     {"Save", "Ctrl-S", CTRL('s')},
     {"Quit", "Ctrl-Q", CTRL('q')},
 };
-/// Their count.
-#define NPOPUP (int)(sizeof popup_items / sizeof *popup_items)
+/// The File menu.
+static const popup_item_t file_items[] = {
+    {"Save", "Ctrl-S", CTRL('s')}, {"Redraw screen", "Ctrl-L", CTRL('l')},
+    SEPARATOR,                     {"Quit", "Ctrl-Q", CTRL('q')},
+};
+/// The Edit menu.
+static const popup_item_t edit_items[] = {
+    {"Cut", "Ctrl-X", CTRL('x')},  {"Copy", "Ctrl-C", CTRL('c')},
+    {"Paste", "Ctrl-V", CTRL('v')}, {"Delete", "Del", KEY_DEL},
+    SEPARATOR,                     {"Select all", "Ctrl-A", CTRL('a')},
+    SEPARATOR,                     {"Cut line", "Ctrl-K", CTRL('k')},
+};
+/// The Search menu.
+static const popup_item_t search_items[] = {
+    {"Find...", "Ctrl-F", CTRL('f')}, {"Find next", "F3", KEY_F3},
+    {"Go to line...", "Ctrl-G", CTRL('g')},
+};
+/// The items in an array of them, and their count.
+#define ITEMS(a) a, (int)(sizeof a / sizeof *a)
+/// The menu bar's menus, in menu_titles' order.
+static const struct {
+    const popup_item_t *items;  ///< its items
+    int n;                      ///< their count
+} menus[NMENUS] = {{ITEMS(file_items)}, {ITEMS(edit_items)}, {ITEMS(search_items)}};
 
-/// Whether a pop-up item can be chosen now (Cut wants a selection, and so on).
+/// Whether a menu item can be chosen now (Cut wants a selection, and so on).
 /// @param it the item
 /// @return it can
 static bool popup_enabled(const popup_item_t *it) {
@@ -1171,19 +1229,21 @@ static bool popup_enabled(const popup_item_t *it) {
     return true;
 }
 
-/// Draws the pop-up menu (box lines in the DEC line-drawing set, which the
-/// console and serial terminals both have).
+/// Draws a menu (box lines in the DEC line-drawing set, which the console
+/// and serial terminals both have).
+/// @param items its items
+/// @param n their count
 /// @param row its top row
 /// @param col its left column
 /// @param w its width
 /// @param sel the item highlighted, or -1
-static void popup_draw(int row, int col, int w, int sel) {
+static void popup_draw(const popup_item_t *items, int n, int row, int col, int w, int sel) {
     printf("\x1b[0;30;47m\x1b[%d;%dH\x1b(0l", row + 1, col + 1);
     for (int x = 2; x < w; ++x)
         putchar('q');
     printf("k\x1b(B");
-    for (int i = 0; i < NPOPUP; ++i) {
-        const popup_item_t *it = &popup_items[i];
+    for (int i = 0; i < n; ++i) {
+        const popup_item_t *it = &items[i];
         printf("\x1b[%d;%dH", row + 2 + i, col + 1);
         if (it->text[0] == '-') {
             printf("\x1b(0t");
@@ -1196,73 +1256,131 @@ static void popup_draw(int row, int col, int w, int sel) {
         printf("\x1b(0x\x1b(B%s %-*s%s \x1b[0;30;47m\x1b(0x\x1b(B", colour, w - 4 - (int)strlen(it->keys),
                it->text, it->keys);
     }
-    printf("\x1b[%d;%dH\x1b(0m", row + NPOPUP + 2, col + 1);
+    printf("\x1b[%d;%dH\x1b(0m", row + n + 2, col + 1);
     for (int x = 2; x < w; ++x)
         putchar('q');
     printf("j\x1b(B\x1b[0m");
     fflush(stdout);
 }
 
-/// Shows the pop-up menu below a cell; returns the key of the item chosen
-/// (by the keys, a click, or letting go of the right button over it), or 0.
-/// @param row the row clicked
-/// @param col the column
+/// What run_menu did besides choosing an item: go to the menu bar's menu
+/// on the left or right, or to another one the pointer went to.
+enum { MENU_STAY = -1 };
+
+/// Runs a menu with its top-left corner at a cell; returns the key of the
+/// item chosen (by the keys, a click, or letting go of the button held over
+/// it), or 0. A menu-bar menu (bar >= 0, the menu's number) also goes to
+/// another one with Left / Right or the pointer on its title: *next is set
+/// to it (else MENU_STAY).
+/// @param items its items
+/// @param n their count
+/// @param row its top row
+/// @param col its left column
+/// @param bar its number on the menu bar, or -1 for the pop-up
+/// @param next set to the menu to go to next, or MENU_STAY
 /// @return the item's key, or 0
-static int popup(int row, int col) {
+static int run_menu(const popup_item_t *items, int n, int row, int col, int bar, int *next) {
     int w = 0;
-    for (int i = 0; i < NPOPUP; ++i)
-        if (popup_items[i].keys) {
-            int len = (int)strlen(popup_items[i].text) + (int)strlen(popup_items[i].keys) + 2;
+    for (int i = 0; i < n; ++i)
+        if (items[i].keys) {
+            int len = (int)strlen(items[i].text) + (int)strlen(items[i].keys) + 2;
             if (len > w)
                 w = len;
         }
     w += 4;
-    int h = NPOPUP + 2;
-    row = row + 1 + h > ROWS - 1 ? ROWS - 1 - h : row + 1;
+    int h = n + 2;
+    if (row + h > ROWS - 1)
+        row = ROWS - 1 - h;
     if (row < 1)
         row = 1;
     if (col + w > COLS)
         col = COLS - w;
     int sel = -1, key = 0;
     bool moved = false;  // the pointer has moved since the menu opened
+    *next = MENU_STAY;
     printf("\x1b[?25l");
     for (;;) {
-        popup_draw(row, col, w, sel);
+        popup_draw(items, n, row, col, w, sel);
         int k = read_key();
         if (k == KEY_MOUSE) {
             const mouse_event_t *e = &mouse_ev;
             int i = e->y / 16 - row - 1, c = e->x / 8;
-            bool inside = c > col && c < col + w - 1 && i >= 0 && i < NPOPUP;
-            bool ok = inside && popup_enabled(&popup_items[i]);
+            bool inside = c > col && c < col + w - 1 && i >= 0 && i < n;
+            bool ok = inside && popup_enabled(&items[i]);
+            int title = bar >= 0 && e->y / 16 == 0 ? menu_at(c) : -1;
             if (e->type == MOUSE_MOVE) {
                 moved = true;
                 sel = ok ? i : -1;
+                if (title >= 0 && title != bar) {
+                    *next = title;  // the pointer went to another title
+                    break;
+                }
             } else if (ok && (e->type == MOUSE_DOWN || (e->type == MOUSE_UP && moved))) {
-                key = popup_items[i].key;
+                key = items[i].key;
+                break;
+            } else if (e->type == MOUSE_DOWN && title >= 0 && title != bar) {
+                *next = title;
                 break;
             } else if (e->type == MOUSE_DOWN && !inside) {
-                break;  // a click outside closes it
+                break;  // a click outside (or on its own title) closes it
             }
             continue;
         }
-        if (k == KEY_ESC || k == CTRL('c') || k == CTRL('q'))
+        if (k == KEY_ESC || k == CTRL('c') || k == CTRL('q') || k == KEY_F10)
             break;
         if (k == '\r' && sel >= 0) {
-            key = popup_items[sel].key;
+            key = items[sel].key;
             break;
         }
+        if (bar >= 0 && (k == KEY_LEFT || k == KEY_RIGHT)) {
+            *next = (bar + (k == KEY_LEFT ? NMENUS - 1 : 1)) % NMENUS;
+            break;
+        }
+        if (bar >= 0 && k >= KEY_ALT) {  // Alt and a title's first letter
+            for (int m = 0; m < NMENUS; ++m)
+                if (k == KEY_ALT + (menu_titles[m][0] | 0x20) && m != bar)
+                    *next = m;
+            if (*next != MENU_STAY)
+                break;
+        }
         if (k == KEY_UP || k == KEY_DOWN) {
-            int d = k == KEY_UP ? NPOPUP - 1 : 1;
+            int d = k == KEY_UP ? n - 1 : 1;
             if (sel < 0)
-                sel = k == KEY_UP ? 0 : NPOPUP - 1;
+                sel = k == KEY_UP ? 0 : n - 1;
             do
-                sel = (sel + d) % NPOPUP;
-            while (!popup_enabled(&popup_items[sel]));
+                sel = (sel + d) % n;
+            while (!popup_enabled(&items[sel]));
         }
     }
     for (int r = row; r < row + h; ++r)
         shown[r].ok = false;
     return key;
+}
+
+/// Shows the pop-up menu below a cell (see run_menu).
+/// @param row the row clicked
+/// @param col the column
+/// @return the item's key, or 0
+static int popup(int row, int col) {
+    int next;
+    return run_menu(ITEMS(popup_items), row + 1, col, -1, &next);
+}
+
+/// Opens the menu bar at menu m, going from menu to menu until an item is
+/// chosen or the menus close; returns the item's key, or 0.
+/// @param m the menu
+/// @return the key, or 0
+static int bar_menu(int m) {
+    for (;;) {
+        // Its title highlighted on the title row.
+        printf("\x1b[1;%dH\x1b[97;44m %s \x1b[0m", menu_col(m), menu_titles[m]);
+        shown[0].ok = false;
+        int next, key = run_menu(menus[m].items, menus[m].n, 1, menu_col(m) - 1, m, &next);
+        if (next == MENU_STAY)
+            return key;
+        draw();  // the menu gone from under the next one
+        m = next;
+    }
 }
 
 /// A mouse event: the left button places the cursor and drags a selection
@@ -1301,6 +1419,8 @@ static int mouse_action(const mouse_event_t *e) {
     case MOUSE_DOWN:
         message[0] = 0;
         last_was_cut = false;
+        if (row == 0 && menu_at(col) >= 0)
+            return bar_menu(menu_at(col));
         if (row < 1 || row > TEXT_ROWS)
             return 0;
         int p = pos_at_cell(row, col, false), a, b;
@@ -1375,6 +1495,15 @@ void editor_run(const char *name) {
                 if (!(k = mouse_action(&mouse_ev)))
                     continue;
             }
+            // F10, or Alt and a menu's first letter: the menu bar.
+            for (int m = 0; m < NMENUS && k >= KEY_F10; ++m)
+                if (k == KEY_F10 ? m == 0 : k == KEY_ALT + (menu_titles[m][0] | 0x20)) {
+                    pending = true;
+                    k = bar_menu(m);
+                    break;
+                }
+            if (!k)
+                continue;
             pending = true;
             follow = true;
             if (!handle_key(k))

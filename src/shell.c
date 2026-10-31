@@ -293,7 +293,8 @@ static const help_t help_programs[] = {
      "  Ctrl-S save   Ctrl-Q quit   Ctrl-F find   F3 find next\n"
      "  Ctrl-G go to line   Ctrl-K cut line   Ctrl-U paste   Ctrl-L redraw\n"
      "  Mouse: click, drag or double-click to select, wheel scrolls,\n"
-     "  right button for a menu.  Ctrl-X cut  Ctrl-C copy  Ctrl-V paste  Ctrl-A all"},
+     "  right button for a menu.  Ctrl-X cut  Ctrl-C copy  Ctrl-V paste  Ctrl-A all\n"
+     "  Menu bar: click File / Edit / Search, or F10, Alt-F, Alt-E, Alt-S"},
     {"basic", NULL, "GW-BASIC style BASIC",
      "basic [file]\n"
      "  Starts BASIC, or loads and runs a program. SYSTEM returns here."},
