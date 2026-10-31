@@ -1322,6 +1322,49 @@ static const struct {
     int n;                      ///< their count
 } menus[NMENUS] = {{ITEMS(file_items)}, {ITEMS(edit_items)}, {ITEMS(search_items)}};
 
+/// Whether a character is a letter (for the items' key letters).
+/// @param c the character
+/// @return it is
+static bool is_letter(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+/// Where an item's key letter is in its name: the first letter of one of its
+/// words, else any letter, that no item above it in the menu has. Pressing
+/// it while the menu is open chooses the item.
+/// @param text the item's name ("-": a line, none)
+/// @param prev the names of the items above it
+/// @param nprev their count
+/// @return the letter's place in text, or -1
+static int hotkey_of(const char *text, const char *const *prev, int nprev) {
+    if (text[0] == '-')
+        return -1;
+    for (int pass = 0; pass < 2; ++pass)
+        for (int i = 0; text[i]; ++i) {
+            if (!is_letter(text[i]) || (pass == 0 && i > 0 && is_letter(text[i - 1])))
+                continue;  // the first pass: only words' first letters
+            bool taken = false;
+            for (int j = 0; j < nprev && !taken; ++j) {
+                int at = hotkey_of(prev[j], prev, j);
+                taken = at >= 0 && (prev[j][at] | 0x20) == (text[i] | 0x20);
+            }
+            if (!taken)
+                return i;
+        }
+    return -1;
+}
+
+/// An item's key letter's place in its name (see hotkey_of).
+/// @param items the menu's items
+/// @param i the item
+/// @return the place, or -1
+static int item_hotkey(const popup_item_t *items, int i) {
+    const char *prev[24];
+    for (int j = 0; j < i && j < 24; ++j)
+        prev[j] = items[j].text;
+    return hotkey_of(items[i].text, prev, i < 24 ? i : 24);
+}
+
 /// Whether a menu item can be chosen now (Cut wants a selection, and so on).
 /// @param it the item
 /// @return it can
@@ -1373,9 +1416,17 @@ static void popup_draw(const popup_item_t *items, int n, int row, int col, int w
             printf("u\x1b(B");
             continue;
         }
-        const char *colour = i == sel ? "\x1b[97;44m" : popup_enabled(it) ? "" : "\x1b[90m";
-        printf("\x1b(0x\x1b(B%s %-*s%s \x1b[0;30;47m\x1b(0x\x1b(B", colour, w - 4 - (int)strlen(it->keys),
-               it->text, it->keys);
+        bool on = popup_enabled(it);
+        const char *colour = i == sel ? "\x1b[97;44m" : on ? "" : "\x1b[90m";
+        // Its key letter in red (yellow when highlighted); none when it can't be chosen.
+        int hk = on ? item_hotkey(items, i) : -1, len = strlen(it->text);
+        printf("\x1b(0x\x1b(B%s ", colour);
+        if (hk >= 0)
+            printf("%.*s%s%c%s%s", hk, it->text, i == sel ? "\x1b[93m" : "\x1b[31m", it->text[hk],
+                   i == sel ? "\x1b[97m" : "\x1b[30m", it->text + hk + 1);
+        else
+            printf("%s", it->text);
+        printf("%*s%s \x1b[0;30;47m\x1b(0x\x1b(B", w - 4 - (int)strlen(it->keys) - len, "", it->keys);
     }
     if (all) {
         printf("\x1b[%d;%dH\x1b(0m", row + n + 2, col + 1);
@@ -1463,6 +1514,15 @@ static int run_menu(const popup_item_t *items, int n, int row, int col, int bar,
                 if (k == KEY_ALT + (menu_titles[m][0] | 0x20) && m != bar)
                     *next = m;
             if (*next != MENU_STAY)
+                break;
+        }
+        if (k < 0x100 && is_letter(k)) {  // an item's key letter
+            for (int i = 0; i < n && !key; ++i) {
+                int hk = item_hotkey(items, i);
+                if (hk >= 0 && (items[i].text[hk] | 0x20) == (k | 0x20) && popup_enabled(&items[i]))
+                    key = items[i].key;
+            }
+            if (key)
                 break;
         }
         if (k == KEY_UP || k == KEY_DOWN) {

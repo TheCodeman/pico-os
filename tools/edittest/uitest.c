@@ -613,6 +613,13 @@ int main(void) {
     check("menu: a new item highlighted sends little", counts[2] > counts[1] && counts[2] - counts[1] < 200);
     check("quit box: pointer moves send nothing", counts[5] == counts[4]);
 
+    // A menu item's key letter chooses it: S is Select all in the pop-up.
+    put_file("T16.TXT", three);
+    click(MOUSE_RIGHT, 1, 2);
+    keys("s\x1b[3~\x13\x11");
+    run("/T16.TXT");
+    check_file("menu: its key letter (s: Select all), then Delete", "T16.TXT", "");
+
     // The keys from before still work: Ctrl-K twice, Ctrl-U.
     put_file("T9.TXT", three);
     keys("\x0b\x0b\x1b[B\x15\x13\x11");

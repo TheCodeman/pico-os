@@ -1917,6 +1917,38 @@ static const struct {
 /// popup_draw's "nothing drawn yet".
 #define MENU_UNDRAWN (-2)
 
+/// Whether a character is a letter (for the items' key letters).
+/// @param c the character
+/// @return it is
+static bool is_letter(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+/// Where an item's key letter is in its name: the first letter of one of its
+/// words, else any letter, that no item above it in the menu has. Pressing
+/// it while the menu is open chooses the item.
+/// @param text the item's name ("-": a line, none)
+/// @param prev the names of the items above it
+/// @param nprev their count
+/// @return the letter's place in text, or -1
+static int hotkey_of(const char *text, const char *const *prev, int nprev) {
+    if (text[0] == '-')
+        return -1;
+    for (int pass = 0; pass < 2; ++pass)
+        for (int i = 0; text[i]; ++i) {
+            if (!is_letter(text[i]) || (pass == 0 && i > 0 && is_letter(text[i - 1])))
+                continue;  // the first pass: only words' first letters
+            bool taken = false;
+            for (int j = 0; j < nprev && !taken; ++j) {
+                int at = hotkey_of(prev[j], prev, j);
+                taken = at >= 0 && (prev[j][at] | 0x20) == (text[i] | 0x20);
+            }
+            if (!taken)
+                return i;
+        }
+    return -1;
+}
+
 /// An item's name as shown: what it does now (Stop logging, a tick on Local echo).
 /// @param it the item
 /// @return its name
@@ -1926,6 +1958,17 @@ static const char *item_text(const menu_item_t *it) {
     if (it->cmd == 'E')
         return cfg.echo ? "\xfb Local echo" : "  Local echo";
     return it->text;
+}
+
+/// An item's key letter's place in its shown name (see hotkey_of).
+/// @param items the menu's items
+/// @param i the item
+/// @return the place, or -1
+static int item_hotkey(const menu_item_t *items, int i) {
+    const char *prev[24];
+    for (int j = 0; j < i && j < 24; ++j)
+        prev[j] = item_text(&items[j]);
+    return hotkey_of(item_text(&items[i]), prev, i < 24 ? i : 24);
 }
 
 /// Writes text into a row of cells.
@@ -1977,6 +2020,9 @@ static void menu_draw(const menu_item_t *items, int n, int row, int col, int w, 
             console_set_cell(r, col + x, ' ', a);
         console_set_cell(r, col + w - 1, 0xb3, MENU_ATTR);
         put_text(r, col + 2, item_text(&items[i]), a);
+        int hk = item_hotkey(items, i);
+        if (hk >= 0)  // its key letter: red, or yellow when highlighted
+            console_set_cell(r, col + 2 + hk, (uint8_t)item_text(&items[i])[hk], i == sel ? 0x1e : 0x74);
         put_text(r, col + w - 2 - (int)strlen(items[i].keys), items[i].keys, a);
     }
 }
@@ -2084,6 +2130,15 @@ static int run_menu(const menu_item_t *items, int n, int row, int col, int bar, 
             if (bar >= 0 && k - KEY_ALT_MENU != bar)
                 *next = k - KEY_ALT_MENU;
             break;
+        }
+        if (k < 0x100 && is_letter(k)) {  // an item's key letter
+            for (int i = 0; i < n && !cmd; ++i) {
+                int hk = item_hotkey(items, i);
+                if (hk >= 0 && (item_text(&items[i])[hk] | 0x20) == (k | 0x20))
+                    cmd = items[i].cmd;
+            }
+            if (cmd)
+                break;
         }
         if (k == KEY_UP || k == KEY_DOWN) {
             int d = k == KEY_UP ? n - 1 : 1;
