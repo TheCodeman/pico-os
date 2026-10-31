@@ -46,6 +46,8 @@
 #define TEXT_BOTTOM (TEXT_TOP + TEXT_ROWS - 1)  ///< its last row
 #define BAR_ATTR   0x1f  ///< the menu bar and status line: bright white on blue
 #define BAR_SEL_ATTR 0x70  ///< a menu's title on the bar while it is open: black on light grey
+#define BAR_KEY_ATTR 0x1e  ///< a title's Alt letter: yellow on blue
+#define BAR_SEL_KEY_ATTR 0x74  ///< and while its menu is open: red on light grey
 #define MENU_ATTR  0x70  ///< a menu
 #define SEL_ATTR   0x1f  ///< its item under the pointer: bright white on blue
 /// The control-key code of a letter.
@@ -246,10 +248,14 @@ static int menu_at(int col) {
 /// @param attr its colours
 /// @param hl_from the first column in SEL_ATTR (a menu's title while it is open)
 /// @param hl_to after the last (the same as hl_from: none)
-static void put_bar(int row, const char *text, uint8_t attr, int hl_from, int hl_to) {
+/// @param keys the columns of the menu titles' Alt letters, coloured (NULL: none)
+static void put_bar(int row, const char *text, uint8_t attr, int hl_from, int hl_to, const bool *keys) {
     int len = strlen(text);
     for (int col = 0; col < CONSOLE_COLS; ++col) {
-        uint8_t ch = col < len ? (uint8_t)text[col] : ' ', a = col >= hl_from && col < hl_to ? BAR_SEL_ATTR : attr;
+        bool hl = col >= hl_from && col < hl_to;
+        uint8_t ch = col < len ? (uint8_t)text[col] : ' ', a = hl ? BAR_SEL_ATTR : attr;
+        if (keys && keys[col])
+            a = hl ? BAR_SEL_KEY_ATTR : BAR_KEY_ATTR;
         uint8_t was_ch, was_a;
         console_get_cell(row, col, &was_ch, &was_a);
         if (was_ch != ch || was_a != a)
@@ -267,7 +273,10 @@ static void draw_menu_bar(int open) {
     int n = strlen(text);
     snprintf(text + n, sizeof text - n, "%*s", CONSOLE_COLS - n, right);
     int from = open >= 0 ? menu_col(open) - 1 : 0;
-    put_bar(0, text, BAR_ATTR, from, open >= 0 ? from + (int)strlen(menu_titles[open]) + 2 : 0);
+    bool keys[CONSOLE_COLS] = {false};  // each title's first letter: Alt and it opens the menu
+    for (int m = 0; m < NMENUS; ++m)
+        keys[menu_col(m)] = true;
+    put_bar(0, text, BAR_ATTR, from, open >= 0 ? from + (int)strlen(menu_titles[open]) + 2 : 0, keys);
 }
 
 /// The status line and menu bar, written straight into their rows so the
@@ -288,7 +297,7 @@ static void draw_status(void) {
                  cfg.stop, cfg.tx, cfg.tx + 1, extra);
     }
     text[CONSOLE_COLS] = 0;
-    put_bar(CONSOLE_ROWS - 1, text, BAR_ATTR, 0, 0);
+    put_bar(CONSOLE_ROWS - 1, text, BAR_ATTR, 0, 0, NULL);
     draw_menu_bar(-1);
     status_dirty = false;
 }

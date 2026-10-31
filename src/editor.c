@@ -369,10 +369,11 @@ static void set_message(const char *fmt, const char *arg) {
 /// @param text its 80 columns
 /// @param from the first column in reverse video
 /// @param to after the last (from == to: none)
-static void put_row(int row, const char *text, int from, int to) {
+/// @return it was written (it had changed)
+static bool put_row(int row, const char *text, int from, int to) {
     if (shown[row].ok && shown[row].from == from && shown[row].to == to &&
         memcmp(shadow[row], text, COLS) == 0)
-        return;
+        return false;
     // printf, not fwrite: the SDK sends printf/putchar straight out, but
     // fwrite goes through newlib's buffer and would arrive after later output.
     printf("\x1b[%d;1H%.*s", row + 1, from, text);
@@ -383,6 +384,7 @@ static void put_row(int row, const char *text, int from, int to) {
     shown[row].ok = true;
     shown[row].from = from;
     shown[row].to = to;
+    return true;
 }
 
 /// Adds the text columns [c0, c1) to a row's reversed span, as far as they are on the screen.
@@ -532,7 +534,9 @@ static void draw_bars(const char *status) {
     int n = strlen(row);
     memset(row + n, ' ', COLS - n);
     memcpy(row + COLS - strlen(right), right, strlen(right));
-    put_row(0, row, 0, COLS);
+    if (put_row(0, row, 0, COLS))  // the titles' Alt letters in red
+        for (int m = 0; m < NMENUS; ++m)
+            printf("\x1b[1;%dH\x1b[31;47m%c\x1b[0m", menu_col(m) + 1, menu_titles[m][0]);
 
     if (status) {
         snprintf(row, sizeof row, "%s", status);
@@ -1491,7 +1495,8 @@ static int popup(int row, int col) {
 static int bar_menu(int m) {
     for (;;) {
         // Its title highlighted on the title row.
-        printf("\x1b[1;%dH\x1b[97;44m %s \x1b[0m", menu_col(m), menu_titles[m]);
+        printf("\x1b[1;%dH\x1b[97;44m \x1b[93m%c\x1b[97m%s \x1b[0m", menu_col(m), menu_titles[m][0],
+               menu_titles[m] + 1);
         shown[0].ok = false;
         int next, key = run_menu(menus[m].items, menus[m].n, 1, menu_col(m) - 1, m, &next);
         if (next == MENU_STAY)
