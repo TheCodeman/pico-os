@@ -1,6 +1,6 @@
 /**
  * @file term.c
- * @brief term: a serial terminal on tty1 (UART1, the port BASIC calls COM1; never the debug UART).
+ * @brief term: a serial terminal on tty1 (UART1, the port BASIC calls COM1), or on tty0 (the debug UART, GP0/GP1) while sercon is off.
  *
  * What arrives goes to the screen through the VT100/ANSI console, so the far
  * end's colours and cursor moves work; keys go out. As in the editor, the top
@@ -14,6 +14,10 @@
  * M menus, H help, Ctrl-A sends Ctrl-A); F1 opens the settings and F10 exits too.
  * A ZMODEM sender at the far end (sz) starts a download by itself. Settings
  * are kept in /TERM.CFG.
+ *
+ * The Pins setting offers GP0/GP1 too while the serial console is off
+ * (sercon off): term then borrows the debug UART and its buffers
+ * (serial_port_open), and gives it back at 115200 8N1 on leaving.
  *
  * @author Ken Segler
  * @copyright Copyright (c) 2026 Ken Segler
@@ -61,7 +65,7 @@ typedef struct {
     int data, stop;
     ///@}
     char parity;  ///< N, E or O
-    int tx;       ///< TX pin 4, 8, 20 or 24; RX is the next pin
+    int tx;       ///< TX pin 0 (the debug UART), 4, 8, 20 or 24; RX is the next pin
     bool flow;    ///< RTS/CTS on TX+2 / TX+3
     bool echo;    ///< show what is typed
     int enter;    ///< Enter sends 0 CR, 1 LF, 2 CR LF
@@ -81,8 +85,10 @@ static const unsigned bauds[] = {300,   1200,  2400,   4800,   9600,   19200,
                                  38400, 57600, 115200, 230400, 460800, 921600};
 /// Their count.
 #define NBAUDS (int)(sizeof bauds / sizeof *bauds)
-/// The TX pins offered.
-static const int tx_pins[] = {4, 8, 20, 24};
+/// The TX pins offered (GP0: the debug UART, only while sercon is off).
+static const int tx_pins[] = {0, 4, 8, 20, 24};
+/// Their count.
+#define NPINS (int)(sizeof tx_pins / sizeof *tx_pins)
 /// What Enter sends, as names.
 static const char *const enter_names[] = {"CR", "LF", "CR LF"};
 
@@ -96,7 +102,7 @@ static absolute_time_t log_synced;
 static char message[192];  ///< shown in the status line (cut to fit) until a key
 /// The status line must be drawn again.
 static bool status_dirty = true;
-static bool port_ok;  ///< COM1 is open with cfg
+static bool port_ok;  ///< the port is open with cfg
 
 // ---- Settings file --------------------------------------------------------------
 
@@ -123,7 +129,7 @@ static void cfg_load(void) {
             cfg.parity = v[0];
         else if (!strcmp(line, "stop") && (n == 1 || n == 2))
             cfg.stop = n;
-        else if (!strcmp(line, "tx") && (n == 4 || n == 8 || n == 20 || n == 24))
+        else if (!strcmp(line, "tx") && (n == 0 || n == 4 || n == 8 || n == 20 || n == 24))
             cfg.tx = n;
         else if (!strcmp(line, "flow"))
             cfg.flow = n;
@@ -159,17 +165,42 @@ static bool cfg_save(void) {
 
 // ---- The port ---------------------------------------------------------------------
 
-/// Opens COM1 with cfg; prints why not and returns false on failure.
+/// The port's name: tty0 on the debug UART (GP0/GP1), else tty1 (COM1).
+/// @return the name
+static const char *port_name(void) {
+    return cfg.tx == 0 ? "tty0" : "tty1";
+}
+
+/// Closes whichever port is open.
+static void port_close(void) {
+    port_serial_close();
+    serial_port_close();
+}
+
+/// The next byte received.
+/// @return it, or -1 if none
+static int port_getc(void) {
+    return serial_port_is_open() ? serial_port_getc() : port_serial_getc();
+}
+
+/// Opens tty1 (COM1) or tty0 (the debug UART) with cfg; sets the message
+/// and returns false on failure.
 /// @return opened
 static bool port_open(void) {
-    port_serial_close();
+    port_close();
     port_ok = false;
-    const char *why = port_serial_open(cfg.baud, cfg.data, cfg.parity, cfg.stop, cfg.tx, cfg.tx + 1);
-    if (!why && cfg.flow)
-        why = port_serial_flow(true);
+    const char *why;
+    if (cfg.tx == 0) {
+        why = cfg.flow ? "no flow control on GP0/GP1"
+                       : serial_port_open(cfg.baud, cfg.data, cfg.parity, cfg.stop);
+    } else {
+        why = port_serial_open(cfg.baud, cfg.data, cfg.parity, cfg.stop, cfg.tx, cfg.tx + 1);
+        if (!why && cfg.flow)
+            why = port_serial_flow(true);
+    }
     if (why) {
-        port_serial_close();
-        snprintf(message, sizeof message, "Can't open tty1: %s", why);
+        port_close();
+        snprintf(message, sizeof message, "Can't open %s: %s", port_name(), why);
         status_dirty = true;
         return false;
     }
@@ -177,11 +208,15 @@ static bool port_open(void) {
     return true;
 }
 
-/// Sends to COM1.
+/// Sends to the port.
 /// @param s the bytes
 /// @param n their count
 static void send(const char *s, int n) {
-    if (port_ok)  // closed after a failed settings change: nothing to send to
+    if (!port_ok)  // closed after a failed settings change: nothing to send to
+        return;
+    if (serial_port_is_open())
+        serial_port_write(s, n);
+    else
         port_serial_write(s, n);
 }
 
@@ -293,8 +328,9 @@ static void draw_status(void) {
             strcat(extra, " echo");
         if (logging)
             snprintf(extra + strlen(extra), sizeof extra - strlen(extra), " LOG %s", log_name);
-        snprintf(text, sizeof text, " tty1 %u %d%c%d GP%d/GP%d%s", cfg.baud, cfg.data, cfg.parity,
+        snprintf(text, sizeof text, " %s %u %d%c%d GP%d/GP%d%s", port_name(), cfg.baud, cfg.data, cfg.parity,
                  cfg.stop, cfg.tx, cfg.tx + 1, extra);
+        memmove(text + 2, text + 1, strlen(text));  // room for the port's name
     }
     text[CONSOLE_COLS] = 0;
     put_bar(CONSOLE_ROWS - 1, text, BAR_ATTR, 0, 0, NULL);
@@ -495,9 +531,13 @@ static void setting_text(int i, char *out, int size) {
         snprintf(out, size, "%s", cfg.parity == 'E' ? "Even" : cfg.parity == 'O' ? "Odd" : "None");
         break;
     case S_STOP: snprintf(out, size, "%d", cfg.stop); break;
-    case S_PINS: snprintf(out, size, "TX GP%d, RX GP%d", cfg.tx, cfg.tx + 1); break;
+    case S_PINS:
+        snprintf(out, size, "TX GP%d, RX GP%d%s", cfg.tx, cfg.tx + 1, cfg.tx == 0 ? " (debug)" : "");
+        break;
     case S_FLOW:
-        if (cfg.flow)
+        if (cfg.flow && cfg.tx == 0)
+            snprintf(out, size, "RTS/CTS (not on GP0/GP1)");
+        else if (cfg.flow)
             snprintf(out, size, "RTS/CTS (CTS GP%d, RTS GP%d)", cfg.tx + 2, cfg.tx + 3);
         else
             snprintf(out, size, "None");
@@ -539,9 +579,12 @@ static void change_setting(int i, int dir) {
     case S_STOP: cfg.stop = cfg.stop == 1 ? 2 : 1; break;
     case S_PINS: {
         int k = 0;
-        while (k < 3 && tx_pins[k] != cfg.tx)
+        while (k < NPINS - 1 && tx_pins[k] != cfg.tx)
             ++k;
-        cfg.tx = tx_pins[(k + 4 + dir) % 4];
+        do  // GP0/GP1 only while the serial console is off
+            k = (k + NPINS + dir) % NPINS;
+        while (tx_pins[k] == 0 && serial_console_enabled());
+        cfg.tx = tx_pins[k];
         break;
     }
     case S_FLOW: cfg.flow = !cfg.flow; break;
@@ -598,7 +641,9 @@ static void draw_settings(int sel, const char *note) {
             console_set_cell(r0 + r, c0 + c, edge ? 0xc4 : ' ', MENU_ATTR);
         console_set_cell(r0 + r, c0 + SET_W - 1, r == 0 ? 0xbf : r == SET_H - 1 ? 0xd9 : 0xb3, MENU_ATTR);
     }
-    put_text(r0, c0 + 2, " Port settings (tty1) ", MENU_ATTR);
+    char title[32];
+    snprintf(title, sizeof title, " Port settings (%s) ", port_name());
+    put_text(r0, c0 + 2, title, MENU_ATTR);
     for (int i = 0; i < S_COUNT; ++i) {
         char value[64];
         char v[48];
@@ -1003,7 +1048,7 @@ static int x_getc(void *ctx, unsigned timeout_ms) {
     absolute_time_t until = make_timeout_time_ms(timeout_ms);
     absolute_time_t key_check = nil_time;
     for (;;) {
-        int c = port_serial_getc();
+        int c = port_getc();
         if (c >= 0)
             return c;
         if (time_reached(key_check)) {
@@ -1261,7 +1306,7 @@ static void transfer(bool sending) {
     // Drop what the other end may still send (e.g. CANs or the rest of a
     // header) so it doesn't show.
     for (absolute_time_t quiet = make_timeout_time_ms(200); !time_reached(quiet);)
-        if (port_serial_getc() >= 0)
+        if (port_getc() >= 0)
             quiet = make_timeout_time_ms(200);
     char m[160];
     snprintf(m, sizeof m, "%s %s: %s", xfer_proto_name(proto), sending ? "upload" : "download",
@@ -1734,7 +1779,8 @@ static void about_box(void) {
     put_text(row + 3, col + (W - (int)strlen(line)) / 2, line, MENU_ATTR);
     static const char *const text[] = {
         "A VT100 / ANSI terminal on tty1 (UART1, BASIC's",
-        "COM1), with XMODEM, YMODEM and ZMODEM transfers",
+        "COM1) or tty0 (GP0/GP1, while sercon is off),",
+        "with XMODEM, YMODEM and ZMODEM transfers",
         "and logging. Settings in " CFG_FILE ".",
         "",
         "Copyright (c) 2026 Ken Segler. MIT licence.",
@@ -1763,7 +1809,7 @@ static int pump_received(void) {
     static int matched;
     char buf[300];
     int n = 0, total = 0, c;
-    while (!zmodem_seen && (c = port_serial_getc()) >= 0) {
+    while (!zmodem_seen && (c = port_getc()) >= 0) {
         if (c == zrqinit[matched]) {
             if (++matched == (int)sizeof zrqinit - 1) {
                 matched = 0;
@@ -1832,7 +1878,10 @@ static bool run_command(int k) {
         break;
     case 'X': return false;
     case 'B':
-        port_serial_break(250);
+        if (serial_port_is_open())
+            serial_port_break(250);
+        else
+            port_serial_break(250);
         set_message("Sent a BREAK.");
         break;
     case 'C':
@@ -2200,7 +2249,8 @@ static bool mouse_click(const mouse_event_t *e) {
 static void usage(void) {
     printf("usage: term [baud] [format, e.g. 8N1]   (alias serial)\n"
            "A serial terminal on tty1 (UART1, BASIC's COM1; GP4 TX / GP5 RX unless\n"
-           "changed in the settings). F1 settings, F9 menus, F10 exit, Ctrl-A H keys.\n");
+           "changed in the settings; GP0/GP1, the debug port, is there too while\n"
+           "sercon is off). F1 settings, F9 menus, F10 exit, Ctrl-A H keys.\n");
 }
 
 void term_command(int argc, char **argv) {
@@ -2298,10 +2348,10 @@ void term_command(int argc, char **argv) {
     }
     free(log_file);
     log_file = NULL;
-    port_serial_close();
+    port_close();
     mouse_pointer(pointer);
     // The whole screen again, cleared (the bars gone with it).
     fflush(stdout);
     console_set_view(0, CONSOLE_ROWS - 1);
-    printf("\x1b[0m\x1b[r\x1b[2J\x1b[HLeft the terminal (tty1 closed).\n");
+    printf("\x1b[0m\x1b[r\x1b[2J\x1b[HLeft the terminal (%s closed).\n", port_name());
 }

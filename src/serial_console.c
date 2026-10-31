@@ -15,6 +15,7 @@
 #include "hardware/irq.h"
 #include "hardware/sync.h"
 #include "hardware/uart.h"
+#include "pico/time.h"
 #include "pico/stdio.h"
 #include "pico/stdio_uart.h"
 
@@ -41,6 +42,9 @@ static volatile unsigned rx_dropped;
 static volatile bool console_on;
 /// A key typed there may still turn it on: only until sercon says on or off.
 static bool auto_on = true;
+/// term has the UART as a port of its own (serial_port_open): stdio and the
+/// debug messages leave it alone, and the rings carry term's bytes.
+static volatile bool port_mode;
 /// Guards the send ring between cores.
 static spin_lock_t *lock;
 /// stdio's callback for characters arriving.
@@ -99,7 +103,7 @@ static void queue_chars(const char *buf, int len) {
 }
 
 bool serial_console_write_some(const char *buf, int len) {
-    if (!console_on)
+    if (!console_on || port_mode)
         return true;  // nobody is watching
     uint32_t save = spin_lock_blocking(lock);
     bool room = TX_SIZE - (tx_head - tx_tail) >= (uint32_t)len;
@@ -116,7 +120,7 @@ bool serial_console_write_some(const char *buf, int len) {
 /// @param buf the characters
 /// @param len how many
 static void serial_out_chars(const char *buf, int len) {
-    if (console_on)
+    if (console_on && !port_mode)
         queue_chars(buf, len);
 }
 
@@ -144,6 +148,8 @@ void serial_console_drain(void) {
 /// @param len room in buf
 /// @return how many, or PICO_ERROR_NO_DATA
 static int serial_in_chars(char *buf, int len) {
+    if (port_mode)
+        return PICO_ERROR_NO_DATA;  // term's
     if (!console_on && !auto_on) {  // sercon off: what is typed there is dropped too
         rx_tail = rx_head;
         return PICO_ERROR_NO_DATA;
@@ -201,7 +207,7 @@ unsigned serial_console_overruns(void) {
 }
 
 void debug_write(const char *text, int len) {
-    if (!console_on && !auto_on)
+    if (port_mode || (!console_on && !auto_on))
         return;  // sercon off: nothing at all goes out there
     for (int i = 0; i < len; ++i) {
         if (text[i] == '\n')
@@ -217,4 +223,54 @@ void debug_printf(const char *format, ...) {
     int n = vsnprintf(buf, sizeof buf, format, args);
     va_end(args);
     debug_write(buf, n < (int)sizeof buf ? n : (int)sizeof buf - 1);
+}
+
+// ---- The UART as term's port ------------------------------------------------------
+
+const char *serial_port_open(unsigned baud, int data_bits, char parity, int stop_bits) {
+    if (console_on)
+        return "GP0/GP1 carry the serial console (sercon off frees them)";
+    if (!port_mode) {
+        serial_console_drain();  // the last debug messages out at the old speed
+        port_mode = true;
+    }
+    uart_set_baudrate(UART, baud);
+    uart_set_format(UART, data_bits, stop_bits,
+                    parity == 'E' ? UART_PARITY_EVEN : parity == 'O' ? UART_PARITY_ODD : UART_PARITY_NONE);
+    rx_tail = rx_head;  // what came before isn't term's
+    return NULL;
+}
+
+void serial_port_close(void) {
+    if (!port_mode)
+        return;
+    serial_console_drain();
+    uart_set_baudrate(UART, SERIAL_CONSOLE_BAUD);
+    uart_set_format(UART, 8, 1, UART_PARITY_NONE);
+    rx_tail = rx_head;  // term's bytes aren't typed at the shell
+    port_mode = false;
+}
+
+bool serial_port_is_open(void) {
+    return port_mode;
+}
+
+void serial_port_write(const char *data, int n) {
+    if (port_mode)
+        queue_chars(data, n);
+}
+
+int serial_port_getc(void) {
+    if (!port_mode || rx_tail == rx_head)
+        return -1;
+    return rx_buf[rx_tail++ % RX_SIZE];
+}
+
+void serial_port_break(unsigned ms) {
+    if (!port_mode)
+        return;
+    serial_console_drain();
+    uart_set_break(UART, true);
+    sleep_ms(ms);
+    uart_set_break(UART, false);
 }

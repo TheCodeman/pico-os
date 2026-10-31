@@ -10,6 +10,9 @@
 #include <stdbool.h>
 #include "pico/stdio/driver.h"
 
+/// The debug UART's speed (8N1), put back when term lets go of it.
+#define SERIAL_CONSOLE_BAUD 115200
+
 /// The stdio driver for the debug UART (GP0/GP1).
 extern stdio_driver_t serial_stdio_driver;
 
@@ -52,3 +55,30 @@ void debug_write(const char *text, int len);
 /// @param len how many
 /// @return false if there wasn't room for all of them
 bool serial_console_write_some(const char *buf, int len);
+
+/// Lends the UART (GP0 TX / GP1 RX) to term as a port of its own, with the
+/// given format: stdio and debug_printf leave it alone until
+/// serial_port_close(), and its buffers (already there) carry term's bytes,
+/// so it costs no RAM. Refused while the serial console is on (sercon on).
+/// Called again while open, it only changes the format.
+/// @param baud the speed
+/// @param data_bits 5 to 8
+/// @param parity N, E or O
+/// @param stop_bits 1 or 2
+/// @return NULL, or why not
+const char *serial_port_open(unsigned baud, int data_bits, char parity, int stop_bits);
+/// Gives the UART back to the debug messages, at SERIAL_CONSOLE_BAUD 8N1.
+void serial_port_close(void);
+/// Whether term has the UART.
+/// @return it has
+bool serial_port_is_open(void);
+/// Sends to the port, waiting for room.
+/// @param data the bytes
+/// @param n their count
+void serial_port_write(const char *data, int n);
+/// The next byte received on the port.
+/// @return it, or -1 if none
+int serial_port_getc(void);
+/// Sends a break.
+/// @param ms how long
+void serial_port_break(unsigned ms);
