@@ -277,10 +277,6 @@ static void draw_status(void) {
             snprintf(extra + strlen(extra), sizeof extra - strlen(extra), " LOG %s", log_name);
         snprintf(text, sizeof text, " tty1 %u %d%c%d GP%d/GP%d%s", cfg.baud, cfg.data, cfg.parity,
                  cfg.stop, cfg.tx, cfg.tx + 1, extra);
-        const char *hint = "F9 menus  F1 settings  F10 exit ";
-        int pad = CONSOLE_COLS - (int)strlen(text) - (int)strlen(hint);
-        if (pad > 0)
-            snprintf(text + strlen(text), sizeof text - strlen(text), "%*s%s", pad, "", hint);
     }
     text[CONSOLE_COLS] = 0;
     put_bar(CONSOLE_ROWS - 1, text, BAR_ATTR, 0, 0);

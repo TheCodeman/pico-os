@@ -17,7 +17,7 @@ What arrives goes through the console's VT100/ANSI handling, so colours
 and cursor movement from the far end work. As in the text editor, row 1 is
 a menu bar, rows 2-29 are the terminal (set the far end to 28 rows, e.g.
 `stty rows 28`; its cursor moves and screen clears stay inside them) and
-row 30 is a status line with the port settings and key hints. What arrives
+row 30 is a status line with the port settings. What arrives
 also goes to the debug serial port when the serial console is on (`sercon`).
 
 **Menus:** click **File** (Send text file, Log to file, Exit),
