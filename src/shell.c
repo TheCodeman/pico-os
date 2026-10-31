@@ -528,8 +528,9 @@ static const help_t help_system[] = {
      "sercon [on | off]\n"
      "  The shell on the debug UART (GP0/GP1, 115200 baud): its text and keys\n"
      "  typed there. At start-up the text is off (it slows the screen) and the\n"
-     "  first key typed there turns it on;  sercon off  stops both. Put\n"
-     "  sercon on  in /AUTORUN to have it always. Debug messages go there anyway."},
+     "  first key typed there turns it on;  sercon off  stops both, and the\n"
+     "  debug messages that otherwise go there. Put  sercon on  in /AUTORUN to\n"
+     "  have it always."},
     {"ver", "version", "OS and program versions",
      "ver [command]\n"
      "  Shows the OS's version and build, and each program's version (or one\n"

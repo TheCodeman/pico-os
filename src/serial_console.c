@@ -201,6 +201,8 @@ unsigned serial_console_overruns(void) {
 }
 
 void debug_write(const char *text, int len) {
+    if (!console_on && !auto_on)
+        return;  // sercon off: nothing at all goes out there
     for (int i = 0; i < len; ++i) {
         if (text[i] == '\n')
             queue_chars("\r", 1);

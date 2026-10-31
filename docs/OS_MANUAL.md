@@ -60,7 +60,7 @@ The prompt shows the current folder:
     /> ls
 
 The serial console (GP0/GP1, 115200 baud) can type commands (`sercon off`
-stops that too).
+stops that too, and the debug messages that otherwise always go there).
 What is printed goes there too once it is on: type a key there (at
 start-up), or use
 `sercon on` (put it in /AUTORUN to have it always). It is off at start-up
