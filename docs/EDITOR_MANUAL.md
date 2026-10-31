@@ -6,9 +6,11 @@ The full-screen text editor: `edit [file]` (or `ed`). It edits plain text files 
 
 `edit file` opens a file; a name that doesn't exist yet starts a new file.
 
-The screen has a title row, 28 text rows and a status row. The status row
-shows the line and column, and whether the file uses CRLF or LF line
-endings. The editor keeps whichever the file had.
+The screen has a title row (the menu bar and the file's name), 28 text rows
+and a status row. The status row shows messages or the main keys on the
+left, and on the right the cursor's line and column and the file's size in
+bytes, as it would be saved. The title row's right end says whether the
+file uses CRLF or LF line endings; the editor keeps whichever the file had.
 
 ![edit](editor.png)
 

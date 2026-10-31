@@ -431,6 +431,9 @@ int main(void) {
     check("drag: \"hello world\" and its line end reversed", !strcmp(rev_span(&snaps[0], 1), "0-12"));
     check("drag: \"second\" reversed", !strcmp(rev_span(&snaps[0], 2), "0-6"));
     check("drag: the status row counts 18 selected", strstr(row_text(&snaps[0], ROWS - 1), "18 selected") != NULL);
+    check("status row: line, column and size on the right",
+          strstr(row_text(&snaps[0], ROWS - 1), "Ln 2, Col 7   30 bytes") != NULL);
+    check("status row: the size after Ctrl-X", strstr(row_text(&snaps[1], ROWS - 1), "Ln 1, Col 1   12 bytes") != NULL);
     check("Ctrl-X: the first row is \" line\"", !strcmp(row_text(&snaps[1], 1), " line"));
     check("Ctrl-X: nothing reversed now", !rev_span(&snaps[1], 1)[0]);
     check_file("Ctrl-X then Ctrl-V at the end", "T2.TXT", " line\nthird\nhello world\nsecond");
@@ -535,6 +538,17 @@ int main(void) {
         check("drag past the bottom: the cut is line 27 to under the pointer",
               !strncmp(got, want, strlen(want)) && !strncmp(got + strlen(want), rest, strlen(rest)));
     }
+
+    // A CR LF file: its size as saved counts the CRs.
+    put_file("T12.TXT", "ab\r\ncd\r\n");
+    snap(0);
+    keys("x\x13");
+    snap(1);
+    keys("\x11");
+    run("/T12.TXT");
+    check("status row: a CR LF file's size", strstr(row_text(&snaps[0], ROWS - 1), "Ln 1, Col 1   8 bytes") != NULL);
+    check("status row: after typing one", strstr(row_text(&snaps[1], ROWS - 1), "Ln 1, Col 2   9 bytes") != NULL);
+    check_file("CR LF kept", "T12.TXT", "xab\r\ncd\r\n");
 
     // The keys from before still work: Ctrl-K twice, Ctrl-U.
     put_file("T9.TXT", three);

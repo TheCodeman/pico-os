@@ -62,6 +62,8 @@ static char *buf;
 ///@{
 static int gap_start, gap_end;
 ///@}
+/// The line ends in the text (for the file's size with CR LF ends).
+static int newlines;
 
 // ---- Keeping the text safe in PSRAM -----------------------------------------
 /// Each 4 KB block has a checksum, worked out again when the editor changes
@@ -207,6 +209,8 @@ static bool insert_text(int pos, const char *s, int n) {
     memcpy(buf + gap_start, s, n);
     touch(buf + gap_start, n);
     gap_start += n;
+    for (int i = 0; i < n; ++i)
+        newlines += s[i] == '\n';
     return true;
 }
 
@@ -215,6 +219,8 @@ static bool insert_text(int pos, const char *s, int n) {
 /// @param n how much
 static void erase_text(int pos, int n) {
     move_gap(pos);
+    for (int i = 0; i < n; ++i)
+        newlines -= buf[gap_end + i] == '\n';
     gap_end += n;
 }
 
@@ -528,22 +534,30 @@ static void draw_bars(const char *status) {
     memcpy(row + COLS - strlen(right), right, strlen(right));
     put_row(0, row, 0, COLS);
 
-    if (!status) {
-        static char st[COLS + 1];
-        int sa, sb;
-        if (message[0])
-            snprintf(st, sizeof st, " %.*s", COLS - 1, message);
-        else if (selection(&sa, &sb))
-            snprintf(st, sizeof st, " Ln %d, Col %d   %d selected   ^C Copy ^X Cut ^V Paste",
-                     line_number(cur), col_of(cur) + 1, sb - sa);
-        else
-            snprintf(st, sizeof st, " Ln %d, Col %d   ^S Save ^Q Quit ^F Find ^G Go to ^K Cut ^U Paste",
-                     line_number(cur), col_of(cur) + 1);
-        status = st;
+    if (status) {
+        snprintf(row, sizeof row, "%s", status);
+        n = strlen(row);
+        memset(row + n, ' ', COLS - n);
+        put_row(ROWS - 1, row, 0, COLS);
+        return;
     }
-    snprintf(row, sizeof row, "%s", status);
+    // The message or the main keys on the left; on the right the cursor's
+    // line and column and the file's size (as saved), unless a long message
+    // needs the room.
+    char where[40];
+    snprintf(where, sizeof where, "Ln %d, Col %d   %d bytes ", line_number(cur), col_of(cur) + 1,
+             text_len() + (crlf ? newlines : 0));
+    int wn = strlen(where), sa, sb;
+    if (message[0])
+        snprintf(row, sizeof row, " %.*s", COLS - 1, message);
+    else if (selection(&sa, &sb))
+        snprintf(row, sizeof row, " %d selected   ^C Copy ^X Cut ^V Paste", sb - sa);
+    else
+        snprintf(row, sizeof row, " ^S Save ^Q Quit ^F Find ^K Cut ^U Paste  F10 Menus");
     n = strlen(row);
     memset(row + n, ' ', COLS - n);
+    if (n + 2 + wn <= COLS)
+        memcpy(row + COLS - wn, where, wn);
     put_row(ROWS - 1, row, 0, COLS);
 }
 
@@ -705,6 +719,7 @@ static bool prompt(const char *label, char *text, int max) {
 static bool load(void) {
     gap_start = 0;
     gap_end = EDIT_MAX;
+    newlines = 0;
     crlf = false;
     if (!path[0]) {
         set_message("New file", NULL);
@@ -743,6 +758,8 @@ static bool load(void) {
         buf[n++] = buf[i];
     }
     gap_start = n;
+    for (int i = 0; i < n; ++i)
+        newlines += buf[i] == '\n';
     touch(buf, got);
     set_message("Read %.70s", path);
     return true;
