@@ -35,6 +35,7 @@ typedef struct {
 } screen_t;
 
 static screen_t scr;  ///< the terminal's screen
+static long out_bytes;  ///< bytes the editor has sent
 /// The terminal's state: colours, reverse, line drawing, scroll region, escape parsing.
 ///@{
 static int t_fg = 7, t_bg = 0, t_top = 0, t_bot = ROWS - 1, esc_state, nparams, params[8];
@@ -58,6 +59,7 @@ static void t_scroll(bool up) {
 /// The terminal takes a byte.
 /// @param c the byte
 static void t_put(unsigned char c) {
+    ++out_bytes;
     if (esc_state == 1) {
         esc_state = c == '[' ? 2 : c == '(' ? 3 : 0;
         nparams = 0;
@@ -164,14 +166,14 @@ int vt_putchar(int c) {
 // ---- The keys, the mouse and the clock ---------------------------------------
 
 /// What the test feeds in, in order.
-enum { EV_KEYS, EV_MOUSE, EV_WAIT, EV_SNAP };
+enum { EV_KEYS, EV_MOUSE, EV_WAIT, EV_SNAP, EV_COUNT };
 /// One thing fed in.
 typedef struct {
     int kind;            ///< EV_
     const char *keys;    ///< EV_KEYS: the bytes typed
     mouse_event_t m;     ///< EV_MOUSE: the event
     int ms;              ///< EV_WAIT: how long nothing happens
-    int snap;            ///< EV_SNAP: the screen kept in snaps[snap]
+    int snap;            ///< EV_SNAP: the screen kept in snaps[snap]; EV_COUNT: out_bytes kept in counts[snap]
 } ev_t;
 
 static ev_t q[256];               ///< the queue
@@ -181,6 +183,7 @@ static uint64_t wait_until;       ///< EV_WAIT's end (0: not started)
 static int mx, my, mbuttons;      ///< the mouse now
 static int pointer_mode;          ///< mouse_pointer's mode
 static screen_t snaps[8];         ///< screens kept by EV_SNAP
+static long counts[8];            ///< out_bytes kept by EV_COUNT
 static int fails;                 ///< checks that failed
 
 void *psram_malloc(size_t n) { return malloc(n); }
@@ -209,6 +212,11 @@ int getchar_timeout_us(uint32_t us) {
         }
         if (e->kind == EV_SNAP && us >= 10000) {  // only when the editor waits for a key (it has drawn)
             snaps[e->snap] = scr;
+            ++qi;
+            continue;
+        }
+        if (e->kind == EV_COUNT && us >= 10000) {
+            counts[e->snap] = out_bytes;
             ++qi;
             continue;
         }
@@ -262,6 +270,9 @@ static void click(int button, int row, int col) {
 static void wheel(int steps) {
     q[qn++] = (ev_t){.kind = EV_MOUSE, .m = {MOUSE_WHEEL, 0, 0, (int8_t)steps, 300, 200, false}};
 }
+/// The bytes sent so far kept, once the editor waits for a key.
+/// @param n which counts[] slot
+static void count(int n) { q[qn++] = (ev_t){.kind = EV_COUNT, .snap = n}; }
 /// Nothing happens for a while (the editor waits for keys).
 /// @param ms how long
 static void wait_ms(int ms) { q[qn++] = (ev_t){.kind = EV_WAIT, .ms = ms}; }
@@ -571,6 +582,36 @@ int main(void) {
     run("/T14.TXT");
     check_file("quit box: Right, Enter (Don't save)", "T14.TXT", three);
     shot(&snaps[0], "shot_quit.raw");
+
+    // Moving the pointer over a menu sends nothing while the item under it
+    // stays the same, and only two rows when it changes (no flicker).
+    put_file("T15.TXT", three);
+    click(MOUSE_RIGHT, 1, 2);
+    count(0);
+    for (int x = 4; x < 12; ++x)
+        mouse(MOUSE_MOVE, 0, 0, 6, x, false);  // Delete, greyed: nothing highlighted
+    count(1);
+    mouse(MOUSE_MOVE, 0, 0, 8, 6, false);  // Select all
+    count(2);
+    for (int x = 4; x < 12; ++x)
+        mouse(MOUSE_MOVE, 0, 0, 8, x, false);
+    count(3);
+    keys("\x1b");
+    wait_ms(100);
+    keys("A\x11");
+    count(4);
+    for (int x = 20; x < 40; ++x)
+        mouse(MOUSE_MOVE, 0, 0, 12, x, false);
+    count(5);
+    keys("\x1b");
+    wait_ms(100);
+    keys("\x11n");
+    run("/T15.TXT");
+    printf("     (bytes sent: moves on one item %ld, to another %ld, on it %ld; quit box moves %ld)\n",
+           counts[1] - counts[0], counts[2] - counts[1], counts[3] - counts[2], counts[5] - counts[4]);
+    check("menu: pointer moves on one item send nothing", counts[1] == counts[0] && counts[3] == counts[2]);
+    check("menu: a new item highlighted sends little", counts[2] > counts[1] && counts[2] - counts[1] < 200);
+    check("quit box: pointer moves send nothing", counts[5] == counts[4]);
 
     // The keys from before still work: Ctrl-K twice, Ctrl-U.
     put_file("T9.TXT", three);

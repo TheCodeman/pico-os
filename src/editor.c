@@ -978,53 +978,71 @@ static void move_vertical(int lines) {
 
 /// The quit box's answers.
 enum { ASK_SAVE, ASK_DISCARD, ASK_CANCEL };
+/// The quit box's buttons, in the order of the answers.
+static const char *const ask_buttons[] = {"Save", "Don't save", "Cancel"};
+/// The quit box's size.
+enum { ASK_W = 46, ASK_H = 7 };
+
+/// Draws the quit box: all of it, or only its buttons (drawing it all again
+/// at each pointer move would flicker).
+/// @param row its top row
+/// @param col its left column
+/// @param name the file's name
+/// @param focus the button focused
+/// @param frame draw it all (else only the buttons)
+/// @param bx set to each button's column
+static void ask_draw(int row, int col, const char *name, int focus, bool frame, int *bx) {
+    printf("\x1b[0;30;47m");
+    if (frame) {
+        // A frame with " Quit " in its top line, and the question.
+        printf("\x1b[%d;%dH\x1b(0lq\x1b(B Quit \x1b(0", row + 1, col + 1);
+        for (int x = 8; x < ASK_W - 1; ++x)
+            putchar('q');
+        printf("k");
+        for (int r = 1; r < ASK_H - 1; ++r)
+            printf("\x1b[%d;%dHx\x1b(B%*s\x1b(0x", row + 1 + r, col + 1, ASK_W - 2, "");
+        printf("\x1b[%d;%dHm", row + ASK_H, col + 1);
+        for (int x = 2; x < ASK_W; ++x)
+            putchar('q');
+        printf("j\x1b(B");
+        char q[ASK_W];
+        snprintf(q, sizeof q, "Save the changes to %.*s?", ASK_W - 26, name);
+        printf("\x1b[%d;%dH%s", row + 3, col + 1 + (ASK_W - (int)strlen(q)) / 2, q);
+    }
+    int total = 0;
+    for (int i = 0; i < 3; ++i)
+        total += (int)strlen(ask_buttons[i]) + 4 + (i ? 2 : 0);
+    int x = col + (ASK_W - total) / 2;
+    for (int i = 0; i < 3; ++i) {
+        bx[i] = x;
+        printf("\x1b[%d;%dH%s[ %s ]\x1b[0;30;47m", row + 5, x + 1, i == focus ? "\x1b[97;44m" : "",
+               ask_buttons[i]);
+        x += (int)strlen(ask_buttons[i]) + 6;
+    }
+    printf("\x1b[0m");
+    fflush(stdout);
+}
 
 /// Asks in a box in the middle of the screen whether to save the changes
 /// before quitting: Save, Don't save or Cancel, by a click on a button, its
 /// first letter (Y and N too), or Left / Right / Tab and Enter. Esc cancels.
 /// @return ASK_SAVE, ASK_DISCARD or ASK_CANCEL
 static int ask_save(void) {
-    static const char *const buttons[] = {"Save", "Don't save", "Cancel"};
-    enum { W = 46, H = 7 };
-    int row = (ROWS - H) / 2, col = (COLS - W) / 2, focus = 0, bx[3];
-    char name[W - 6];
+    int row = (ROWS - ASK_H) / 2, col = (COLS - ASK_W) / 2, focus = 0, drawn = -1, bx[3];
+    char name[ASK_W - 6];
     const char *base = strrchr(path, '/');
     snprintf(name, sizeof name, "%.*s", (int)sizeof name - 1, path[0] ? (base ? base + 1 : path) : "the new file");
     printf("\x1b[?25l");
     for (;;) {
-        // The box: a frame with " Quit " in its top line, the question, the buttons.
-        printf("\x1b[0;30;47m\x1b[%d;%dH\x1b(0lq\x1b(B Quit \x1b(0", row + 1, col + 1);
-        for (int x = 8; x < W - 1; ++x)
-            putchar('q');
-        printf("k");
-        for (int r = 1; r < H - 1; ++r) {
-            printf("\x1b[%d;%dHx\x1b(B%*s\x1b(0x", row + 1 + r, col + 1, W - 2, "");
-        }
-        printf("\x1b[%d;%dHm", row + H, col + 1);
-        for (int x = 2; x < W; ++x)
-            putchar('q');
-        printf("j\x1b(B");
-        char q[W];
-        snprintf(q, sizeof q, "Save the changes to %.*s?", W - 26, name);
-        printf("\x1b[%d;%dH%s", row + 3, col + 1 + (W - (int)strlen(q)) / 2, q);
-        int total = 0;
-        for (int i = 0; i < 3; ++i)
-            total += (int)strlen(buttons[i]) + 4 + (i ? 2 : 0);
-        int x = col + (W - total) / 2;
-        for (int i = 0; i < 3; ++i) {
-            bx[i] = x;
-            printf("\x1b[%d;%dH%s[ %s ]\x1b[0;30;47m", row + 5, x + 1, i == focus ? "\x1b[97;44m" : "",
-                   buttons[i]);
-            x += (int)strlen(buttons[i]) + 6;
-        }
-        printf("\x1b[0m");
-        fflush(stdout);
+        if (focus != drawn)  // drawn: the button focused on the screen (-1: nothing drawn yet)
+            ask_draw(row, col, name, focus, drawn < 0, bx);
+        drawn = focus;
         int k = read_key(), pick = -1;
         if (k == KEY_MOUSE) {
             const mouse_event_t *e = &mouse_ev;
             if (e->type == MOUSE_DOWN && e->button == MOUSE_LEFT && e->y / 16 == row + 4)
                 for (int i = 0; i < 3; ++i)
-                    if (e->x / 8 >= bx[i] && e->x / 8 < bx[i] + (int)strlen(buttons[i]) + 4)
+                    if (e->x / 8 >= bx[i] && e->x / 8 < bx[i] + (int)strlen(ask_buttons[i]) + 4)
                         pick = i;
         } else if (k == KEY_ESC || k == CTRL('c') || k == 'c' || k == 'C') {
             pick = ASK_CANCEL;
@@ -1040,7 +1058,7 @@ static int ask_save(void) {
             focus = (focus + 2) % 3;
         }
         if (pick >= 0) {
-            for (int r = row; r < row + H; ++r)
+            for (int r = row; r < row + ASK_H; ++r)
                 shown[r].ok = false;
             return pick;
         }
@@ -1314,6 +1332,12 @@ static bool popup_enabled(const popup_item_t *it) {
     return true;
 }
 
+/// What run_menu did besides choosing an item: go to the menu bar's menu
+/// on the left or right, or to another one the pointer went to.
+enum { MENU_STAY = -1 };
+/// popup_draw's "nothing of the menu on the screen yet".
+#define MENU_UNDRAWN (-2)
+
 /// Draws a menu (box lines in the DEC line-drawing set, which the console
 /// and serial terminals both have).
 /// @param items its items
@@ -1322,13 +1346,21 @@ static bool popup_enabled(const popup_item_t *it) {
 /// @param col its left column
 /// @param w its width
 /// @param sel the item highlighted, or -1
-static void popup_draw(const popup_item_t *items, int n, int row, int col, int w, int sel) {
-    printf("\x1b[0;30;47m\x1b[%d;%dH\x1b(0l", row + 1, col + 1);
-    for (int x = 2; x < w; ++x)
-        putchar('q');
-    printf("k\x1b(B");
+/// @param was the item highlighted as it is on the screen now (only it and
+///   sel are drawn again), or MENU_UNDRAWN to draw it all
+static void popup_draw(const popup_item_t *items, int n, int row, int col, int w, int sel, int was) {
+    bool all = was == MENU_UNDRAWN;
+    printf("\x1b[0;30;47m");
+    if (all) {
+        printf("\x1b[%d;%dH\x1b(0l", row + 1, col + 1);
+        for (int x = 2; x < w; ++x)
+            putchar('q');
+        printf("k\x1b(B");
+    }
     for (int i = 0; i < n; ++i) {
         const popup_item_t *it = &items[i];
+        if (!all && i != sel && i != was)
+            continue;  // as it is: redrawing it all at each pointer move flickers
         printf("\x1b[%d;%dH", row + 2 + i, col + 1);
         if (it->text[0] == '-') {
             printf("\x1b(0t");
@@ -1341,16 +1373,15 @@ static void popup_draw(const popup_item_t *items, int n, int row, int col, int w
         printf("\x1b(0x\x1b(B%s %-*s%s \x1b[0;30;47m\x1b(0x\x1b(B", colour, w - 4 - (int)strlen(it->keys),
                it->text, it->keys);
     }
-    printf("\x1b[%d;%dH\x1b(0m", row + n + 2, col + 1);
-    for (int x = 2; x < w; ++x)
-        putchar('q');
-    printf("j\x1b(B\x1b[0m");
+    if (all) {
+        printf("\x1b[%d;%dH\x1b(0m", row + n + 2, col + 1);
+        for (int x = 2; x < w; ++x)
+            putchar('q');
+        printf("j\x1b(B");
+    }
+    printf("\x1b[0m");
     fflush(stdout);
 }
-
-/// What run_menu did besides choosing an item: go to the menu bar's menu
-/// on the left or right, or to another one the pointer went to.
-enum { MENU_STAY = -1 };
 
 /// Runs a menu with its top-left corner at a cell; returns the key of the
 /// item chosen (by the keys, a click, or letting go of the button held over
@@ -1380,12 +1411,14 @@ static int run_menu(const popup_item_t *items, int n, int row, int col, int bar,
         row = 1;
     if (col + w > COLS)
         col = COLS - w;
-    int sel = -1, key = 0;
+    int sel = -1, key = 0, drawn = MENU_UNDRAWN;  // drawn: the item highlighted on the screen
     bool moved = false;  // the pointer has moved since the menu opened
     *next = MENU_STAY;
     printf("\x1b[?25l");
     for (;;) {
-        popup_draw(items, n, row, col, w, sel);
+        if (sel != drawn)
+            popup_draw(items, n, row, col, w, sel, drawn);
+        drawn = sel;
         int k = read_key();
         if (k == KEY_MOUSE) {
             const mouse_event_t *e = &mouse_ev;
