@@ -63,6 +63,11 @@ static bool autowrap = true;
 /// The scroll region, inclusive.
 ///@{
 static int scroll_top, scroll_bottom = CONSOLE_ROWS - 1;
+/// The rows escape sequences can reach (console_set_view): a program such as
+/// term keeps its own bars above and below them. Row 1 of ESC [ H is view_top.
+///@{
+static int view_top, view_bottom = CONSOLE_ROWS - 1;
+///@}
 ///@}
 
 static struct {
@@ -384,7 +389,7 @@ static int clamp(int v, int lo, int hi) {
 /// @param row the row
 /// @param col the column
 static void move_to(int row, int col) {
-    cur_row = clamp(row, 0, CONSOLE_ROWS - 1);
+    cur_row = clamp(row, view_top, view_bottom);
     cur_col = clamp(col, 0, CONSOLE_COLS - 1);
     wrap_pending = false;
 }
@@ -394,7 +399,7 @@ static void line_feed(void) {
     wrap_pending = false;
     if (cur_row == scroll_bottom)
         scroll_up(scroll_top, scroll_bottom, 1);
-    else if (cur_row < CONSOLE_ROWS - 1)
+    else if (cur_row < view_bottom)
         ++cur_row;
 }
 
@@ -403,7 +408,7 @@ static void reverse_index(void) {
     wrap_pending = false;
     if (cur_row == scroll_top)
         scroll_down(scroll_top, scroll_bottom, 1);
-    else if (cur_row > 0)
+    else if (cur_row > view_top)
         --cur_row;
 }
 
@@ -422,12 +427,12 @@ static void reset_terminal(void) {
     alt_screen(false);
     g0_lines = g1_lines = shift_out = app_cursor = false;
     reset_attributes();
-    scroll_top = 0;
-    scroll_bottom = CONSOLE_ROWS - 1;
+    scroll_top = view_top;
+    scroll_bottom = view_bottom;
     autowrap = true;
     cursor_enabled = true;
-    clear_rows(0, CONSOLE_ROWS);
-    move_to(0, 0);
+    clear_rows(view_top, view_bottom + 1);
+    move_to(view_top, 0);
     saved.col = saved.row = 0;
     saved.fg = fg;
     saved.bg = bg;
@@ -521,18 +526,18 @@ static void csi_dispatch(char final) {
     case 'E': move_to(cur_row + n, 0); break;            // CNL
     case 'F': move_to(cur_row - n, 0); break;            // CPL
     case 'G': move_to(cur_row, n - 1); break;            // CHA
-    case 'd': move_to(n - 1, cur_col); break;            // VPA
-    case 'H':                                            // CUP
-    case 'f': move_to((p0 ? p0 : 1) - 1, (p1 ? p1 : 1) - 1); break;
+    case 'd': move_to(view_top + n - 1, cur_col); break;  // VPA
+    case 'H':                                             // CUP
+    case 'f': move_to(view_top + (p0 ? p0 : 1) - 1, (p1 ? p1 : 1) - 1); break;
     case 'J':  // ED: 0 cursor to end, 1 start to cursor, 2 (or 3) whole screen
         if (p0 == 0) {
             clear_cells(cur_row, cur_col, CONSOLE_COLS);
-            clear_rows(cur_row + 1, CONSOLE_ROWS);
+            clear_rows(cur_row + 1, view_bottom + 1);
         } else if (p0 == 1) {
-            clear_rows(0, cur_row);
+            clear_rows(view_top, cur_row);
             clear_cells(cur_row, 0, cur_col + 1);
         } else {
-            clear_rows(0, CONSOLE_ROWS);
+            clear_rows(view_top, view_bottom + 1);
         }
         break;
     case 'K':  // EL: 0 cursor to end, 1 start to cursor, 2 whole line
@@ -565,13 +570,13 @@ static void csi_dispatch(char final) {
     case 'T': scroll_down(scroll_top, scroll_bottom, n); break;  // SD
     case 'm': select_graphic_rendition(); break;
     case 'r': {  // DECSTBM: scroll region, then home
-        int top = (p0 ? p0 : 1) - 1;
-        int bottom = (p1 ? p1 : CONSOLE_ROWS) - 1;
-        if (top < bottom && bottom < CONSOLE_ROWS) {
+        int top = view_top + (p0 ? p0 : 1) - 1;
+        int bottom = view_top + (p1 ? p1 : view_bottom - view_top + 1) - 1;
+        if (top < bottom && bottom <= view_bottom) {
             scroll_top = top;
             scroll_bottom = bottom;
         }
-        move_to(0, 0);
+        move_to(view_top, 0);
         break;
     }
     case 's':  // save cursor (SCO)
@@ -588,7 +593,7 @@ static void csi_dispatch(char final) {
             reply("\x1b[0n");
         } else if (p0 == 6) {
             char r[32];
-            snprintf(r, sizeof r, "\x1b[%d;%dR", cur_row + 1, cur_col + 1);
+            snprintf(r, sizeof r, "\x1b[%d;%dR", cur_row - view_top + 1, cur_col + 1);
             reply(r);
         }
         break;
@@ -734,8 +739,8 @@ control:
         move_to(cur_row, (cur_col / 8 + 1) * 8);
         break;
     case '\f':
-        clear_rows(0, CONSOLE_ROWS);
-        move_to(0, 0);
+        clear_rows(view_top, view_bottom + 1);
+        move_to(view_top, 0);
         break;
     case 0x0e:  // SO: G1
         shift_out = true;
@@ -788,7 +793,7 @@ static void alt_screen(bool on) {
         memcpy(alt_saved->attr, cell_attr, sizeof cell_attr);
         alt_saved->col = cur_col;
         alt_saved->row = cur_row;
-        clear_rows(0, CONSOLE_ROWS);
+        clear_rows(view_top, view_bottom + 1);
     } else if (!on && alt_saved) {
         for (int r = 0; r < CONSOLE_ROWS; ++r)
             for (int c = 0; c < CONSOLE_COLS; ++c)
@@ -817,11 +822,28 @@ void console_reset_modes(void) {
     g0_lines = g1_lines = shift_out = app_cursor = false;
     esc_state = ST_NORMAL;
     reset_attributes();
-    scroll_top = 0;
-    scroll_bottom = CONSOLE_ROWS - 1;
+    scroll_top = view_top;
+    scroll_bottom = view_bottom;
     autowrap = true;
     cursor_enabled = true;
     if (was_shown)
+        toggle_cursor();
+    busy = false;
+}
+
+void console_set_view(int top, int bottom) {
+    if (top < 0 || bottom >= CONSOLE_ROWS || top >= bottom)
+        top = 0, bottom = CONSOLE_ROWS - 1;
+    busy = true;
+    bool was_shown = cursor_shown;
+    if (was_shown)
+        toggle_cursor();
+    view_top = top;
+    view_bottom = bottom;
+    scroll_top = top;
+    scroll_bottom = bottom;
+    move_to(cur_row, cur_col);
+    if (was_shown && cursor_enabled)
         toggle_cursor();
     busy = false;
 }

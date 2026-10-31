@@ -63,6 +63,15 @@ void console_set_cell(int row, int col, uint8_t ch, uint8_t attr);
 /// @param col set to its column
 void console_get_cursor(int *row, int *col);
 
+/// The rows escape sequences can reach, for a program that keeps bars of its
+/// own above and below (term): ESC [ H goes to `top`, ESC [ 2 J clears only
+/// these rows, the scroll region and cursor stay inside them, and ESC [ 6 n
+/// counts from `top`. (0, CONSOLE_ROWS - 1) is the whole screen again (the
+/// default); console_set_cell still reaches every row.
+/// @param top the first row (0-based)
+/// @param bottom the last (inclusive)
+void console_set_view(int top, int bottom);
+
 /// The scroll region's first and last rows (0-based, inclusive).
 /// @param top set to the region's first row
 /// @param bottom set to its last row

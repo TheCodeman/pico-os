@@ -18,7 +18,7 @@
 #define VER_GENESIS "1.0"    ///< genesis: Sega Genesis emulator
 #define VER_MC "1.0"         ///< mc: file manager
 #define VER_TRACKER "1.0"    ///< tracker: MOD/XM tracker and player
-#define VER_TERM "1.0"       ///< term: serial terminal
+#define VER_TERM "1.1"       ///< term: serial terminal
 #define VER_SI5351 "1.0"     ///< si5351: clock generator
 #define VER_FM "1.0"         ///< fm: FM radio
 #define VER_SPRITE "1.0"     ///< sprite: sprite editor

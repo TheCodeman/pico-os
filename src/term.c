@@ -3,12 +3,15 @@
  * @brief term: a serial terminal on COM1 (UART1, the port BASIC calls COM1; never the debug UART).
  *
  * What arrives goes to the screen through the VT100/ANSI console, so the far
- * end's colours and cursor moves work; keys go out. The bottom row is a
- * status line and rows 1-29 scroll.
+ * end's colours and cursor moves work; keys go out. As in the editor, the top
+ * row is a menu bar (File, Transfer, Settings, Help: a click or F9), the
+ * bottom row a status line, and the far end has the 28 rows between (the
+ * console keeps it there, console_set_view). The right mouse button opens a
+ * menu of the commands too.
  *
  * Ctrl-A starts a command (S settings, X exit, B break, C clear, L log,
  * F send a file, U upload and D download with XMODEM/YMODEM/ZMODEM, E echo,
- * H help, Ctrl-A sends Ctrl-A); F1 opens the settings and F10 exits too.
+ * M menus, H help, Ctrl-A sends Ctrl-A); F1 opens the settings and F10 exits too.
  * A ZMODEM sender at the far end (sz) starts a download by itself. Settings
  * are kept in /TERM.CFG.
  *
@@ -26,6 +29,7 @@
 #include "basic_port.h"  // port_serial_*: BASIC's COM1 driver
 #include "console.h"
 #include "ff.h"
+#include "mouse.h"
 #include "pico/stdlib.h"
 #include "serial_console.h"
 #include "xfer.h"
@@ -35,8 +39,12 @@
 #define CFG_FILE   "/TERM.CFG"
 /// The log file's name.
 #define LOG_FILE   "TERM.LOG"
-#define TEXT_ROWS  (CONSOLE_ROWS - 1)  ///< the last row is the status line
-#define STATUS_ATTR 0x1f                ///< bright white on blue, as the title bar
+#define TEXT_TOP   1                    ///< the far end's first row (row 0 is the menu bar)
+#define TEXT_ROWS  (CONSOLE_ROWS - 2)   ///< its rows (the last row is the status line)
+#define TEXT_BOTTOM (TEXT_TOP + TEXT_ROWS - 1)  ///< its last row
+#define BAR_ATTR   0x70  ///< the menu bar and status line: black on light grey, as in the editor
+#define MENU_ATTR  0x70  ///< a menu
+#define SEL_ATTR   0x1f  ///< its item under the pointer: bright white on blue
 /// The control-key code of a letter.
 #define CTRL(c)    ((c) & 0x1f)
 
@@ -183,8 +191,63 @@ static void show_str(const char *s) {
     show(s, strlen(s));
 }
 
-/// The status line, written straight into the bottom row so the cursor,
-/// colours and the far end's output are left alone.
+/// The menu bar's titles.
+static const char *const menu_titles[] = {"File", "Transfer", "Settings", "Help"};
+/// Their count.
+#define NMENUS 4
+
+/// A menu title's column on the menu bar.
+/// @param m the menu
+/// @return its first letter's column
+static int menu_col(int m) {
+    int c = 1;
+    for (int i = 0; i < m; ++i)
+        c += (int)strlen(menu_titles[i]) + 2;
+    return c;
+}
+
+/// The menu title at a column of the menu bar, or -1.
+/// @param col the column
+/// @return the menu, or -1
+static int menu_at(int col) {
+    for (int i = 0; i < NMENUS; ++i)
+        if (col >= menu_col(i) - 1 && col <= menu_col(i) + (int)strlen(menu_titles[i]))
+            return i;
+    return -1;
+}
+
+/// Writes a bar row, changing only the cells that differ (no flicker).
+/// @param row the row
+/// @param text its text (cut or padded to the width)
+/// @param attr its colours
+/// @param hl_from the first column in SEL_ATTR (a menu's title while it is open)
+/// @param hl_to after the last (the same as hl_from: none)
+static void put_bar(int row, const char *text, uint8_t attr, int hl_from, int hl_to) {
+    int len = strlen(text);
+    for (int col = 0; col < CONSOLE_COLS; ++col) {
+        uint8_t ch = col < len ? (uint8_t)text[col] : ' ', a = col >= hl_from && col < hl_to ? SEL_ATTR : attr;
+        uint8_t was_ch, was_a;
+        console_get_cell(row, col, &was_ch, &was_a);
+        if (was_ch != ch || was_a != a)
+            console_set_cell(row, col, ch, a);
+    }
+}
+
+/// The menu bar, with menu `open`'s title highlighted (-1: none).
+/// @param open the menu open, or -1
+static void draw_menu_bar(int open) {
+    char text[CONSOLE_COLS + 1];
+    snprintf(text, sizeof text, " File  Transfer  Settings  Help");
+    char right[40];
+    snprintf(right, sizeof right, "Serial terminal %s ", VER_TERM);
+    int n = strlen(text);
+    snprintf(text + n, sizeof text - n, "%*s", CONSOLE_COLS - n, right);
+    int from = open >= 0 ? menu_col(open) - 1 : 0;
+    put_bar(0, text, BAR_ATTR, from, open >= 0 ? from + (int)strlen(menu_titles[open]) + 2 : 0);
+}
+
+/// The status line and menu bar, written straight into their rows so the
+/// cursor, colours and the far end's output are left alone.
 static void draw_status(void) {
     char text[200];  // cut to the screen width below
     if (message[0]) {
@@ -199,16 +262,14 @@ static void draw_status(void) {
             snprintf(extra + strlen(extra), sizeof extra - strlen(extra), " LOG %s", log_name);
         snprintf(text, sizeof text, " COM1 %u %d%c%d GP%d/GP%d%s", cfg.baud, cfg.data, cfg.parity,
                  cfg.stop, cfg.tx, cfg.tx + 1, extra);
-        const char *hint = "F1 settings  Ctrl-A H help  F10 exit ";
+        const char *hint = "F9 menus  F1 settings  F10 exit ";
         int pad = CONSOLE_COLS - (int)strlen(text) - (int)strlen(hint);
         if (pad > 0)
             snprintf(text + strlen(text), sizeof text - strlen(text), "%*s%s", pad, "", hint);
     }
-    int len = strlen(text);
-    if (len > CONSOLE_COLS)
-        len = CONSOLE_COLS;
-    for (int col = 0; col < CONSOLE_COLS; ++col)
-        console_set_cell(CONSOLE_ROWS - 1, col, col < len ? (uint8_t)text[col] : ' ', STATUS_ATTR);
+    text[CONSOLE_COLS] = 0;
+    put_bar(CONSOLE_ROWS - 1, text, BAR_ATTR, 0, 0);
+    draw_menu_bar(-1);
     status_dirty = false;
 }
 
@@ -219,19 +280,15 @@ static void set_message(const char *text) {
     draw_status();
 }
 
-/// Rows 1-29 scroll; the far end may have reset that (ESC [ r), so it is put
-/// back when things are quiet. ESC 7 / ESC 8 keep the cursor where it was.
+/// When things are quiet: the bars drawn again (only cells that changed,
+/// e.g. after a full-screen program at the far end gave back the screen it
+/// had saved).
 static void keep_layout(void) {
-    int top, bottom;
-    console_get_scroll_region(&top, &bottom);
-    if (top != 0 || bottom != TEXT_ROWS - 1) {
-        char seq[24];
-        snprintf(seq, sizeof seq, "\x1b" "7\x1b[1;%dr\x1b" "8", TEXT_ROWS);
-        console_write(seq, strlen(seq));
-        status_dirty = true;
-    }
-    if (status_dirty)
+    static absolute_time_t next;
+    if (status_dirty || time_reached(next)) {
         draw_status();
+        next = make_timeout_time_ms(200);
+    }
 }
 
 /// A saved copy of the screen, for pages drawn over the terminal.
@@ -253,6 +310,7 @@ static saved_screen_t *screen_save(void) {
                 console_get_cell(r, c, &s->ch[r][c], &s->attr[r][c]);
     fflush(stdout);
     console_write("\x1b" "7", 2);  // cursor and colours
+    console_set_view(0, CONSOLE_ROWS - 1);  // the whole screen for the page
     printf("\x1b[r\x1b[0m\x1b[?25l");
     return s;
 }
@@ -268,8 +326,9 @@ static saved_screen_t *page_begin(void) {
 /// Puts the terminal's screen back.
 /// @param s the copy, or NULL
 static void page_end(saved_screen_t *s) {
-    printf("\x1b[0m\x1b[2J\x1b[1;%dr\x1b[?25h", TEXT_ROWS);
+    printf("\x1b[0m\x1b[2J\x1b[?25h");
     fflush(stdout);
+    console_set_view(TEXT_TOP, TEXT_BOTTOM);
     if (s) {
         for (int r = 0; r < CONSOLE_ROWS; ++r)
             for (int c = 0; c < CONSOLE_COLS; ++c)
@@ -283,7 +342,7 @@ static void page_end(saved_screen_t *s) {
 // ---- Keys ---------------------------------------------------------------------------
 
 /// Keys decoded from escape sequences.
-enum { KEY_UP = 0x100, KEY_DOWN, KEY_RIGHT, KEY_LEFT, KEY_ESC, KEY_F1, KEY_F10, KEY_OTHER };
+enum { KEY_UP = 0x100, KEY_DOWN, KEY_RIGHT, KEY_LEFT, KEY_ESC, KEY_F1, KEY_F9, KEY_F10, KEY_OTHER };
 
 /// Reads an escape sequence after ESC into seq (with the ESC); returns its key.
 /// @param seq the sequence
@@ -314,6 +373,8 @@ static int read_escape(char *seq, int *len) {
         return KEY_F1;
     if (!strcmp(seq, "\x1b[21~"))
         return KEY_F10;
+    if (!strcmp(seq, "\x1b[20~"))
+        return KEY_F9;
     if (!strcmp(seq, "\x1b[A") || !strcmp(seq, "\x1bOA"))
         return KEY_UP;
     if (!strcmp(seq, "\x1b[B") || !strcmp(seq, "\x1bOB"))
@@ -528,6 +589,7 @@ static void help_page(void) {
     static const char *const keys[][2] = {
         {"F1  or Ctrl-A S", "settings: speed, format, pins, flow control, ..."},
         {"F10 or Ctrl-A X", "leave the terminal"},
+        {"F9  or Ctrl-A M", "the menus (or click the menu bar; right button: a menu)"},
         {"Ctrl-A B", "send a BREAK"},
         {"Ctrl-A C", "clear the screen"},
         {"Ctrl-A E", "local echo on / off"},
@@ -541,7 +603,7 @@ static void help_page(void) {
     for (size_t i = 0; i < sizeof keys / sizeof *keys; ++i)
         printf("   \x1b[97m%-18s\x1b[0m%s\n", keys[i][0], keys[i][1]);
     printf("\n   Other keys go to the far end; arrow and function keys as VT100\n"
-           "   sequences. The screen is 80 x 29 for the far end (stty rows 29).\n\n"
+           "   sequences. The screen is 80 x 28 for the far end (stty rows 28).\n\n"
            "   \x1b[90mAny key to go back.\x1b[0m");
     fflush(stdout);
     wait_key();
@@ -695,8 +757,9 @@ static void box_open(void) {
 
 /// Closes it, putting the screen back.
 static void box_close(void) {
-    printf("\x1b[0m\x1b[1;%dr\x1b[?25h", TEXT_ROWS);
+    printf("\x1b[0m\x1b[?25h");
     fflush(stdout);
+    console_set_view(TEXT_TOP, TEXT_BOTTOM);
     if (xf.saved) {
         for (int r = 0; r < CONSOLE_ROWS; ++r)
             for (int c = 0; c < CONSOLE_COLS; ++c)
@@ -1093,15 +1156,12 @@ static void send_key(int c) {
         show(c == 0x7f ? "\b \b" : out, c == 0x7f ? 3 : n);
 }
 
-/// Ctrl-A and the key after it. False to leave the terminal.
+static int menu_bar(int m);
+
+/// Runs a command (Ctrl-A's letter, upper case). False to leave the terminal.
+/// @param k the letter
 /// @return stay
-static bool command_key(void) {
-    set_message("Ctrl-A: S setup X exit B break C clear E echo L log F file U upload D download H help");
-    int k = wait_key();
-    message[0] = 0;
-    status_dirty = true;
-    if (k >= 'a' && k <= 'z')
-        k -= 32;
+static bool run_command(int k) {
     switch (k) {
     case 'S':
         if (settings_page() && port_open())
@@ -1124,9 +1184,292 @@ static bool command_key(void) {
     case 'U': transfer(true); break;
     case 'D': transfer(false); break;
     case 'H': help_page(); break;
+    case 'M': return run_command(menu_bar(0));
     case CTRL('a'): send("\x01", 1); break;
     }
     return true;
+}
+
+/// Ctrl-A and the key after it. False to leave the terminal.
+/// @return stay
+static bool command_key(void) {
+    set_message("Ctrl-A: S setup X exit B break C clear E echo L log F file U upload D download M menus H help");
+    int k = wait_key();
+    message[0] = 0;
+    status_dirty = true;
+    if (k >= 'a' && k <= 'z')
+        k -= 32;
+    return run_command(k);
+}
+
+// ---- Menus --------------------------------------------------------------------------
+
+/// A menu item.
+typedef struct {
+    const char *text;  ///< its name ("-": a line between items)
+    const char *keys;  ///< the keys that do the same
+    int cmd;           ///< the command it runs (run_command's letter)
+} menu_item_t;
+
+/// A line between items.
+#define SEPARATOR {"-", NULL, 0}
+/// The File menu.
+static const menu_item_t file_items[] = {
+    {"Send text file...", "Ctrl-A F", 'F'}, {"Log to file...", "Ctrl-A L", 'L'},
+    SEPARATOR,                              {"Exit", "F10", 'X'},
+};
+/// The Transfer menu.
+static const menu_item_t transfer_items[] = {
+    {"Upload files...", "Ctrl-A U", 'U'}, {"Download files...", "Ctrl-A D", 'D'},
+};
+/// The Settings menu.
+static const menu_item_t settings_items[] = {
+    {"Port settings...", "F1", 'S'},     {"Local echo", "Ctrl-A E", 'E'}, SEPARATOR,
+    {"Send BREAK", "Ctrl-A B", 'B'},     {"Clear screen", "Ctrl-A C", 'C'},
+};
+/// The Help menu.
+static const menu_item_t help_items[] = {
+    {"Keys...", "Ctrl-A H", 'H'},
+};
+/// The right button's menu.
+static const menu_item_t popup_items[] = {
+    {"Port settings...", "F1", 'S'},       {"Local echo", "Ctrl-A E", 'E'},
+    {"Send BREAK", "Ctrl-A B", 'B'},       {"Clear screen", "Ctrl-A C", 'C'},
+    SEPARATOR,                             {"Send text file...", "Ctrl-A F", 'F'},
+    {"Upload files...", "Ctrl-A U", 'U'},  {"Download files...", "Ctrl-A D", 'D'},
+    {"Log to file...", "Ctrl-A L", 'L'},   SEPARATOR,
+    {"Exit", "F10", 'X'},
+};
+/// The items in an array of them, and their count.
+#define ITEMS(a) a, (int)(sizeof a / sizeof *a)
+/// The menu bar's menus, in menu_titles' order.
+static const struct {
+    const menu_item_t *items;  ///< its items
+    int n;                     ///< their count
+} menus[NMENUS] = {{ITEMS(file_items)}, {ITEMS(transfer_items)}, {ITEMS(settings_items)}, {ITEMS(help_items)}};
+
+/// What run_menu did besides choosing: stay (else the menu-bar menu to go to).
+#define MENU_STAY (-1)
+/// popup_draw's "nothing drawn yet".
+#define MENU_UNDRAWN (-2)
+
+/// An item's name as shown: what it does now (Stop logging, a tick on Local echo).
+/// @param it the item
+/// @return its name
+static const char *item_text(const menu_item_t *it) {
+    if (it->cmd == 'L' && logging)
+        return "Stop logging";
+    if (it->cmd == 'E')
+        return cfg.echo ? "\xfb Local echo" : "  Local echo";
+    return it->text;
+}
+
+/// Writes text into a row of cells.
+/// @param row the row
+/// @param col the first column
+/// @param text the text
+/// @param attr its colours
+static void put_text(int row, int col, const char *text, uint8_t attr) {
+    for (; *text && col < CONSOLE_COLS; ++text, ++col)
+        console_set_cell(row, col, (uint8_t)*text, attr);
+}
+
+/// Draws a menu straight into the cells (CP437 box lines): all of it, or
+/// only the items whose highlight changed (was and sel), so that moving the
+/// pointer doesn't flicker.
+/// @param items its items
+/// @param n their count
+/// @param row its top row
+/// @param col its left column
+/// @param w its width
+/// @param sel the item highlighted, or -1
+/// @param was the one highlighted on the screen now, or MENU_UNDRAWN
+static void menu_draw(const menu_item_t *items, int n, int row, int col, int w, int sel, int was) {
+    bool all = was == MENU_UNDRAWN;
+    if (all) {
+        console_set_cell(row, col, 0xda, MENU_ATTR);
+        console_set_cell(row + n + 1, col, 0xc0, MENU_ATTR);
+        for (int x = 1; x < w - 1; ++x) {
+            console_set_cell(row, col + x, 0xc4, MENU_ATTR);
+            console_set_cell(row + n + 1, col + x, 0xc4, MENU_ATTR);
+        }
+        console_set_cell(row, col + w - 1, 0xbf, MENU_ATTR);
+        console_set_cell(row + n + 1, col + w - 1, 0xd9, MENU_ATTR);
+    }
+    for (int i = 0; i < n; ++i) {
+        if (!all && i != sel && i != was)
+            continue;
+        int r = row + 1 + i;
+        if (items[i].text[0] == '-') {
+            console_set_cell(r, col, 0xc3, MENU_ATTR);
+            for (int x = 1; x < w - 1; ++x)
+                console_set_cell(r, col + x, 0xc4, MENU_ATTR);
+            console_set_cell(r, col + w - 1, 0xb4, MENU_ATTR);
+            continue;
+        }
+        uint8_t a = i == sel ? SEL_ATTR : MENU_ATTR;
+        console_set_cell(r, col, 0xb3, MENU_ATTR);
+        for (int x = 1; x < w - 1; ++x)
+            console_set_cell(r, col + x, ' ', a);
+        console_set_cell(r, col + w - 1, 0xb3, MENU_ATTR);
+        put_text(r, col + 2, item_text(&items[i]), a);
+        put_text(r, col + w - 2 - (int)strlen(items[i].keys), items[i].keys, a);
+    }
+}
+
+/// A key, or a mouse event (KEY_MOUSE, into e), for the menus.
+#define KEY_MOUSE 0x1ff
+
+/// Waits for a key or a mouse event.
+/// @param e set to the mouse event
+/// @return the key, or KEY_MOUSE
+static int menu_key(mouse_event_t *e) {
+    for (;;) {
+        mouse_pointer_update();
+        if (mouse_event(e))
+            return KEY_MOUSE;
+        int c = getchar_timeout_us(10000);
+        if (c < 0)
+            continue;
+        if (c != 0x1b)
+            return c;
+        char seq[16];
+        int n;
+        return read_escape(seq, &n);
+    }
+}
+
+/// Runs a menu with its top-left corner at a cell; returns the command of
+/// the item chosen (by the keys, a click, or letting go of the button held
+/// over it), or 0. A menu-bar menu (bar >= 0) also goes to another one with
+/// Left / Right or the pointer on its title: *next is set to it.
+/// What arrives from COM1 waits while a menu is open.
+/// @param items its items
+/// @param n their count
+/// @param row its top row
+/// @param col its left column
+/// @param bar its number on the menu bar, or -1 for the pop-up
+/// @param next set to the menu to go to next, or MENU_STAY
+/// @return the item's command, or 0
+static int run_menu(const menu_item_t *items, int n, int row, int col, int bar, int *next) {
+    int w = 0;
+    for (int i = 0; i < n; ++i)
+        if (items[i].keys) {
+            int len = (int)strlen(items[i].text) + (int)strlen(items[i].keys) + 4;
+            if (len > w)
+                w = len;
+        }
+    w += 4;
+    int h = n + 2;
+    if (row + h > CONSOLE_ROWS - 1)
+        row = CONSOLE_ROWS - 1 - h;
+    if (row < 1)
+        row = 1;
+    if (col + w > CONSOLE_COLS)
+        col = CONSOLE_COLS - w;
+    if (col < 0)
+        col = 0;
+    // The cells under it, put back when it closes.
+    uint8_t *under = malloc(2 * w * h);
+    if (under)
+        for (int r = 0; r < h; ++r)
+            for (int c = 0; c < w; ++c)
+                console_get_cell(row + r, col + c, &under[2 * (r * w + c)], &under[2 * (r * w + c) + 1]);
+    int sel = -1, cmd = 0, drawn = MENU_UNDRAWN;
+    bool moved = false;  // the pointer has moved since the menu opened
+    *next = MENU_STAY;
+    for (;;) {
+        if (sel != drawn)
+            menu_draw(items, n, row, col, w, sel, drawn);
+        drawn = sel;
+        mouse_event_t e;
+        int k = menu_key(&e);
+        if (k == KEY_MOUSE) {
+            int i = e.y / 16 - row - 1, c = e.x / 8;
+            bool inside = c > col && c < col + w - 1 && i >= 0 && i < n;
+            bool ok = inside && items[i].cmd;
+            int title = bar >= 0 && e.y / 16 == 0 ? menu_at(c) : -1;
+            if (e.type == MOUSE_MOVE) {
+                moved = true;
+                sel = ok ? i : -1;
+                if (title >= 0 && title != bar) {
+                    *next = title;
+                    break;
+                }
+            } else if (ok && (e.type == MOUSE_DOWN || (e.type == MOUSE_UP && moved))) {
+                cmd = items[i].cmd;
+                break;
+            } else if (e.type == MOUSE_DOWN && title >= 0 && title != bar) {
+                *next = title;
+                break;
+            } else if (e.type == MOUSE_DOWN && !inside) {
+                break;  // a click outside (or on its own title) closes it
+            }
+            continue;
+        }
+        if (k == KEY_ESC || k == CTRL('c') || k == KEY_F9 || k == KEY_F10)
+            break;
+        if (k == '\r' && sel >= 0) {
+            cmd = items[sel].cmd;
+            break;
+        }
+        if (bar >= 0 && (k == KEY_LEFT || k == KEY_RIGHT)) {
+            *next = (bar + (k == KEY_LEFT ? NMENUS - 1 : 1)) % NMENUS;
+            break;
+        }
+        if (k == KEY_UP || k == KEY_DOWN) {
+            int d = k == KEY_UP ? n - 1 : 1;
+            if (sel < 0)
+                sel = k == KEY_UP ? 0 : n - 1;
+            do
+                sel = (sel + d) % n;
+            while (!items[sel].cmd);
+        }
+    }
+    if (under) {
+        for (int r = 0; r < h; ++r)
+            for (int c = 0; c < w; ++c)
+                console_set_cell(row + r, col + c, under[2 * (r * w + c)], under[2 * (r * w + c) + 1]);
+        free(under);
+    }
+    return cmd;
+}
+
+/// Opens the menu bar at menu m, going from menu to menu until an item is
+/// chosen or the menus close; returns the item's command, or 0.
+/// @param m the menu
+/// @return the command, or 0
+static int menu_bar(int m) {
+    for (;;) {
+        draw_menu_bar(m);
+        int next, cmd = run_menu(menus[m].items, menus[m].n, 1, menu_col(m) - 1, m, &next);
+        draw_menu_bar(-1);
+        if (next == MENU_STAY)
+            return cmd;
+        m = next;
+    }
+}
+
+/// The mouse in the terminal: a click on the menu bar opens a menu, the
+/// right button the pop-up. False to leave the terminal.
+/// @param e the event
+/// @return stay
+static bool mouse_click(const mouse_event_t *e) {
+    if (e->type != MOUSE_DOWN)
+        return true;
+    int row = e->y / 16, col = e->x / 8;
+    int cmd = 0;
+    if (row == 0 && menu_at(col) >= 0) {
+        cmd = menu_bar(menu_at(col));
+    } else if (e->button == MOUSE_RIGHT) {
+        int next;
+        cmd = run_menu(ITEMS(popup_items), row + 1, col, -1, &next);
+    }
+    if (message[0]) {
+        message[0] = 0;
+        status_dirty = true;
+    }
+    return cmd ? run_command(cmd) : true;
 }
 
 /// Prints how to use term.
@@ -1157,10 +1500,17 @@ void term_command(int argc, char **argv) {
         printf("%s\n", message);
         return;
     }
-    // Clear, set rows 1-29 to scroll, and start at the top.
-    printf("\x1b[0m\x1b[2J\x1b[1;%dr\x1b[H", TEXT_ROWS);
+    // Clear, keep the far end to rows 1-28 (the bars above and below), and
+    // start at the top.
+    printf("\x1b[0m\x1b[2J");
     fflush(stdout);
-    set_message("Connected. F1 settings, Ctrl-A H help, F10 exit.");
+    console_set_view(TEXT_TOP, TEXT_BOTTOM);
+    printf("\x1b[H");
+    fflush(stdout);
+    int pointer = mouse_pointer_mode();
+    mouse_pointer(MOUSE_POINTER_TEXT);
+    mouse_flush();
+    set_message("Connected. F9 menus, F1 settings, Ctrl-A H help, F10 exit.");
     absolute_time_t message_until = make_timeout_time_ms(3000);
     bool running = true;
     while (running) {
@@ -1178,6 +1528,8 @@ void term_command(int argc, char **argv) {
                 if (k == KEY_F1) {
                     if (settings_page() && port_open())
                         message[0] = 0;
+                } else if (k == KEY_F9) {
+                    running = run_command(menu_bar(0));
                 } else if (k == KEY_F10) {
                     running = false;
                 } else {
@@ -1188,6 +1540,12 @@ void term_command(int argc, char **argv) {
             } else {
                 send_key(c);
             }
+            continue;
+        }
+        mouse_event_t e;
+        mouse_pointer_update();
+        if (mouse_event(&e)) {
+            running = mouse_click(&e);
             continue;
         }
         if (zmodem_seen) {
@@ -1215,8 +1573,9 @@ void term_command(int argc, char **argv) {
     free(log_file);
     log_file = NULL;
     port_serial_close();
-    // Whole screen scrolling again, status line gone, cursor where it was
-    // (ESC [ r homes it, so it is saved round that).
-    printf("\x1b[0m\x1b" "7\x1b[r\x1b[%d;1H\x1b[2K\x1b" "8\r\nLeft the terminal (COM1 closed).\n",
-           CONSOLE_ROWS);
+    mouse_pointer(pointer);
+    // The whole screen again, cleared (the bars gone with it).
+    fflush(stdout);
+    console_set_view(0, CONSOLE_ROWS - 1);
+    printf("\x1b[0m\x1b[r\x1b[2J\x1b[HLeft the terminal (COM1 closed).\n");
 }

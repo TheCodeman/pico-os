@@ -14,10 +14,20 @@ debug port on GP0/GP1 is never used.
     term 9600 7E1         speed and format
 
 What arrives goes through the console's VT100/ANSI handling, so colours
-and cursor movement from the far end work. Rows 1-29 are the terminal (set
-the far end to 29 rows, e.g. `stty rows 29`); row 30 is a status line with
-the port settings and key hints. What arrives also goes to the debug serial
-port when it can keep up.
+and cursor movement from the far end work. As in the text editor, row 1 is
+a menu bar, rows 2-29 are the terminal (set the far end to 28 rows, e.g.
+`stty rows 28`; its cursor moves and screen clears stay inside them) and
+row 30 is a status line with the port settings and key hints. What arrives
+also goes to the debug serial port when the serial console is on (`sercon`).
+
+**Menus:** click **File** (Send text file, Log to file, Exit),
+**Transfer** (Upload, Download), **Settings** (Port settings, Local echo,
+Send BREAK, Clear screen) or **Help** (Keys) on the menu bar, or press F9
+(or Ctrl-A M). Left / Right go to the next menu (or move the pointer onto
+its title), Up / Down and Enter choose, Esc closes; you can also press on a
+title, move onto an item and let go. The right mouse button opens a menu
+with all of these. Each item shows its key. While a menu is open, what
+arrives waits and then shows when it closes.
 
 ![term](term.png)
 
@@ -29,6 +39,7 @@ looks much the same.)
 |---|---|
 | F1, or Ctrl-A S | Settings page |
 | F10, or Ctrl-A X | Leave the terminal |
+| F9, or Ctrl-A M | The menus |
 | Ctrl-A B | Send a BREAK (250 ms) |
 | Ctrl-A C | Clear the screen |
 | Ctrl-A E | Local echo on / off |
