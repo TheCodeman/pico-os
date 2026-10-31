@@ -989,7 +989,7 @@ static int ask_save(void) {
     int row = (ROWS - H) / 2, col = (COLS - W) / 2, focus = 0, bx[3];
     char name[W - 6];
     const char *base = strrchr(path, '/');
-    snprintf(name, sizeof name, "%s", path[0] ? (base ? base + 1 : path) : "the new file");
+    snprintf(name, sizeof name, "%.*s", (int)sizeof name - 1, path[0] ? (base ? base + 1 : path) : "the new file");
     printf("\x1b[?25l");
     for (;;) {
         // The box: a frame with " Quit " in its top line, the question, the buttons.
