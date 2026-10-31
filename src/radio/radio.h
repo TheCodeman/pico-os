@@ -74,6 +74,27 @@ void radio_set_volume(int percent);
 /// The volume, 0-100%.
 /// @return 0-100
 int radio_volume(void);
+/// The most bass or treble, up or down, in dB.
+#define RADIO_TONE_MAX     12
+/// The bass to start with, in dB: speakers on a TV or monitor give little.
+#define RADIO_BASS_DEFAULT 6
+/// Sets the bass and treble (-12 to +12 dB, 0 flat).
+/// @param bass_db the bass: a shelf below 150 Hz
+/// @param treble_db the treble: a shelf above 4 kHz
+void radio_set_tone(int bass_db, int treble_db);
+/// The bass in dB.
+/// @return -12 to +12
+int radio_bass(void);
+/// The treble in dB.
+/// @return -12 to +12
+int radio_treble(void);
+/// radio_tone.c, for radio.c: a 48 kHz stereo frame through the bass and
+/// treble (core 1's audio refill).
+/// @param l the left sample, changed
+/// @param r the right
+void radio_tone_frame(int *l, int *r);
+/// radio_tone.c, for radio.c: clears the filters for a new stream.
+void radio_tone_reset(void);
 /// @param on mute on or off
 void radio_set_mute(bool on);  ///< silent, but still playing (the volume is kept)
 /// True if the radio is muted.

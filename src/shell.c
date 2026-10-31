@@ -439,9 +439,11 @@ static const help_t help_network[] = {
      "radio play URL | last      play an address, or the last station\n"
      "radio stop | status        stop it, or say what is playing\n"
      "radio volume 0-100         set the volume\n"
+     "radio bass | treble dB     tone, -12 to +12 (bass starts at +6)\n"
      "radio mute [on|off]        silence it (alone: toggles)\n"
-     "  Ctrl+Alt+M mutes and unmutes it from anywhere.\n"
-     "  Favourites, the last station and the volume are kept in /RADIO.INI."},
+     "  Ctrl+Alt+M mutes and unmutes it from anywhere. In the browser\n"
+     "  [ ] turn the bass down and up, { } the treble.\n"
+     "  Favourites, the last station, volume and tone are kept in /RADIO.INI."},
     {"www", "lynx", "web browser (text)",
      "www [address|file|words]   a text web browser, like lynx: http and\n"
      "                           https pages as text with links and forms;\n"

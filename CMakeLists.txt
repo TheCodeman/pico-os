@@ -96,6 +96,7 @@ add_executable(pico2_os
     src/app_overlay.c
     src/radio/radio.c
     src/radio/radio_browser.c
+    src/radio/radio_tone.c
     src/radio/radio_ui.c
     src/si5351/si5351.c
     src/si5351/si5351_pico.c

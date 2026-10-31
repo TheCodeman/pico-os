@@ -32,7 +32,7 @@
 #define VER_LANCER "1.0"     ///< lancer: side-scrolling shooter
 #define VER_SAY "1.0"        ///< say: text to speech
 #define VER_WIFI "1.0"       ///< wifi: WiFi setup
-#define VER_RADIO "1.0"      ///< radio: internet radio
+#define VER_RADIO "1.1"      ///< radio: internet radio
 #define VER_WWW "1.0"        ///< www: text web browser
 #define VER_IRC "1.0"        ///< irc: IRC chat client
 #define VER_WGET "1.1"       ///< wget: downloader

@@ -2,7 +2,7 @@
  * @file radio_ui.c
  * @brief The `radio` command: a graphical station browser in the tracker's style (bevelled panels, a scanout mouse arrow), drawn off the screen and copied on a region at a time so nothing flickers.
  *
- * Favourites, the last station and the volume are kept in /RADIO.INI.
+ * Favourites, the last station, the volume and the bass and treble are kept in /RADIO.INI.
  *
  * @author Ken Segler
  * @copyright Copyright (c) 2026 Ken Segler
@@ -295,7 +295,7 @@ static void message(const char *fmt, const char *arg) {
     U.msg_until = to_ms_since_boot(get_absolute_time()) + 5000;
 }
 
-/// name|url|bitrate|country per favourite; last=url|name; volume=n
+/// name|url|bitrate|country per favourite; last=url|name; volume=n; bass=dB; treble=dB
 static void save_ini(void) {
     FIL f;
     if (f_open(&f, INI_PATH, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
@@ -313,7 +313,7 @@ static void save_ini(void) {
         snprintf(line, sizeof line, "last=%s|%s\r\n", U.last_url, U.last_name);
         f_write(&f, line, strlen(line), &put);
     }
-    snprintf(line, sizeof line, "volume=%d\r\n", radio_volume());
+    snprintf(line, sizeof line, "volume=%d\r\nbass=%d\r\ntreble=%d\r\n", radio_volume(), radio_bass(), radio_treble());
     f_write(&f, line, strlen(line), &put);
     f_close(&f);
 }
@@ -331,7 +331,7 @@ static void field(char **p, char *out, size_t size) {
         ++*p;
 }
 
-/// Loads /RADIO.INI: favourites, the last station and the volume.
+/// Loads /RADIO.INI: favourites, the last station, the volume, the bass and treble.
 static void load_ini(void) {
     FIL f;
     if (f_open(&f, INI_PATH, FA_READ) != FR_OK)
@@ -360,6 +360,10 @@ static void load_ini(void) {
             field(&p, U.last_name, sizeof U.last_name);
         } else if (!strncmp(p, "volume=", 7)) {
             radio_set_volume(atoi(p + 7));
+        } else if (!strncmp(p, "bass=", 5)) {
+            radio_set_tone(atoi(p + 5), radio_treble());
+        } else if (!strncmp(p, "treble=", 7)) {
+            radio_set_tone(radio_bass(), atoi(p + 7));
         }
     }
     f_close(&f);
@@ -502,6 +506,8 @@ static void draw_live(const radio_status_t *st, bool quick) {
         bevel(knob, y + 252, 12, 18, true, C_LABEL);
         snprintf(line, sizeof line, radio_muted() ? "%3d%%  MUTED" : "%3d%%       ", radio_volume());
         text(x + 8, y + 272, line, 11, radio_muted() ? C_RED : C_TEXT, C_FACE, false);
+        snprintf(line, sizeof line, "Bass %+d  Tr %+d", radio_bass(), radio_treble());
+        text(x + 8 + 12 * 8, y + 272, line, (PANEL_W - 12 * 8 - 16) / 8, C_LABEL, C_FACE, true);
         button(vx + vw + 8, y + 250, MUTE_W, 22, radio_muted() ? "Sound" : "Mute", radio_muted());
     }
     // The buffer's fill and figures, the meters' segments: each pixel once.
@@ -573,16 +579,17 @@ static void draw_status(void) {
     fill(0, STATUS_Y - 4, W, 1, C_LIGHT);
     const char *s = U.msg[0] && to_ms_since_boot(get_absolute_time()) < U.msg_until
                         ? U.msg
-                        : "Enter play  S stop  M mute  F favourite  / find  U url  +/- vol  Tab  Esc";
+                        : "Enter play  S stop  M mute  F fav  / find  U url  +- vol  [] bass  {} treble";
     text(8, STATUS_Y + 6, s, 78, U.msg[0] && s == U.msg ? C_YELLOW : C_LABEL, C_FACE, true);
 }
 
-/// The live parts: through the picture when the volume has moved, else
+/// The live parts: through the picture when the volume or tone has moved, else
 /// the meters straight onto the screen.
 /// @param st the status
 static void redraw_live(const radio_status_t *st) {
     static int drawn_volume = -1;
-    int vol_now = radio_volume() + (radio_muted() ? 1000 : 0);
+    int vol_now = radio_volume() + (radio_muted() ? 1000 : 0) + (radio_bass() + 32) * 2000 +
+                  (radio_treble() + 32) * 200000;
     if (vol_now != drawn_volume) {  // the slider: through the picture
         drawn_volume = vol_now;
         draw_live(st, false);
@@ -767,6 +774,17 @@ static void volume_to(int v) {
     radio_set_volume(v);
 }
 
+/// Sets the bass and treble, says so and keeps them.
+/// @param bass the bass, dB
+/// @param treble the treble
+static void tone_to(int bass, int treble) {
+    radio_set_tone(bass, treble);
+    char what[40];
+    snprintf(what, sizeof what, "%+d dB, treble %+d dB", radio_bass(), radio_treble());
+    message("Bass %s  ([ ] bass, { } treble)", what);
+    save_ini();
+}
+
 // ---- The loop -------------------------------------------------------------------------------------------------
 
 /// Handles a key.
@@ -795,6 +813,10 @@ static void key(int k, bool *list_dirty) {
     case 'u': case 'U': play_url(); break;
     case '+': case '=': case KEY_RIGHT: volume_to(radio_volume() + 5); save_ini(); return;
     case '-': case '_': case KEY_LEFT: volume_to(radio_volume() - 5); save_ini(); return;
+    case '[': tone_to(radio_bass() - 2, radio_treble()); return;
+    case ']': tone_to(radio_bass() + 2, radio_treble()); return;
+    case '{': tone_to(radio_bass(), radio_treble() - 2); return;
+    case '}': tone_to(radio_bass(), radio_treble() + 2); return;
     case KEY_ESC: case 'q': case 'Q': case CTRL('c'): U.quit = true; return;
     default: return;
     }
@@ -955,7 +977,8 @@ static void print_status(void) {
                st.decoder_sram_kb, (unsigned long)st.underruns);
     if (st.error[0] && (st.state == RADIO_ERROR || st.state == RADIO_ENDED))
         printf("  %s\n", st.error);
-    printf("  volume %d%%%s\n", radio_volume(), radio_muted() ? ", muted" : "");
+    printf("  volume %d%%%s, bass %+d dB, treble %+d dB\n", radio_volume(), radio_muted() ? ", muted" : "",
+           radio_bass(), radio_treble());
 }
 
 void radio_command(int argc, char **argv) {
@@ -972,6 +995,12 @@ void radio_command(int argc, char **argv) {
         printf("radio: %s\n", radio_muted() ? "muted" : "sound on");
     } else if (!strcmp(argv[1], "volume") && argc > 2) {
         radio_set_volume(atoi(argv[2]));
+    } else if (!strcmp(argv[1], "bass") && argc > 2) {
+        radio_set_tone(atoi(argv[2]), radio_treble());
+        printf("radio: bass %+d dB\n", radio_bass());
+    } else if (!strcmp(argv[1], "treble") && argc > 2) {
+        radio_set_tone(radio_bass(), atoi(argv[2]));
+        printf("radio: treble %+d dB\n", radio_treble());
     } else if (!strcmp(argv[1], "play") && argc > 2) {
         if (radio_play(argv[2], argc > 3 ? argv[3] : NULL))
             printf("Playing (buffering first). `radio status` tells more.\n");
@@ -991,6 +1020,6 @@ void radio_command(int argc, char **argv) {
         else
             print_status();
     } else {
-        printf("usage: radio [stop | status | last | play URL | volume 0-100 | mute [on|off]]\n");
+        printf("usage: radio [stop | status | last | play URL | volume 0-100 | bass dB | treble dB | mute [on|off]]\n");
     }
 }

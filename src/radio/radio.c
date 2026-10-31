@@ -681,12 +681,14 @@ static bool radio_source(int32_t *l, int32_t *r) {
     uint32_t a = (pcm_out + i) % PCM_FRAMES, b = (pcm_out + i + 1) % PCM_FRAMES;
     int f = pos & 0xffff;
     int al = pcm_ring[2 * a], ar = pcm_ring[2 * a + 1], bl = pcm_ring[2 * b], br = pcm_ring[2 * b + 1];
-    int vl = al + (((bl - al) * f) >> 16), vr = ar + (((br - ar) * f) >> 16);
+    // (f to 15 bits: the step between two samples times it stays in an int)
+    int vl = al + (((bl - al) * (f >> 1)) >> 15), vr = ar + (((br - ar) * (f >> 1)) >> 15);
     pos += step;
     if (pos >> 16) {
         pcm_out += pos >> 16;
         pos &= 0xffff;
     }
+    radio_tone_frame(&vl, &vr);
     // The mixer halves sources: twice the sample, times the volume.
     int v = muted ? 0 : volume;
     *l = vl * v / 50;
@@ -888,6 +890,7 @@ bool radio_play(const char *url_text, const char *name) {
     pos = 0;
     step = 1 << 16;
     underruns = 0;
+    radio_tone_reset();
     ended = false;
     audio_left = metaint;
     meta_left = 0;
