@@ -68,6 +68,8 @@ The settings box opens over the terminal (Up/Down choose, Left/Right or Space ch
 | Enter sends | CR, LF, or CR LF |
 | Received CR | as it is, or with a line feed added |
 | Backspace sends | DEL (127) or BS (8) |
+| Upload folder | where the names typed in the upload box are looked for (a name starting with `/` is used as it is) |
+| Download folder | where received files are saved |
 
 **OK** (Esc, Enter or `O`) uses them, **Save as default** (`S`) also saves
 them in `/TERM.CFG`, and **Cancel** (`Q`, or the right button) drops the
@@ -80,7 +82,17 @@ Ctrl-A U (or Transfer > Upload) sends files and Ctrl-A D (Transfer >
 Download) receives them. A box opens: choose the protocol with Up/Down or
 a click (it remembers the last one; ZMODEM at first), type the files to
 send (or, for an XMODEM download, the name to save as), then Start (Enter)
-or Cancel (Esc, or the right button).
+or Cancel (Esc, or the right button). **Browse...** (or Ctrl-O) in the
+upload box opens the file selector in the upload folder; the file chosen
+is added to the list.
+
+**The file selector** lists a folder, folders first. Enter or a
+double-click opens a folder (`..` and Backspace go up) or chooses a file;
+a letter jumps to the next name starting with it; the wheel scrolls; Tab
+goes to the buttons. For the folder settings (Enter or a click on one in
+the settings box), **Use this folder** takes the folder shown at the top.
+Both folders are kept with the other settings when you press Save as
+default; empty means the current folder.
 A window shows the file, bytes and percentage, speed, retries and files
 done; Esc or Ctrl-C cancels (the other end is told, with CAN characters).
 
@@ -99,7 +111,7 @@ name, bytes, speed and retries.
 
 - Files to send: type one or more names separated by spaces; `*` and `?`
   work in the last part, e.g. `EXAMPLES/*.BAS` (up to 32 files).
-- Received files go in the current folder. A name that is taken gets `-1`,
+- Received files go in the download folder (the current folder unless set). A name that is taken gets `-1`,
   `-2` ... before the extension, so nothing is overwritten.
 - A ZMODEM download starts by itself when the far end runs `sz file`: the
   terminal sees the start of ZMODEM and opens the window.

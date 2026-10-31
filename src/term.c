@@ -25,12 +25,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "basic_port.h"  // port_serial_*: BASIC's COM1 driver
 #include "console.h"
 #include "ff.h"
 #include "mouse.h"
 #include "pico/stdlib.h"
+#include "psram_heap.h"
 #include "serial_console.h"
 #include "xfer.h"
 #include "version.h"
@@ -63,10 +65,12 @@ typedef struct {
     int enter;    ///< Enter sends 0 CR, 1 LF, 2 CR LF
     bool add_lf;  ///< a received CR gets an LF after it
     bool bs_del;  ///< Backspace sends DEL (127), else BS (8)
+    char up_dir[96];    ///< where uploads' typed names are looked for ("": the current folder)
+    char down_dir[96];  ///< where downloads are saved ("": the current folder)
 } term_cfg_t;
 
 /// The settings at first: 115200 8N1 on GP4/GP5.
-static const term_cfg_t defaults = {115200, 8, 1, 'N', 4, false, false, 0, false, true};
+static const term_cfg_t defaults = {115200, 8, 1, 'N', 4, false, false, 0, false, true, "", ""};
 /// The settings.
 static term_cfg_t cfg;
 
@@ -100,8 +104,9 @@ static void cfg_load(void) {
     FIL f;
     if (f_open(&f, CFG_FILE, FA_READ) != FR_OK)
         return;
-    char line[64];
+    char line[128];
     while (f_gets(line, sizeof line, &f)) {
+        line[strcspn(line, "\r\n")] = 0;
         char *eq = strchr(line, '=');
         if (!eq)
             continue;
@@ -128,6 +133,10 @@ static void cfg_load(void) {
             cfg.add_lf = n;
         else if (!strcmp(line, "bs_del"))
             cfg.bs_del = n;
+        else if (!strcmp(line, "up_dir"))
+            snprintf(cfg.up_dir, sizeof cfg.up_dir, "%s", v);
+        else if (!strcmp(line, "down_dir"))
+            snprintf(cfg.down_dir, sizeof cfg.down_dir, "%s", v);
     }
     f_close(&f);
 }
@@ -140,9 +149,9 @@ static bool cfg_save(void) {
         return false;
     int n = f_printf(&f,
                      "baud=%u\ndata=%d\nparity=%c\nstop=%d\ntx=%d\nflow=%d\necho=%d\n"
-                     "enter=%d\nadd_lf=%d\nbs_del=%d\n",
+                     "enter=%d\nadd_lf=%d\nbs_del=%d\nup_dir=%s\ndown_dir=%s\n",
                      cfg.baud, cfg.data, cfg.parity, cfg.stop, cfg.tx, cfg.flow, cfg.echo,
-                     cfg.enter, cfg.add_lf, cfg.bs_del);
+                     cfg.enter, cfg.add_lf, cfg.bs_del, cfg.up_dir, cfg.down_dir);
     return f_close(&f) == FR_OK && n > 0;
 }
 
@@ -447,7 +456,23 @@ static bool prompt(const char *label, char *text, int size) {
 // ---- Settings page ------------------------------------------------------------------
 
 /// The settings page's rows.
-enum { S_BAUD, S_DATA, S_PARITY, S_STOP, S_PINS, S_FLOW, S_ECHO, S_ENTER, S_CR, S_BS, S_COUNT };
+enum { S_BAUD, S_DATA, S_PARITY, S_STOP, S_PINS, S_FLOW, S_ECHO, S_ENTER, S_CR, S_BS, S_UPDIR, S_DOWNDIR, S_COUNT };
+
+static bool pick_path(const char *title, bool files, const char *start, char *out, int size);
+
+/// A folder setting as shown: its path (the end of a long one), or the current folder.
+/// @param dir the setting
+/// @param out the text
+/// @param size room in out
+static void dir_text(const char *dir, char *out, int size) {
+    int n = strlen(dir), room = 30;
+    if (!n)
+        snprintf(out, size, "(the current folder)");
+    else if (n > room)
+        snprintf(out, size, "...%s", dir + n - (room - 3));
+    else
+        snprintf(out, size, "%s", dir);
+}
 
 /// A setting's value as text.
 /// @param i the setting
@@ -472,6 +497,8 @@ static void setting_text(int i, char *out, int size) {
     case S_ENTER: snprintf(out, size, "%s", enter_names[cfg.enter]); break;
     case S_CR: snprintf(out, size, "%s", cfg.add_lf ? "CR LF (adds a line feed)" : "as it is"); break;
     case S_BS: snprintf(out, size, "%s", cfg.bs_del ? "DEL (127)" : "BS (8, Ctrl-H)"); break;
+    case S_UPDIR: dir_text(cfg.up_dir, out, size); break;
+    case S_DOWNDIR: dir_text(cfg.down_dir, out, size); break;
     }
 }
 
@@ -513,6 +540,12 @@ static void change_setting(int i, int dir) {
     case S_ENTER: cfg.enter = (cfg.enter + 3 + dir) % 3; break;
     case S_CR: cfg.add_lf = !cfg.add_lf; break;
     case S_BS: cfg.bs_del = !cfg.bs_del; break;
+    case S_UPDIR:  // a folder: chosen in the file selector
+    case S_DOWNDIR: {
+        char *dir = i == S_UPDIR ? cfg.up_dir : cfg.down_dir;
+        pick_path(i == S_UPDIR ? "Upload folder" : "Download folder", false, dir, dir, sizeof cfg.up_dir);
+        break;
+    }
     }
 }
 
@@ -546,7 +579,8 @@ static void fill_cells(int row, int col, int w, uint8_t attr) {
 static void draw_settings(int sel, const char *note) {
     static const char *const labels[] = {"Baud rate", "Data bits", "Parity", "Stop bits",
                                          "Pins", "Flow control", "Local echo", "Enter sends",
-                                         "Received CR", "Backspace sends"};
+                                         "Received CR", "Backspace sends", "Upload folder",
+                                         "Download folder"};
     int r0 = SET_ROW, c0 = SET_COL;
     for (int r = 0; r < SET_H; ++r) {
         bool edge = r == 0 || r == SET_H - 1;
@@ -567,7 +601,7 @@ static void draw_settings(int sel, const char *note) {
         put_text(r0 + 2 + i, SET_VALUE_COL, value, i == sel ? SEL_ATTR : MENU_ATTR);
     }
     put_text(r0 + S_COUNT + 3, c0 + 3, "Up/Down choose, Left/Right or a click change,", 0x78);
-    put_text(r0 + S_COUNT + 4, c0 + 3, "Enter on the baud rate types one", 0x78);
+    put_text(r0 + S_COUNT + 4, c0 + 3, "Enter on the baud rate types one; on a folder, browse", 0x78);
     if (note)
         put_text(r0 + S_COUNT + 5, c0 + 3, note, 0x74);  // red on grey
     int total = 0;
@@ -649,7 +683,8 @@ static bool settings_page(void) {
             if (e.type == MOUSE_WHEEL) {
                 if (i >= 0 && i < S_COUNT) {
                     sel = i;
-                    change_setting(i, e.wheel > 0 ? 1 : -1);
+                    if (i != S_UPDIR && i != S_DOWNDIR)  // (those open the file selector)
+                        change_setting(i, e.wheel > 0 ? 1 : -1);
                     redraw = true;
                 }
                 continue;
@@ -680,6 +715,8 @@ static bool settings_page(void) {
             sel = (sel + 1) % S_COUNT;
         else if (k == KEY_LEFT || k == KEY_RIGHT || k == ' ')
             change_setting(sel, k == KEY_LEFT ? -1 : 1);
+        else if ((k == '\r' || k == '\n') && (sel == S_UPDIR || sel == S_DOWNDIR))
+            change_setting(sel, 1);
         else if ((k == '\r' || k == '\n') && sel == S_BAUD) {
             bool bad;
             unsigned b = type_baud(&bad);
@@ -840,7 +877,7 @@ static void send_file(void) {
 /// A file open for a transfer.
 typedef struct {
     FIL f;  ///< the file
-    char name[80];  ///< its name
+    char name[200];  ///< its name
     bool writing;  ///< open for writing
 } xfile_t;
 
@@ -1005,6 +1042,8 @@ static void free_name(const char *name, char *out, int size) {
     FILINFO info;
     snprintf(out, size, "%s", name);
     const char *dot = strrchr(name, '.');
+    if (dot && strchr(dot, '/'))
+        dot = NULL;  // a folder's dot
     int stem = dot ? dot - name : (int)strlen(name);
     for (int i = 1; f_stat(out, &info) == FR_OK && i < 1000; ++i)
         snprintf(out, size, "%.*s-%d%s", stem, name, i, dot ? dot : "");
@@ -1027,6 +1066,13 @@ static void *x_open_write(void *ctx, const char *name, uint32_t size, bool resum
     FILINFO info;
     *offset = 0;
     x->writing = true;
+    char full[200];  // in the download folder, unless the name has its own
+    if (cfg.down_dir[0] && name[0] != '/')
+        snprintf(full, sizeof full, "%s%s%s", cfg.down_dir,
+                 cfg.down_dir[strlen(cfg.down_dir) - 1] == '/' ? "" : "/", name);
+    else
+        snprintf(full, sizeof full, "%s", name);
+    name = full;
     if (resume && f_stat(name, &info) == FR_OK && info.fsize < size) {
         // The sender asks to carry on with a partial copy (sz -r).
         snprintf(x->name, sizeof x->name, "%s", name);
@@ -1173,8 +1219,15 @@ static void transfer(bool sending) {
     if (sending) {
         char *paths[MAX_SEND];
         int n = 0;
-        for (char *w = strtok(line, " "); w; w = strtok(NULL, " "))
-            n = add_paths(w, paths, n);
+        for (char *w = strtok(line, " "); w; w = strtok(NULL, " ")) {
+            char full[200];  // a name without a folder: in the upload folder
+            if (cfg.up_dir[0] && w[0] != '/')
+                snprintf(full, sizeof full, "%s%s%s", cfg.up_dir,
+                         cfg.up_dir[strlen(cfg.up_dir) - 1] == '/' ? "" : "/", w);
+            else
+                snprintf(full, sizeof full, "%s", w);
+            n = add_paths(full, paths, n);
+        }
         if (!n) {
             set_message("No files match that.");
             return;
@@ -1290,6 +1343,248 @@ static int button_at(const mouse_event_t *e, int row, const char *const *names, 
     return -1;
 }
 
+/// An entry in the file selector.
+typedef struct {
+    char name[100];  ///< its name
+    bool dir;        ///< a folder
+} pick_ent_t;
+/// The most entries a folder shows.
+#define PICK_MAX 400
+
+/// Folders first (".." at the top), then by name, any case.
+/// @param a an entry
+/// @param b another
+/// @return their order
+static int pick_cmp(const void *a, const void *b) {
+    const pick_ent_t *x = a, *y = b;
+    if (x->dir != y->dir)
+        return x->dir ? -1 : 1;
+    return strcasecmp(x->name, y->name);
+}
+
+/// Reads a folder's entries (folders only, or files too), sorted.
+/// @param dir the folder
+/// @param e the entries
+/// @param files files too
+/// @return how many
+static int pick_load(const char *dir, pick_ent_t *e, bool files) {
+    int n = 0;
+    if (strcmp(dir, "/")) {
+        snprintf(e[n].name, sizeof e[n].name, "..");
+        e[n++].dir = true;
+    }
+    int first = n;
+    DIR d;
+    FILINFO fi;
+    if (f_opendir(&d, dir) != FR_OK)
+        return n;
+    while (n < PICK_MAX && f_readdir(&d, &fi) == FR_OK && fi.fname[0]) {
+        bool is_dir = fi.fattrib & AM_DIR;
+        if (fi.fattrib & (AM_HID | AM_SYS) || (!is_dir && !files) || strlen(fi.fname) >= sizeof e->name)
+            continue;
+        snprintf(e[n].name, sizeof e[n].name, "%s", fi.fname);
+        e[n++].dir = is_dir;
+    }
+    f_closedir(&d);
+    qsort(e + first, n - first, sizeof *e, pick_cmp);
+    return n;
+}
+
+/// A name in a folder, as a path ("..": the folder above).
+/// @param dir the folder
+/// @param name the name
+/// @param out the path
+/// @param size room in out
+static void pick_join(const char *dir, const char *name, char *out, int size) {
+    if (!strcmp(name, "..")) {
+        snprintf(out, size, "%s", dir);
+        char *slash = strrchr(out, '/');
+        if (slash && slash != out)
+            *slash = 0;
+        else
+            snprintf(out, size, "/");
+        return;
+    }
+    snprintf(out, size, "%s%s%s", dir, dir[strlen(dir) - 1] == '/' ? "" : "/", name);
+}
+
+/// The file selector: a box listing a folder (folders first). Enter or a
+/// double-click opens a folder (".." goes up, so does Backspace); for a file,
+/// Enter, a double-click or Choose picks it. Picking a folder: Use this folder.
+/// Tab goes between the list and the buttons; Esc or the right button cancels.
+/// @param title the box's title
+/// @param files pick a file (else a folder)
+/// @param start the folder to start in ("": the current one)
+/// @param out set to the path picked
+/// @param size room in out
+/// @return picked (else cancelled)
+static bool pick_path(const char *title, bool files, const char *start, char *out, int size) {
+    pick_ent_t *ents = psram_malloc(PICK_MAX * sizeof *ents);
+    if (!ents) {
+        set_message("No memory for the file selector.");
+        return false;
+    }
+    static const char *const file_buttons[] = {"Choose", "Cancel"};
+    static const char *const dir_buttons[] = {"Use this folder", "Cancel"};
+    const char *const *buttons = files ? file_buttons : dir_buttons;
+    enum { W = 62, H = 24, LIST = H - 6 };
+    int row = (CONSOLE_ROWS - H) / 2, col = (CONSOLE_COLS - W) / 2, bx[2];
+    char dir[200];
+    DIR d;
+    if (start[0] && f_opendir(&d, start) == FR_OK) {
+        f_closedir(&d);
+        snprintf(dir, sizeof dir, "%s", start);
+    } else if (f_getcwd(dir, sizeof dir) != FR_OK || !dir[0]) {
+        snprintf(dir, sizeof dir, "/");
+    }
+    int n = pick_load(dir, ents, files), sel = 0, top = 0, focus = -1;  // focus: a button, or -1 (the list)
+    bool picked = false, done = false, redraw = true;
+    uint8_t *under = cells_save(row, col, H, W);
+    console_write("\x1b[?25l", 6);
+    while (!done) {
+        if (sel < top)
+            top = sel;
+        if (sel >= top + LIST)
+            top = sel - LIST + 1;
+        if (redraw) {
+            draw_frame(row, col, H, W, title);
+            char line[W];
+            int len = strlen(dir);
+            snprintf(line, sizeof line, "%s%.*s", len > W - 6 ? "..." : "", W - 6,
+                     len > W - 6 ? dir + len - (W - 9) : dir);
+            put_text(row + 1, col + 2, line, 0x71);  // the folder, in blue
+            for (int r = 0; r < LIST; ++r) {
+                int i = top + r;
+                uint8_t a = i == sel ? (focus < 0 ? SEL_ATTR : 0x78) : MENU_ATTR;
+                if (i == sel)
+                    fill_cells(row + 2 + r, col + 1, W - 2, a);
+                if (i >= n)
+                    continue;
+                char item[W + 20];
+                snprintf(item, sizeof item, "%.*s%s", W - 24, ents[i].name,
+                         !strcmp(ents[i].name, "..") ? "  (up a folder)" : ents[i].dir ? "/" : "");
+                put_text(row + 2 + r, col + 3, item, a);
+            }
+            if (n > LIST)  // where the list is: a mark on the right edge
+                console_set_cell(row + 2 + (LIST - 1) * top / (n - LIST), col + W - 1, 0xdb, MENU_ATTR);
+            put_text(row + H - 3, col + 2,
+                     files ? "Enter: open a folder or choose a file   Tab: buttons"
+                           : "Enter: open a folder   Backspace: up   Tab: buttons", 0x78);
+            draw_buttons(row + H - 2, col, W, buttons, 2, focus, bx);
+        }
+        redraw = true;
+        mouse_event_t e;
+        int k = menu_key(&e);
+        int open = -1;  // an entry to open or choose
+        if (k == KEY_MOUSE) {
+            redraw = false;
+            if (e.type == MOUSE_WHEEL) {
+                top -= e.wheel * 3;
+                if (top > n - LIST)
+                    top = n - LIST;
+                if (top < 0)
+                    top = 0;
+                if (sel < top)
+                    sel = top;
+                if (sel >= top + LIST)
+                    sel = top + LIST - 1;
+                redraw = true;
+                continue;
+            }
+            if (e.type != MOUSE_DOWN)
+                continue;
+            int i = top + e.y / 16 - row - 2, b = button_at(&e, row + H - 2, buttons, 2, bx);
+            if (e.button == MOUSE_RIGHT || b == 1) {
+                done = true;
+            } else if (b == 0) {
+                k = '\r';
+                focus = 0;
+            } else if (e.y / 16 >= row + 2 && e.y / 16 < row + 2 + LIST && i < n && e.x / 8 > col &&
+                       e.x / 8 < col + W - 1) {
+                if (e.double_click && i == sel)
+                    open = i;
+                sel = i;
+                focus = -1;
+                redraw = true;
+                if (open < 0)
+                    continue;
+            } else {
+                continue;
+            }
+        }
+        if (done)
+            break;
+        if (open < 0 && (k == '\r' || k == '\n')) {
+            if (focus == 1) {
+                done = true;
+                break;
+            }
+            if (focus == 0) {  // Choose or Use this folder
+                if (!files) {
+                    snprintf(out, size, "%s", dir);
+                    picked = done = true;
+                    break;
+                }
+                focus = -1;
+            }
+            if (sel < n)
+                open = sel;
+        }
+        if (open >= 0) {
+            char path[200];
+            pick_join(dir, ents[open].name, path, sizeof path);
+            if (ents[open].dir) {
+                // Into the folder (".." keeps the one we came from chosen).
+                char from[100] = "";
+                if (!strcmp(ents[open].name, "..")) {
+                    const char *slash = strrchr(dir, '/');
+                    snprintf(from, sizeof from, "%s", slash ? slash + 1 : "");
+                }
+                snprintf(dir, sizeof dir, "%s", path);
+                n = pick_load(dir, ents, files);
+                sel = top = 0;
+                for (int i = 0; i < n && from[0]; ++i)
+                    if (!strcmp(ents[i].name, from))
+                        sel = i;
+            } else if (files) {
+                snprintf(out, size, "%s", path);
+                picked = done = true;
+            }
+            continue;
+        }
+        if (k == KEY_ESC || k == CTRL('c')) {
+            done = true;
+        } else if (k == '\t') {
+            focus = focus < 1 ? focus + 1 : -1;
+        } else if (focus >= 0 && (k == KEY_LEFT || k == KEY_RIGHT)) {
+            focus ^= 1;
+        } else if (k == KEY_UP && sel > 0) {
+            --sel, focus = -1;
+        } else if (k == KEY_DOWN && sel < n - 1) {
+            ++sel, focus = -1;
+        } else if ((k == '\b' || k == 0x7f) && strcmp(dir, "/")) {
+            char path[200];
+            pick_join(dir, "..", path, sizeof path);
+            snprintf(dir, sizeof dir, "%s", path);
+            n = pick_load(dir, ents, files);
+            sel = top = 0;
+        } else if (k >= 0x20 && k < 0x7f && k != ' ') {
+            // A letter: the next entry starting with it.
+            for (int j = 1; j <= n; ++j) {
+                int i = (sel + j) % n;
+                if ((ents[i].name[0] | 0x20) == (k | 0x20)) {
+                    sel = i;
+                    break;
+                }
+            }
+        }
+    }
+    cells_restore(under, row, col, H, W);
+    console_write("\x1b[?25h", 6);
+    psram_free(ents);
+    return picked;
+}
+
 /// The upload or download box: the protocol (a list: Up/Down or a click)
 /// and, to send, the files (* and ? work), or for an XMODEM download the
 /// name to save as (typed; the other protocols bring the names). Start
@@ -1303,9 +1598,12 @@ static bool transfer_dialog(bool sending, int *proto, char *text, int size) {
     static const xfer_proto_t up[] = {XFER_XMODEM, XFER_XMODEM_1K, XFER_YMODEM, XFER_ZMODEM};
     static const xfer_proto_t down[] = {XFER_XMODEM, XFER_YMODEM, XFER_ZMODEM};
     static int last_up = 3, last_down = 2;  // ZMODEM at first, then the last one used
-    static const char *const buttons[] = {"Start", "Cancel"};
+    static const char *const up_buttons[] = {"Start", "Browse...", "Cancel"};
+    static const char *const down_buttons[] = {"Start", "Cancel"};
+    const char *const *buttons = sending ? up_buttons : down_buttons;
+    int nb = sending ? 3 : 2;  // Cancel is the last
     const xfer_proto_t *list = sending ? up : down;
-    int n = sending ? 4 : 3, sel = sending ? last_up : last_down, bx[2];
+    int n = sending ? 4 : 3, sel = sending ? last_up : last_down, bx[3];
     enum { W = 60 };
     int h = n + 10, row = (CONSOLE_ROWS - h) / 2, col = (CONSOLE_COLS - W) / 2;
     int field_row = row + 3 + n + 1, len = strlen(text);
@@ -1333,10 +1631,10 @@ static bool transfer_dialog(bool sending, int *proto, char *text, int size) {
                 put_text(field_row, col + 13, "(the sender gives the names)", 0x78);
             }
             put_text(field_row + 1, col + 13,
-                     sending ? "several, and * and ? work: *.BAS" : named ? "the file to write" : "", 0x78);
+                     sending ? "several; * and ? work; Ctrl-O or Browse picks one" : named ? "the file to write" : "", 0x78);
             if (!sending && list[sel] == XFER_ZMODEM)
                 put_text(field_row + 2, col + 3, "(sz at the far end also starts one by itself)", 0x78);
-            draw_buttons(row + h - 2, col, W, buttons, 2, 0, bx);
+            draw_buttons(row + h - 2, col, W, buttons, nb, 0, bx);
         }
         redraw = true;
         mouse_event_t e;
@@ -1345,11 +1643,13 @@ static bool transfer_dialog(bool sending, int *proto, char *text, int size) {
             redraw = false;
             if (e.type != MOUSE_DOWN)
                 continue;
-            int i = e.y / 16 - row - 3, b = button_at(&e, row + h - 2, buttons, 2, bx);
-            if (e.button == MOUSE_RIGHT || b == 1) {
+            int i = e.y / 16 - row - 3, b = button_at(&e, row + h - 2, buttons, nb, bx);
+            if (e.button == MOUSE_RIGHT || b == nb - 1) {
                 done = true;
             } else if (b == 0) {
                 k = '\r';
+            } else if (b == 1 && sending) {
+                k = CTRL('o');
             } else if (i >= 0 && i < n && e.x / 8 > col && e.x / 8 < col + W - 1) {
                 sel = i;
                 redraw = true;
@@ -1362,6 +1662,15 @@ static bool transfer_dialog(bool sending, int *proto, char *text, int size) {
             break;
         if (k == KEY_ESC || k == CTRL('c')) {
             done = true;
+        } else if (k == CTRL('o') && sending) {  // Browse: a file from the selector, added
+            char path[200];
+            if (pick_path("Choose a file to send", true, cfg.up_dir, path, sizeof path) &&
+                len + (int)strlen(path) + 2 < size) {
+                if (len)
+                    text[len++] = ' ';
+                strcpy(text + len, path);
+                len += strlen(path);
+            }
         } else if (k == '\r' || k == '\n') {
             if (named && !text[0]) {
                 put_text(field_row + 2, col + 3, sending ? "Type the files to send first.          "
