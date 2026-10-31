@@ -2,6 +2,10 @@
  * @file editor.c
  * @brief Implementation of editor.h: full-screen text editor (nano-style keys), drawn with VT100 sequences through stdio so it works on the HDMI console and the serial terminal.
  *
+ * A USB mouse places the cursor, drags over text to select it (double-click:
+ * a word), scrolls with the wheel and opens a menu with the right button
+ * (cut, copy, paste, select all...).
+ *
  * @author Ken Segler
  * @copyright Copyright (c) 2026 Ken Segler
  * SPDX-License-Identifier: MIT
@@ -18,6 +22,7 @@
 #include "ff.h"
 #include "pico/stdlib.h"
 #include "hardware/xip_cache.h"
+#include "mouse.h"
 #include "shell.h"
 
 /// The whole file lives in one gap buffer in PSRAM, with the cut buffer after
@@ -25,8 +30,8 @@
 /// more untouched, so while editing every 4 KB block is checked against its
 /// checksum and rewritten every few seconds (see "Keeping the text safe").
 #define EDIT_MAX    (1024 * 1024)
-/// The cut buffer's size.
-#define CUT_MAX     (8 * 1024)
+/// The cut buffer's size (the clipboard: cut lines, or a selection cut or copied).
+#define CUT_MAX     (256 * 1024)
 /// The longest path.
 #define PATH_MAX_   128
 /// Screen rows.
@@ -41,6 +46,7 @@
 enum {
     KEY_ESC = 0x100, KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT, KEY_HOME, KEY_END,
     KEY_PGUP, KEY_PGDN, KEY_DEL, KEY_F3,
+    KEY_MOUSE,  ///< a mouse event, in mouse_ev
 };
 /// The control-key code of a letter.
 #define CTRL(c) ((c) & 0x1f)
@@ -65,8 +71,10 @@ static int gap_start, gap_end;
 #define BLOCKS     ((EDIT_MAX + CUT_MAX) / BLOCK)
 /// Every block is checked this often (ms).
 #define REFRESH_MS 10000
+#ifndef PSRAM_UNCACHED_OFFSET
 /// From the PSRAM's cached address to its uncached one.
 #define PSRAM_UNCACHED_OFFSET (0x15000000u - 0x11000000u)
+#endif
 
 static uint32_t *sums;   ///< a sum for each block (SRAM)
 static uint8_t *dirty;   ///< changed since its sum was taken
@@ -295,6 +303,8 @@ static bool crlf;      ///< the file used CR LF line ends
 /// Changed since saved.
 static bool modified;
 static int cur;        ///< cursor offset
+/// The selection's other end (it runs from here to the cursor), or -1.
+static int mark;
 static int goal_col;   ///< column Up/Down try to keep
 static int top;        ///< offset of the first line on screen
 static int left;       ///< first screen column shown (horizontal scroll)
@@ -310,8 +320,31 @@ static int cut_len;
 static bool last_was_cut;
 
 static char (*shadow)[COLS];  ///< what each screen row shows now (with sums, while editing)
-/// Each row of shadow is what the screen shows.
-static bool shadow_ok[ROWS];
+/// For each row: whether shadow is what the screen shows, and the columns
+/// shown reversed (the selection) [from, to).
+static struct {
+    bool ok;               ///< shadow is right
+    uint8_t from;          ///< the first reversed column
+    uint8_t to;            ///< after the last
+} shown[ROWS];
+/// The view follows the cursor (not while the wheel has scrolled it away).
+static bool follow;
+/// The left button is held down over the text: moving selects.
+static bool dragging;
+/// The last mouse event (KEY_MOUSE).
+static mouse_event_t mouse_ev;
+
+/// The selection, if there is one.
+/// @param a set to its start
+/// @param b set to its end (just after it)
+/// @return there is one
+static bool selection(int *a, int *b) {
+    if (mark < 0 || mark == cur)
+        return false;
+    *a = mark < cur ? mark : cur;
+    *b = mark < cur ? cur : mark;
+    return true;
+}
 
 /// Sets the status line's message.
 /// @param fmt printf's format, one %s
@@ -325,36 +358,69 @@ static void set_message(const char *fmt, const char *arg) {
 /// Rows are always written whole (80 columns), and only when they change.
 /// @param row the screen row
 /// @param text its 80 columns
-/// @param reverse in reverse video
-static void put_row(int row, const char *text, bool reverse) {
-    if (shadow_ok[row] && memcmp(shadow[row], text, COLS) == 0)
+/// @param from the first column in reverse video
+/// @param to after the last (from == to: none)
+static void put_row(int row, const char *text, int from, int to) {
+    if (shown[row].ok && shown[row].from == from && shown[row].to == to &&
+        memcmp(shadow[row], text, COLS) == 0)
         return;
-    printf("\x1b[%d;1H%s", row + 1, reverse ? "\x1b[7m" : "");
     // printf, not fwrite: the SDK sends printf/putchar straight out, but
     // fwrite goes through newlib's buffer and would arrive after later output.
-    printf("%.*s", COLS, text);
-    if (reverse)
-        printf("\x1b[0m");
+    printf("\x1b[%d;1H%.*s", row + 1, from, text);
+    if (to > from)
+        printf("\x1b[7m%.*s\x1b[0m", to - from, text + from);
+    printf("%.*s", COLS - to, text + to);
     memcpy(shadow[row], text, COLS);
-    shadow_ok[row] = true;
+    shown[row].ok = true;
+    shown[row].from = from;
+    shown[row].to = to;
 }
 
-/// A line as the screen shows it (tabs expanded, scrolled by left).
+/// Adds the text columns [c0, c1) to a row's reversed span, as far as they are on the screen.
+/// @param c0 the first column
+/// @param c1 after the last
+/// @param from the span's first screen column
+/// @param to after its last
+static void span_add(int c0, int c1, int *from, int *to) {
+    int x0 = (c0 > left ? c0 : left) - left, x1 = (c1 < left + COLS ? c1 : left + COLS) - left;
+    if (x0 >= x1)
+        return;
+    if (*from == *to) {
+        *from = x0;
+        *to = x1;
+    } else {
+        *from = x0 < *from ? x0 : *from;
+        *to = x1 > *to ? x1 : *to;
+    }
+}
+
+/// A line as the screen shows it (tabs expanded, scrolled by left), and the
+/// selected part of it.
 /// @param ls the line's start, or -1 for a blank row
 /// @param out 80 columns
-static void render_line(int ls, char *out) {
+/// @param from set to the first selected screen column
+/// @param to set to after the last (the same as from: none)
+static void render_line(int ls, char *out, int *from, int *to) {
     memset(out, ' ', COLS);
+    *from = *to = 0;
     if (ls < 0)
         return;
-    int e = line_end(ls), col = 0;
-    for (int p = ls; p < e && col < left + COLS; ++p) {
+    int sa, sb;
+    bool sel = selection(&sa, &sb);
+    int e = line_end(ls), col = 0, p;
+    for (p = ls; p < e && col < left + COLS; ++p) {
         char c = at(p);
         int next = advance_col(col, c);
         for (int x = col; x < next; ++x)
             if (x >= left && x < left + COLS)
                 out[x - left] = c == '\t' ? ' ' : (unsigned char)c < 0x20 ? '.' : c;
+        if (sel && p >= sa && p < sb)
+            span_add(col, next, from, to);
         col = next;
     }
+    // A selected line end shows as a reversed space after the line.
+    if (sel && p == e && e >= sa && e < sb)
+        span_add(col, col + 1, from, to);
 }
 
 /// Rows between the line starting at `from` and the one starting at `to`
@@ -395,19 +461,19 @@ static void scroll_to_cursor(void) {
         printf("\x1b[2;%dr\x1b[%d%c\x1b[r", TEXT_ROWS + 1, abs(shift), shift > 0 ? 'S' : 'T');
         if (shift > 0) {
             memmove(shadow[1], shadow[1 + shift], (TEXT_ROWS - shift) * COLS);
-            memmove(&shadow_ok[1], &shadow_ok[1 + shift], TEXT_ROWS - shift);
+            memmove(&shown[1], &shown[1 + shift], (TEXT_ROWS - shift) * sizeof *shown);
             for (int r = TEXT_ROWS + 1 - shift; r <= TEXT_ROWS; ++r)
-                shadow_ok[r] = false;
+                shown[r].ok = false;
         } else {
             int s = -shift;
             memmove(shadow[1 + s], shadow[1], (TEXT_ROWS - s) * COLS);
-            memmove(&shadow_ok[1 + s], &shadow_ok[1], TEXT_ROWS - s);
+            memmove(&shown[1 + s], &shown[1], (TEXT_ROWS - s) * sizeof *shown);
             for (int r = 1; r <= s; ++r)
-                shadow_ok[r] = false;
+                shown[r].ok = false;
         }
     } else if (shift != 0) {
         for (int r = 1; r <= TEXT_ROWS; ++r)
-            shadow_ok[r] = false;
+            shown[r].ok = false;
     }
 
     int col = col_of(cur);
@@ -418,7 +484,7 @@ static void scroll_to_cursor(void) {
         left = col - COLS + 1;
     if (left != old_left)
         for (int r = 1; r <= TEXT_ROWS; ++r)
-            shadow_ok[r] = false;
+            shown[r].ok = false;
 }
 
 /// Draws the title and status bars.
@@ -432,12 +498,16 @@ static void draw_bars(const char *status) {
     int n = strlen(row);
     memset(row + n, ' ', COLS - n);
     memcpy(row + COLS - strlen(right), right, strlen(right));
-    put_row(0, row, true);
+    put_row(0, row, 0, COLS);
 
     if (!status) {
         static char st[COLS + 1];
+        int sa, sb;
         if (message[0])
             snprintf(st, sizeof st, " %.*s", COLS - 1, message);
+        else if (selection(&sa, &sb))
+            snprintf(st, sizeof st, " Ln %d, Col %d   %d selected   ^C Copy ^X Cut ^V Paste",
+                     line_number(cur), col_of(cur) + 1, sb - sa);
         else
             snprintf(st, sizeof st, " Ln %d, Col %d   ^S Save ^Q Quit ^F Find ^G Go to ^K Cut ^U Paste",
                      line_number(cur), col_of(cur) + 1);
@@ -446,24 +516,28 @@ static void draw_bars(const char *status) {
     snprintf(row, sizeof row, "%s", status);
     n = strlen(row);
     memset(row + n, ' ', COLS - n);
-    put_row(ROWS - 1, row, true);
+    put_row(ROWS - 1, row, 0, COLS);
 }
 
 /// Draws what changed on the screen.
 static void draw(void) {
     printf("\x1b[?25l");
-    scroll_to_cursor();
+    if (follow)
+        scroll_to_cursor();
     char row[COLS];
-    int ls = top;
+    int ls = top, from, to;
     for (int r = 1; r <= TEXT_ROWS; ++r) {
-        render_line(ls, row);  // rows past the end of the file come out blank
-        put_row(r, row, false);
+        render_line(ls, row, &from, &to);  // rows past the end of the file come out blank
+        put_row(r, row, from, to);
         if (ls >= 0)
             ls = next_line(ls);
     }
     draw_bars(NULL);
-    int screen_row = 2 + rows_between(top, line_start(cur), TEXT_ROWS);
-    printf("\x1b[%d;%dH\x1b[?25h", screen_row, col_of(cur) - left + 1);
+    // The cursor, unless the wheel has scrolled it off the screen.
+    int cl = line_start(cur), n = cl < top ? TEXT_ROWS : rows_between(top, cl, TEXT_ROWS);
+    int x = col_of(cur) - left;
+    if (n < TEXT_ROWS && x >= 0 && x < COLS)
+        printf("\x1b[%d;%dH\x1b[?25h", 2 + n, x + 1);
     fflush(stdout);
 }
 
@@ -497,13 +571,37 @@ static bool input_waiting(void) {
     return pushed_back >= 0;
 }
 
-/// A key, escape sequences decoded (checking blocks while waiting).
+/// When the next pretend move is due while dragging at the text's edge.
+static absolute_time_t drag_at;
+
+/// While dragging with the pointer on (or past) an edge of the text, a
+/// pretend move every 50 ms, so the text scrolls on under a still pointer.
+/// @param e set to the move
+/// @return one is due
+static bool drag_scroll(mouse_event_t *e) {
+    int x, y, b;
+    mouse_get(&x, &y, &b);
+    int row = y / 16, col = x / 8;
+    if (!dragging || !(b & MOUSE_LEFT) || !time_reached(drag_at) ||
+        !(row < 1 || row > TEXT_ROWS || (col == 0 && left > 0) || col >= COLS - 1))
+        return false;
+    drag_at = make_timeout_time_ms(50);
+    *e = (mouse_event_t){.type = MOUSE_MOVE, .buttons = (uint8_t)b, .x = (int16_t)x, .y = (int16_t)y};
+    return true;
+}
+
+/// A key, escape sequences decoded, or KEY_MOUSE with the event in mouse_ev
+/// (checking blocks while waiting).
 /// @return the key
 static int read_key(void) {
     int c;
     refresh_step();
-    while ((c = get_byte(100000)) == PICO_ERROR_TIMEOUT)
+    while ((c = get_byte(10000)) == PICO_ERROR_TIMEOUT) {
         refresh_step();
+        mouse_pointer_update();
+        if (mouse_event(&mouse_ev) || drag_scroll(&mouse_ev))
+            return KEY_MOUSE;
+    }
     if (c != 0x1b)
         return c;
     // An escape sequence arrives all at once; a lone ESC is the Esc key.
@@ -701,7 +799,7 @@ static bool save(void) {
 /// @param n its length
 static void insert_chars(const char *s, int n) {
     if (!insert_text(cur, s, n)) {
-        set_message("The file is full (%s limit)", "64 KB");
+        set_message("The file is full (%s limit)", "1 MB");
         return;
     }
     cur += n;
@@ -721,6 +819,37 @@ static void new_line(void) {
     insert_chars(indent, n);
 }
 
+/// Deletes the selection (if any).
+static void delete_selection(void) {
+    int a, b;
+    if (!selection(&a, &b))
+        return;
+    erase_text(a, b - a);
+    cur = a;
+    mark = -1;
+    modified = true;
+}
+
+/// Copies the selection to the cut buffer (in place of what was there).
+/// @return copied (false: nothing selected, or too much)
+static bool copy_selection(void) {
+    int a, b;
+    if (!selection(&a, &b)) {
+        set_message("Nothing selected: drag over the text with the mouse, or Ctrl-A for all", NULL);
+        return false;
+    }
+    if (b - a > CUT_MAX) {
+        set_message("Too much for the cut buffer (%s)", "256 KB");
+        return false;
+    }
+    touch(cut, b - a);
+    for (int p = a; p < b; ++p)
+        cut[p - a] = at(p);
+    cut_len = b - a;
+    snprintf(message, sizeof message, "%d characters in the cut buffer", cut_len);
+    return true;
+}
+
 /// Ctrl-K: cuts the line (cuts in a row add up).
 static void cut_line(void) {
     int ls = line_start(cur), next = next_line(ls);
@@ -732,7 +861,7 @@ static void cut_line(void) {
     if (!last_was_cut)
         cut_len = 0;
     if (cut_len + (end - ls) > CUT_MAX) {
-        set_message("Cut buffer full (%s)", "8 KB");
+        set_message("Cut buffer full (%s)", "256 KB");
         return;
     }
     touch(cut + cut_len, end - ls);
@@ -804,7 +933,9 @@ static bool handle_key(int k) {
     static int prev_key;
     int prev = prev_key;
     prev_key = k;
-    bool keep_goal = false, was_cut = last_was_cut;
+    bool keep_goal = false, keep_mark = false, was_cut = last_was_cut;
+    int sa, sb;
+    bool sel = selection(&sa, &sb);
     last_was_cut = false;
     message[0] = 0;
     switch (k) {
@@ -823,14 +954,18 @@ static bool handle_key(int k) {
     case KEY_HOME: cur = line_start(cur); break;
     case KEY_END: cur = line_end(cur); break;
     case KEY_DEL:
-        if (cur < text_len()) {
+        if (sel) {
+            delete_selection();
+        } else if (cur < text_len()) {
             erase_text(cur, 1);
             modified = true;
         }
         break;
     case '\b':
     case 0x7f:
-        if (cur > 0) {
+        if (sel) {
+            delete_selection();
+        } else if (cur > 0) {
             erase_text(--cur, 1);
             modified = true;
         }
@@ -840,15 +975,18 @@ static bool handle_key(int k) {
             break;
         // fall through
     case '\r':
+        delete_selection();
         new_line();
         break;
     case '\t': {
         char t = '\t';
+        delete_selection();
         insert_chars(&t, 1);
         break;
     }
     case CTRL('s'):
         save();
+        keep_mark = true;
         break;
     case CTRL('q'):
         if (modified) {
@@ -891,27 +1029,302 @@ static bool handle_key(int k) {
         break;
     }
     case CTRL('k'):
+        if (sel) {  // the selection, if there is one
+            if (copy_selection())
+                delete_selection();
+            break;
+        }
         last_was_cut = was_cut;
         cut_line();
         last_was_cut = true;
         break;
+    case CTRL('x'):
+        if (copy_selection())
+            delete_selection();
+        break;
+    case CTRL('c'):
+        copy_selection();
+        keep_mark = true;
+        break;
     case CTRL('u'):
-        if (cut_len)
+    case CTRL('v'):
+        if (cut_len) {
+            delete_selection();
             insert_chars(cut, cut_len);
+        } else {
+            set_message("Nothing to paste: cut or copy something first", NULL);
+            keep_mark = true;
+        }
+        break;
+    case CTRL('a'):
+        mark = 0;
+        cur = text_len();
+        keep_mark = true;
         break;
     case CTRL('l'):
         printf("\x1b[2J");
-        memset(shadow_ok, 0, sizeof shadow_ok);
+        memset(shown, 0, sizeof shown);
+        keep_mark = true;
         break;
     default:
         if (k >= 0x20 && k < 0x100 && k != 0x7f) {
             char c = k;
+            delete_selection();
             insert_chars(&c, 1);
         }
     }
+    if (!keep_mark)
+        mark = -1;
     if (!keep_goal)
         goal_col = col_of(cur);
     return true;
+}
+
+// ---- The mouse ------------------------------------------------------------
+
+/// The text position under a screen cell. Above or below the text it is on
+/// the line just past that edge, so dragging there scrolls; while dragging,
+/// the first and last columns scroll sideways too.
+/// @param row the screen row
+/// @param col the screen column
+/// @param drag the left button is being dragged
+/// @return the position
+static int pos_at_cell(int row, int col, bool drag) {
+    int ls = top;
+    if (row < 1) {
+        int p = prev_line(top);
+        if (p >= 0)
+            ls = p;
+    }
+    for (int r = 1; r < row && r <= TEXT_ROWS; ++r) {
+        int n = next_line(ls);
+        if (n < 0)
+            break;
+        ls = n;
+    }
+    int c = left + (col < 0 ? 0 : col);
+    if (drag && col <= 0 && left > 0)
+        c = left > 4 ? left - 4 : 0;
+    else if (drag && col >= COLS - 1)
+        c = left + COLS + 3;
+    return pos_at_col(ls, c);
+}
+
+/// What kind of character it is, for a double-click's word: letters and
+/// digits, spaces, a line end, or other marks.
+/// @param c the character
+/// @return its kind
+static int char_kind(char c) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' ||
+        (unsigned char)c >= 0x80)
+        return 0;
+    return c == ' ' || c == '\t' ? 1 : c == '\n' ? 2 : 3;
+}
+
+/// Selects the word (or run of spaces or marks) at a position.
+/// @param p the position
+static void select_word(int p) {
+    int n = text_len();
+    cur = mark = p;
+    if (p >= n || at(p) == '\n')
+        return;
+    int kind = char_kind(at(p)), a = p, b = p;
+    while (a > 0 && char_kind(at(a - 1)) == kind)
+        --a;
+    while (b < n && char_kind(at(b)) == kind)
+        ++b;
+    mark = a;
+    cur = b;
+}
+
+/// One of the pop-up menu's items.
+typedef struct {
+    const char *text;  ///< its name ("-": a line between items)
+    const char *keys;  ///< the keys that do the same
+    int key;           ///< the key it runs
+} popup_item_t;
+
+/// The right button's menu.
+static const popup_item_t popup_items[] = {
+    {"Cut", "Ctrl-X", CTRL('x')},       {"Copy", "Ctrl-C", CTRL('c')},
+    {"Paste", "Ctrl-V", CTRL('v')},     {"Delete", "Del", KEY_DEL},
+    {"-", NULL, 0},                     {"Select all", "Ctrl-A", CTRL('a')},
+    {"-", NULL, 0},                     {"Find...", "Ctrl-F", CTRL('f')},
+    {"Find next", "F3", KEY_F3},        {"Go to line...", "Ctrl-G", CTRL('g')},
+    {"-", NULL, 0},                     {"Save", "Ctrl-S", CTRL('s')},
+    {"Quit", "Ctrl-Q", CTRL('q')},
+};
+/// Their count.
+#define NPOPUP (int)(sizeof popup_items / sizeof *popup_items)
+
+/// Whether a pop-up item can be chosen now (Cut wants a selection, and so on).
+/// @param it the item
+/// @return it can
+static bool popup_enabled(const popup_item_t *it) {
+    int a, b;
+    switch (it->key) {
+    case 0: return false;
+    case CTRL('x'): case CTRL('c'): case KEY_DEL: return selection(&a, &b);
+    case CTRL('v'): return cut_len > 0;
+    case KEY_F3: return find_text[0] != 0;
+    }
+    return true;
+}
+
+/// Draws the pop-up menu (box lines in the DEC line-drawing set, which the
+/// console and serial terminals both have).
+/// @param row its top row
+/// @param col its left column
+/// @param w its width
+/// @param sel the item highlighted, or -1
+static void popup_draw(int row, int col, int w, int sel) {
+    printf("\x1b[0;30;47m\x1b[%d;%dH\x1b(0l", row + 1, col + 1);
+    for (int x = 2; x < w; ++x)
+        putchar('q');
+    printf("k\x1b(B");
+    for (int i = 0; i < NPOPUP; ++i) {
+        const popup_item_t *it = &popup_items[i];
+        printf("\x1b[%d;%dH", row + 2 + i, col + 1);
+        if (it->text[0] == '-') {
+            printf("\x1b(0t");
+            for (int x = 2; x < w; ++x)
+                putchar('q');
+            printf("u\x1b(B");
+            continue;
+        }
+        const char *colour = i == sel ? "\x1b[97;44m" : popup_enabled(it) ? "" : "\x1b[90m";
+        printf("\x1b(0x\x1b(B%s %-*s%s \x1b[0;30;47m\x1b(0x\x1b(B", colour, w - 4 - (int)strlen(it->keys),
+               it->text, it->keys);
+    }
+    printf("\x1b[%d;%dH\x1b(0m", row + NPOPUP + 2, col + 1);
+    for (int x = 2; x < w; ++x)
+        putchar('q');
+    printf("j\x1b(B\x1b[0m");
+    fflush(stdout);
+}
+
+/// Shows the pop-up menu below a cell; returns the key of the item chosen
+/// (by the keys, a click, or letting go of the right button over it), or 0.
+/// @param row the row clicked
+/// @param col the column
+/// @return the item's key, or 0
+static int popup(int row, int col) {
+    int w = 0;
+    for (int i = 0; i < NPOPUP; ++i)
+        if (popup_items[i].keys) {
+            int len = (int)strlen(popup_items[i].text) + (int)strlen(popup_items[i].keys) + 2;
+            if (len > w)
+                w = len;
+        }
+    w += 4;
+    int h = NPOPUP + 2;
+    row = row + 1 + h > ROWS - 1 ? ROWS - 1 - h : row + 1;
+    if (row < 1)
+        row = 1;
+    if (col + w > COLS)
+        col = COLS - w;
+    int sel = -1, key = 0;
+    bool moved = false;  // the pointer has moved since the menu opened
+    printf("\x1b[?25l");
+    for (;;) {
+        popup_draw(row, col, w, sel);
+        int k = read_key();
+        if (k == KEY_MOUSE) {
+            const mouse_event_t *e = &mouse_ev;
+            int i = e->y / 16 - row - 1, c = e->x / 8;
+            bool inside = c > col && c < col + w - 1 && i >= 0 && i < NPOPUP;
+            bool ok = inside && popup_enabled(&popup_items[i]);
+            if (e->type == MOUSE_MOVE) {
+                moved = true;
+                sel = ok ? i : -1;
+            } else if (ok && (e->type == MOUSE_DOWN || (e->type == MOUSE_UP && moved))) {
+                key = popup_items[i].key;
+                break;
+            } else if (e->type == MOUSE_DOWN && !inside) {
+                break;  // a click outside closes it
+            }
+            continue;
+        }
+        if (k == KEY_ESC || k == CTRL('c') || k == CTRL('q'))
+            break;
+        if (k == '\r' && sel >= 0) {
+            key = popup_items[sel].key;
+            break;
+        }
+        if (k == KEY_UP || k == KEY_DOWN) {
+            int d = k == KEY_UP ? NPOPUP - 1 : 1;
+            if (sel < 0)
+                sel = k == KEY_UP ? 0 : NPOPUP - 1;
+            do
+                sel = (sel + d) % NPOPUP;
+            while (!popup_enabled(&popup_items[sel]));
+        }
+    }
+    for (int r = row; r < row + h; ++r)
+        shown[r].ok = false;
+    return key;
+}
+
+/// A mouse event: the left button places the cursor and drags a selection
+/// (a double-click selects a word), the wheel scrolls, the right button
+/// opens the menu. Returns a key to run (from the menu), or 0.
+/// @param e the event
+/// @return the key, or 0
+static int mouse_action(const mouse_event_t *e) {
+    int row = e->y / 16, col = e->x / 8;
+    switch (e->type) {
+    case MOUSE_WHEEL:  // the view moves; the cursor stays where it is
+        for (int n = e->wheel * 3; n > 0; --n) {
+            int p = prev_line(top);
+            if (p < 0)
+                break;
+            top = p;
+        }
+        for (int n = -e->wheel * 3; n > 0; --n) {
+            int p = next_line(top);
+            if (p < 0)
+                break;
+            top = p;
+        }
+        follow = false;
+        return 0;
+    case MOUSE_MOVE:
+        if (dragging && (e->buttons & MOUSE_LEFT)) {
+            cur = pos_at_cell(row, col, true);
+            follow = true;
+        }
+        break;
+    case MOUSE_UP:
+        if (e->button == MOUSE_LEFT)
+            dragging = false;
+        return 0;
+    case MOUSE_DOWN:
+        message[0] = 0;
+        last_was_cut = false;
+        if (row < 1 || row > TEXT_ROWS)
+            return 0;
+        int p = pos_at_cell(row, col, false), a, b;
+        follow = true;
+        if (e->button == MOUSE_LEFT) {
+            if (e->double_click) {
+                select_word(p);
+            } else {
+                cur = mark = p;
+                dragging = true;
+                drag_at = make_timeout_time_ms(200);
+            }
+        } else if (e->button == MOUSE_RIGHT) {
+            // Outside the selection, the click moves the cursor first.
+            if (!selection(&a, &b) || p < a || p > b)
+                cur = p, mark = -1;
+            goal_col = col_of(cur);
+            draw();
+            return popup(row, col);
+        }
+        break;
+    }
+    goal_col = col_of(cur);
+    return 0;
 }
 
 void editor_run(const char *name) {
@@ -929,7 +1342,7 @@ void editor_run(const char *name) {
     dirty = (uint8_t *)(sums + BLOCKS);
     memset(dirty, 1, BLOCKS);
     shadow = (char (*)[COLS])(dirty + BLOCKS);
-    memset(shadow_ok, 0, sizeof shadow_ok);
+    memset(shown, 0, sizeof shown);
     refresh_next = 0;
     refresh_at = make_timeout_time_ms(REFRESH_MS);
     damaged = -1;
@@ -937,15 +1350,37 @@ void editor_run(const char *name) {
     message[0] = 0;
     modified = false;
     cur = top = left = goal_col = 0;
+    mark = -1;
+    follow = true;
+    dragging = false;
     cut_len = 0;
     last_was_cut = false;
     if (load()) {
+        int pointer = mouse_pointer_mode();
+        mouse_pointer(MOUSE_POINTER_TEXT);  // the cell under it reversed
+        mouse_flush();
         printf("\x1b[0m\x1b[2J");
-        memset(shadow_ok, 0, sizeof shadow_ok);
-        do
-            if (!input_waiting())
+        memset(shown, 0, sizeof shown);
+        bool pending = true;  // something to draw
+        for (;;) {
+            if (pending && !input_waiting()) {
                 draw();
-        while (handle_key(read_key()));
+                pending = false;
+            }
+            int k = read_key();
+            if (k == KEY_MOUSE) {
+                if (mouse_ev.type == MOUSE_MOVE && !dragging)
+                    continue;  // the pointer just moving: nothing changes
+                pending = true;
+                if (!(k = mouse_action(&mouse_ev)))
+                    continue;
+            }
+            pending = true;
+            follow = true;
+            if (!handle_key(k))
+                break;
+        }
+        mouse_pointer(pointer);
         printf("\x1b[0m\x1b[2J\x1b[H\x1b[?25h");
         fflush(stdout);
     }

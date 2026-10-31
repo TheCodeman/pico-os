@@ -10,7 +10,7 @@
 #define OS_NAME "Pico 2 mini OS"  ///< the OS's name, as the banner shows it
 #define OS_VERSION "1.0"          ///< the OS's version
 
-#define VER_EDIT "1.0"       ///< edit: text editor
+#define VER_EDIT "1.1"       ///< edit: text editor
 #define VER_BASIC "1.0"      ///< basic: GW-BASIC style BASIC
 #define VER_APPLESOFT "1.0"  ///< applesoft: Applesoft BASIC
 #define VER_APPLE2E "1.0"    ///< apple2e: Apple IIe emulator

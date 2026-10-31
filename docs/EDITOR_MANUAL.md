@@ -27,8 +27,12 @@ main keys.
 | Ctrl-F | Find |
 | F3 | Find next |
 | Ctrl-G | Go to a line number |
-| Ctrl-K | Cut the line (repeat to cut several) |
+| Ctrl-K | Cut the line (repeat to cut several); with a selection, cut it |
 | Ctrl-U | Paste the cut lines |
+| Ctrl-A | Select all |
+| Ctrl-X / Ctrl-C | Cut / copy the selection |
+| Ctrl-V | Paste (the same as Ctrl-U) |
+| Esc | Drop the selection |
 | Ctrl-L | Redraw the screen |
 
 **Finding:** Ctrl-F asks for the text on the bottom row; Enter goes to
@@ -42,4 +46,33 @@ quits without saving, Esc goes back to editing.
 
 ![save](editor_save.png)
 
-Limits: files up to 64 KB, cut buffer 8 KB.
+## The mouse
+
+With a USB mouse plugged in, the cell under the pointer shows in reversed
+colours.
+
+| Mouse | Action |
+|---|---|
+| Click | Put the cursor there |
+| Drag | Select text; past the top or bottom row (or the left or right edge) the text scrolls on while you hold still |
+| Double-click | Select a word |
+| Wheel | Scroll the view (the cursor stays put; a key brings it back) |
+| Right button | A menu: Cut, Copy, Paste, Delete, Select all, Find, Find next, Go to line, Save, Quit |
+
+The selection shows reversed, a selected line end as a reversed space, and
+the status row counts the characters selected. Typing, Enter or Tab
+replace it; Backspace or Delete remove it; a key that moves the cursor drops
+it.
+
+The menu opens below the pointer. Click an item, or hold the right button,
+move onto an item and let go. Items that can't be used now (Cut with
+nothing selected, Paste with nothing cut) are grey. Up / Down and Enter
+work too; Esc or a click outside closes it. A right-click outside the
+selection moves the cursor there first.
+
+![mouse](editor_mouse.png)
+
+Cut and Copy put the text in the same cut buffer that Ctrl-K uses, so
+Ctrl-U and Ctrl-V paste either.
+
+Limits: files up to 1 MB, cut buffer 256 KB.
