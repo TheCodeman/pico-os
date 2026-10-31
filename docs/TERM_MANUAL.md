@@ -1,13 +1,20 @@
 # Pico 2 mini OS Serial Terminal
 
-`term [baud] [format]` (or `serial`) is a terminal on the tty1 serial port (BASIC's COM1), with a settings box, logging and file transfer by XMODEM, YMODEM and ZMODEM.
+`term [baud] [format]` (or `serial`) is a terminal on the tty1 serial port (BASIC's COM1), or on the debug port GP0/GP1 while the serial console is off, with a settings box, logging and file transfer by XMODEM, YMODEM and ZMODEM.
 
 ## The terminal
 
 `term` (or `serial`) is a terminal on tty1, the serial port BASIC calls
 COM1. It is UART1, TX on GP4 and RX on GP5 unless the settings say otherwise
-(3.3 V levels; connect the far end's RX to TX, TX to RX, and ground). The
-debug port on GP0/GP1 is never used.
+(3.3 V levels; connect the far end's RX to TX, TX to RX, and ground).
+
+The debug port (UART0, TX GP0 / RX GP1) can be the terminal's port too,
+shown as tty0, while the serial console is off (`sercon off`, as at
+start-up): choose it under **Pins** in the settings. The terminal then has
+that port to itself at its own speed and format; the debug messages wait,
+and it goes back to 115200 8N1 when you leave. While the serial console is
+on (`sercon on`), GP0/GP1 isn't offered, and a saved setting for it says
+so instead of starting. There is no RTS/CTS on GP0/GP1.
 
     term                  the saved settings (115200 8N1 at first)
     term 9600             another speed this time
@@ -63,8 +70,8 @@ The settings box opens over the terminal (Up/Down or Tab choose, and go on to th
 | Data bits | 5, 6, 7, 8 |
 | Parity | None, Even, Odd |
 | Stop bits | 1, 2 |
-| Pins | TX/RX on GP4/GP5, GP8/GP9, GP20/GP21 or GP24/GP25 |
-| Flow control | None, or RTS/CTS on the next two pins (CTS GP6 / RTS GP7 for GP4/GP5, and so on) |
+| Pins | TX/RX on GP0/GP1 (the debug port, tty0; only while `sercon` is off), GP4/GP5, GP8/GP9, GP20/GP21 or GP24/GP25 |
+| Flow control | None, or RTS/CTS on the next two pins (CTS GP6 / RTS GP7 for GP4/GP5, and so on; not on GP0/GP1) |
 | Local echo | Off, On |
 | Enter sends | CR, LF, or CR LF |
 | Received CR | as it is, or with a line feed added |

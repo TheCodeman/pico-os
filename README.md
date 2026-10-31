@@ -602,7 +602,8 @@ the video's, so they never collide.
   It negotiates the usual telnet options (echo, suppress go-ahead, window
   size 80x30, terminal type ANSI then VT100). Ctrl-] quits.
 - `term [baud] [format]` (or `serial`) is a serial terminal on COM1 (UART1,
-  GP4 TX / GP5 RX by default, the port BASIC calls COM1). Rows 1-29 show
+  GP4 TX / GP5 RX by default, the port BASIC calls COM1), or on the debug
+  port GP0/GP1 (tty0) while `sercon` is off. Rows 1-29 show
   the far end through the VT100 console; row 30 is a status line. F1 opens
   a settings page (baud 50-4000000, 5-8 data bits, parity, stop bits, pin
   pair, RTS/CTS flow control, local echo, what Enter sends, CR handling,
