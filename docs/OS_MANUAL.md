@@ -59,8 +59,12 @@ The prompt shows the current folder:
 
     /> ls
 
-Everything printed also goes to the serial console, and the serial console
-can type commands. It works as a full VT100 terminal.
+The serial console (GP0/GP1, 115200 baud) can type commands at any time.
+What is printed goes there too once it is on: type a key there, or use
+`sercon on` (put it in /AUTORUN to have it always). It is off at start-up
+because sending every character over the slow serial line held the screen
+back too. It works as a full VT100 terminal. Debug messages go to the
+serial port either way.
 
 ## 2. The command line
 

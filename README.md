@@ -700,7 +700,9 @@ Without OpenOCD: hold BOOTSEL while plugging the board's USB-C into the PC
 and copy `build/pico2_os.uf2` to the drive that appears.
 
 Open the Debug Probe's serial port at 115200 baud (for example
-`picocom -b 115200 /dev/ttyACM0`). The screen shows a one-line banner, checks
+`picocom -b 115200 /dev/ttyACM0`). The shell's output only goes there once
+you type a key there or run `sercon on` (it slows the screen down, so it
+starts off); debug messages always do. The screen shows a one-line banner, checks
 the PSRAM (about 3 s), then lists the keyboard, the drive (size, used,
 free) and WiFi as they appear, with a spinner while it waits. The prompt
 comes once there's a keyboard and a drive; a key typed on the serial

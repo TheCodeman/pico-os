@@ -34,6 +34,10 @@ static volatile uint32_t rx_head, rx_tail, tx_head, tx_tail;
 ///@}
 /// Characters dropped because the receive ring was full.
 static volatile unsigned rx_dropped;
+/// The shell's output goes to the UART too (sercon on); off by default, as
+/// sending it slowed the screen down. Keys typed there are always read, and
+/// the first one turns it on.
+static volatile bool console_on;
 /// Guards the send ring between cores.
 static spin_lock_t *lock;
 /// stdio's callback for characters arriving.
@@ -69,10 +73,10 @@ static void uart_irq(void) {
         chars_available(chars_available_param);
 }
 
-/// stdio driver: queues characters to send, waiting for room when the ring is full.
+/// Queues characters to send, waiting for room when the ring is full.
 /// @param buf the characters
 /// @param len how many
-static void serial_out_chars(const char *buf, int len) {
+static void queue_chars(const char *buf, int len) {
     for (int i = 0; i < len; i++) {
         uint32_t save = spin_lock_blocking(lock);
         // Full: wait for room by feeding the UART directly, which also works
@@ -92,6 +96,8 @@ static void serial_out_chars(const char *buf, int len) {
 }
 
 bool serial_console_write_some(const char *buf, int len) {
+    if (!console_on)
+        return true;  // nobody is watching
     uint32_t save = spin_lock_blocking(lock);
     bool room = TX_SIZE - (tx_head - tx_tail) >= (uint32_t)len;
     if (room) {
@@ -101,6 +107,14 @@ bool serial_console_write_some(const char *buf, int len) {
     }
     spin_unlock(lock, save);
     return room;
+}
+
+/// stdio driver: characters to send, while the serial console is on.
+/// @param buf the characters
+/// @param len how many
+static void serial_out_chars(const char *buf, int len) {
+    if (console_on)
+        queue_chars(buf, len);
 }
 
 /// stdio driver's flush, which the SDK calls after every printf: starts
@@ -130,6 +144,8 @@ static int serial_in_chars(char *buf, int len) {
     int n = 0;
     while (n < len && rx_tail != rx_head)
         buf[n++] = rx_buf[rx_tail++ % RX_SIZE];
+    if (n)
+        console_on = true;  // someone is typing there: they see the output again
     return n ? n : PICO_ERROR_NO_DATA;
 }
 
@@ -164,6 +180,14 @@ void serial_console_init(void) {
     stdio_set_driver_enabled(&serial_stdio_driver, true);
 }
 
+void serial_console_enable(bool on) {
+    console_on = on;
+}
+
+bool serial_console_enabled(void) {
+    return console_on;
+}
+
 unsigned serial_console_overruns(void) {
     return rx_dropped;
 }
@@ -171,8 +195,8 @@ unsigned serial_console_overruns(void) {
 void debug_write(const char *text, int len) {
     for (int i = 0; i < len; ++i) {
         if (text[i] == '\n')
-            serial_out_chars("\r", 1);
-        serial_out_chars(&text[i], 1);
+            queue_chars("\r", 1);
+        queue_chars(&text[i], 1);
     }
 }
 

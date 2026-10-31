@@ -523,6 +523,11 @@ static const help_t help_system[] = {
      "  Runs each line of FILE as a command (# or REM: comments; @ or echo off:\n"
      "  don't show them; Esc stops it). /AUTORUN runs this way at start-up\n"
      "  (Esc during start-up skips it), e.g.  wifi wait 20  then  mount //pc/share."},
+    {"sercon", NULL, "the shell on the serial port",
+     "sercon [on | off]\n"
+     "  The shell's text also on the debug UART (GP0/GP1, 115200 baud). Off at\n"
+     "  start-up (it slows the screen); a key typed there turns it on, or put\n"
+     "  sercon on  in /AUTORUN. Debug messages go there either way."},
     {"ver", "version", "OS and program versions",
      "ver [command]\n"
      "  Shows the OS's version and build, and each program's version (or one\n"
@@ -1728,6 +1733,19 @@ static void print_os_version(void) {
     printf("%s %s (build %s)\n", OS_NAME, OS_VERSION, version_build());
 }
 
+/// sercon [on|off]: the shell on the debug UART, or not.
+/// @param argc the argument count
+/// @param argv the arguments
+static void cmd_sercon(int argc, char **argv) {
+    if (argc >= 2 && (!strcmp(argv[1], "on") || !strcmp(argv[1], "off"))) {
+        serial_console_enable(!strcmp(argv[1], "on"));
+    } else if (argc >= 2) {
+        printf("usage: sercon [on | off]\n");
+        return;
+    }
+    printf("Serial console (debug UART, 115200 baud): %s\n", serial_console_enabled() ? "on" : "off");
+}
+
 /// ver [command]: the OS's version, and the programs' or one program's.
 /// @param argc the argument count
 /// @param argv the arguments
@@ -1770,7 +1788,7 @@ static const struct {
     {"applesoft", cmd_applesoft}, {"apple2e", cmd_apple2e}, {"c64", cmd_c64}, {"genesis", cmd_genesis},
     {"wifi", net_cmd_wifi}, {"radio", radio_command}, {"wget", net_cmd_wget}, {"telnet", net_cmd_telnet},
     {"scp", net_cmd_scp},   {"ssh", net_cmd_ssh},   {"mount", smb_cmd_mount}, {"mc", mc_command}, {"tracker", tracker_command}, {"mouse", mouse_command}, {"mod", tracker_command}, {"modplay", tracker_command}, {"umount", smb_cmd_umount},   {"reset", cmd_reset},   {"reboot", cmd_reset}, {"clock", cmd_clock},
-    {"date", net_cmd_date}, {"tz", net_cmd_tz}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"md", md_command}, {"markdown", md_command}, {"font", font_command}, {"ttf", font_command}, {"www", www_command}, {"lynx", www_command}, {"irc", irc_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"lancer", lancer_command}, {"say", say_command}, {"screenshot", cmd_screenshot}, {"ver", cmd_ver}, {"version", cmd_ver},
+    {"date", net_cmd_date}, {"tz", net_cmd_tz}, {"ntp", net_cmd_ntp}, {"term", term_command}, {"serial", term_command}, {"view", cmd_view}, {"si5351", si5351_command}, {"clockgen", si5351_command}, {"fm", fm_command}, {"fmradio", fm_command}, {"sprite", sprite_command}, {"spredit", sprite_command}, {"wav", wav_command}, {"wavedit", wav_command}, {"hex", hex_command}, {"hexedit", hex_command}, {"md", md_command}, {"markdown", md_command}, {"font", font_command}, {"ttf", font_command}, {"www", www_command}, {"lynx", www_command}, {"irc", irc_command}, {"sdr", sdr_command}, {"swarm", swarm_command}, {"lancer", lancer_command}, {"say", say_command}, {"screenshot", cmd_screenshot}, {"ver", cmd_ver}, {"version", cmd_ver}, {"sercon", cmd_sercon},
 };  ///< the commands
 
 /// Splits on spaces; "double quotes" keep spaces inside one argument.
