@@ -1,6 +1,6 @@
 /**
  * @file term.c
- * @brief term: a serial terminal on COM1 (UART1, the port BASIC calls COM1; never the debug UART).
+ * @brief term: a serial terminal on tty1 (UART1, the port BASIC calls COM1; never the debug UART).
  *
  * What arrives goes to the screen through the VT100/ANSI console, so the far
  * end's colours and cursor moves work; keys go out. As in the editor, the top
@@ -157,7 +157,7 @@ static bool port_open(void) {
         why = port_serial_flow(true);
     if (why) {
         port_serial_close();
-        snprintf(message, sizeof message, "Can't open COM1: %s", why);
+        snprintf(message, sizeof message, "Can't open tty1: %s", why);
         status_dirty = true;
         return false;
     }
@@ -260,7 +260,7 @@ static void draw_status(void) {
             strcat(extra, " echo");
         if (logging)
             snprintf(extra + strlen(extra), sizeof extra - strlen(extra), " LOG %s", log_name);
-        snprintf(text, sizeof text, " COM1 %u %d%c%d GP%d/GP%d%s", cfg.baud, cfg.data, cfg.parity,
+        snprintf(text, sizeof text, " tty1 %u %d%c%d GP%d/GP%d%s", cfg.baud, cfg.data, cfg.parity,
                  cfg.stop, cfg.tx, cfg.tx + 1, extra);
         const char *hint = "F9 menus  F1 settings  F10 exit ";
         int pad = CONSOLE_COLS - (int)strlen(text) - (int)strlen(hint);
@@ -542,7 +542,7 @@ static void draw_settings(int sel, const char *note) {
             console_set_cell(r0 + r, c0 + c, edge ? 0xc4 : ' ', MENU_ATTR);
         console_set_cell(r0 + r, c0 + SET_W - 1, r == 0 ? 0xbf : r == SET_H - 1 ? 0xd9 : 0xb3, MENU_ATTR);
     }
-    put_text(r0, c0 + 2, " Port settings (COM1) ", MENU_ATTR);
+    put_text(r0, c0 + 2, " Port settings (tty1) ", MENU_ATTR);
     for (int i = 0; i < S_COUNT; ++i) {
         char value[64];
         char v[48];
@@ -1596,8 +1596,8 @@ static bool mouse_click(const mouse_event_t *e) {
 /// Prints how to use term.
 static void usage(void) {
     printf("usage: term [baud] [format, e.g. 8N1]   (alias serial)\n"
-           "A serial terminal on COM1 (UART1, GP4 TX / GP5 RX unless changed in the\n"
-           "settings). F1 settings, F10 exit, Ctrl-A H for the other keys.\n");
+           "A serial terminal on tty1 (UART1, BASIC's COM1; GP4 TX / GP5 RX unless\n"
+           "changed in the settings). F1 settings, F9 menus, F10 exit, Ctrl-A H keys.\n");
 }
 
 void term_command(int argc, char **argv) {
@@ -1698,5 +1698,5 @@ void term_command(int argc, char **argv) {
     // The whole screen again, cleared (the bars gone with it).
     fflush(stdout);
     console_set_view(0, CONSOLE_ROWS - 1);
-    printf("\x1b[0m\x1b[r\x1b[2J\x1b[HLeft the terminal (COM1 closed).\n");
+    printf("\x1b[0m\x1b[r\x1b[2J\x1b[HLeft the terminal (tty1 closed).\n");
 }

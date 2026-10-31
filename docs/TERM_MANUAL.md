@@ -1,11 +1,11 @@
 # Pico 2 mini OS Serial Terminal
 
-`term [baud] [format]` (or `serial`) is a terminal on the COM1 serial port, with a settings box, logging and file transfer by XMODEM, YMODEM and ZMODEM.
+`term [baud] [format]` (or `serial`) is a terminal on the tty1 serial port (BASIC's COM1), with a settings box, logging and file transfer by XMODEM, YMODEM and ZMODEM.
 
 ## The terminal
 
-`term` (or `serial`) is a terminal on COM1, the serial port BASIC also
-uses: UART1, TX on GP4 and RX on GP5 unless the settings say otherwise
+`term` (or `serial`) is a terminal on tty1, the serial port BASIC calls
+COM1. It is UART1, TX on GP4 and RX on GP5 unless the settings say otherwise
 (3.3 V levels; connect the far end's RX to TX, TX to RX, and ground). The
 debug port on GP0/GP1 is never used.
 
@@ -31,7 +31,7 @@ arrives waits and then shows when it closes.
 
 ![term](term.png)
 
-Above: a board's boot messages arriving on COM1 at 115200 baud, colours
+Above: a board's boot messages arriving on tty1 at 115200 baud, colours
 and all. (The sample session is made up; any device with a serial console
 looks much the same.)
 
