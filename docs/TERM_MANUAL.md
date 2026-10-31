@@ -1,6 +1,6 @@
 # Pico 2 mini OS Serial Terminal
 
-`term [baud] [format]` (or `serial`) is a terminal on the COM1 serial port, with a settings page, logging and file transfer by XMODEM, YMODEM and ZMODEM.
+`term [baud] [format]` (or `serial`) is a terminal on the COM1 serial port, with a settings box, logging and file transfer by XMODEM, YMODEM and ZMODEM.
 
 ## The terminal
 
@@ -37,7 +37,7 @@ looks much the same.)
 
 | Key | Action |
 |---|---|
-| F1, or Ctrl-A S | Settings page |
+| F1, or Ctrl-A S | Settings box |
 | F10, or Ctrl-A X | Leave the terminal |
 | F9, or Ctrl-A M | The menus |
 | Ctrl-A B | Send a BREAK (250 ms) |
@@ -53,7 +53,7 @@ looks much the same.)
 Other keys go to the far end; arrows, Home, End, Delete and function keys
 as VT100 sequences.
 
-The settings page (Up/Down choose, Left/Right change):
+The settings box opens over the terminal (Up/Down choose, Left/Right or Space change; with the mouse, click a setting's `<` or `>`, or turn the wheel over it):
 
 | Setting | Choices |
 |---|---|
@@ -68,11 +68,10 @@ The settings page (Up/Down choose, Left/Right change):
 | Received CR | as it is, or with a line feed added |
 | Backspace sends | DEL (127) or BS (8) |
 
-`S` saves the settings as the default in `/TERM.CFG`, Esc uses them and goes
-back, and `Q` cancels the changes. Changing the port settings reopens the
-port.
-
-![settings](term_settings.png)
+**OK** (Esc, Enter or `O`) uses them, **Save as default** (`S`) also saves
+them in `/TERM.CFG`, and **Cancel** (`Q`, or the right button) drops the
+changes. Enter on the baud rate types one. Changing the port settings
+reopens the port.
 
 ### File transfer: XMODEM, YMODEM, ZMODEM
 

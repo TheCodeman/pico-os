@@ -343,6 +343,8 @@ static void page_end(saved_screen_t *s) {
 
 /// Keys decoded from escape sequences.
 enum { KEY_UP = 0x100, KEY_DOWN, KEY_RIGHT, KEY_LEFT, KEY_ESC, KEY_F1, KEY_F9, KEY_F10, KEY_OTHER };
+/// A mouse event instead of a key (menu_key).
+#define KEY_MOUSE 0x1ff
 
 /// Reads an escape sequence after ESC into seq (with the ESC); returns its key.
 /// @param seq the sequence
@@ -501,41 +503,164 @@ static void change_setting(int i, int dir) {
     }
 }
 
-/// Draws the settings page.
-/// @param sel the setting selected
+static void put_text(int row, int col, const char *text, uint8_t attr);
+static int menu_key(mouse_event_t *e);
+
+/// The settings box's size and place (in the middle of the screen).
+enum { SET_W = 60, SET_H = S_COUNT + 9, SET_ROW = (CONSOLE_ROWS - SET_H) / 2, SET_COL = (CONSOLE_COLS - SET_W) / 2 };
+/// The settings box's buttons: OK (use these), Save (as the default too), Cancel.
+static const char *const set_buttons[] = {"OK", "Save as default", "Cancel"};
+/// Each button's column (worked out as they are drawn).
+static int set_button_col[3];
+/// Where the setting values start in the box.
+#define SET_VALUE_COL (SET_COL + 22)
+
+/// Fills part of a box row with spaces.
+/// @param row the row
+/// @param col the first column
+/// @param w how many
+/// @param attr the colours
+static void fill_cells(int row, int col, int w, uint8_t attr) {
+    for (int c = 0; c < w; ++c)
+        console_set_cell(row, col + c, ' ', attr);
+}
+
+/// Draws the settings box: a frame with its title, a row for each setting
+/// (the one chosen highlighted, with < > to change it), the keys, a note
+/// and the buttons.
+/// @param sel the setting chosen
 /// @param note a note under them, or NULL
 static void draw_settings(int sel, const char *note) {
     static const char *const labels[] = {"Baud rate", "Data bits", "Parity", "Stop bits",
                                          "Pins", "Flow control", "Local echo", "Enter sends",
                                          "Received CR", "Backspace sends"};
-    printf("\x1b[H\x1b[97;44m  Serial terminal " VER_TERM " settings (COM1)%*s\x1b[0m\n\n",
-           CONSOLE_COLS - (int)sizeof("  Serial terminal " VER_TERM " settings (COM1)"), "");
-    for (int i = 0; i < S_COUNT; ++i) {
-        char value[48];
-        setting_text(i, value, sizeof value);
-        printf("\x1b[2K   \x1b[90m%-18s\x1b[0m%s< %s >\x1b[0m\n", labels[i], i == sel ? "\x1b[7m" : "",
-               value);
+    int r0 = SET_ROW, c0 = SET_COL;
+    for (int r = 0; r < SET_H; ++r) {
+        bool edge = r == 0 || r == SET_H - 1;
+        console_set_cell(r0 + r, c0, r == 0 ? 0xda : r == SET_H - 1 ? 0xc0 : 0xb3, MENU_ATTR);
+        for (int c = 1; c < SET_W - 1; ++c)
+            console_set_cell(r0 + r, c0 + c, edge ? 0xc4 : ' ', MENU_ATTR);
+        console_set_cell(r0 + r, c0 + SET_W - 1, r == 0 ? 0xbf : r == SET_H - 1 ? 0xd9 : 0xb3, MENU_ATTR);
     }
-    printf("\n\x1b[2K   \x1b[96mUp/Down\x1b[0m choose   \x1b[96mLeft/Right\x1b[0m change   "
-           "\x1b[96mEnter\x1b[0m type a baud rate\n"
-           "\x1b[2K   \x1b[96mS\x1b[0m save as the default (" CFG_FILE ")\n"
-           "\x1b[2K   \x1b[96mEsc\x1b[0m use these settings   \x1b[96mQ\x1b[0m cancel changes\n\n");
-    printf("\x1b[2K   \x1b[93m%s\x1b[0m", note ? note : "");
-    fflush(stdout);
+    put_text(r0, c0 + 2, " Port settings (COM1) ", MENU_ATTR);
+    for (int i = 0; i < S_COUNT; ++i) {
+        char value[64];
+        char v[48];
+        setting_text(i, v, sizeof v);
+        snprintf(value, sizeof value, "< %s >", v);
+        put_text(r0 + 2 + i, c0 + 3, labels[i], MENU_ATTR);
+        if (i == sel)
+            fill_cells(r0 + 2 + i, SET_VALUE_COL - 1, (int)strlen(value) + 2, SEL_ATTR);
+        put_text(r0 + 2 + i, SET_VALUE_COL, value, i == sel ? SEL_ATTR : MENU_ATTR);
+    }
+    put_text(r0 + S_COUNT + 3, c0 + 3, "Up/Down choose, Left/Right or a click change,", 0x78);
+    put_text(r0 + S_COUNT + 4, c0 + 3, "Enter on the baud rate types one", 0x78);
+    if (note)
+        put_text(r0 + S_COUNT + 5, c0 + 3, note, 0x74);  // red on grey
+    int total = 0;
+    for (int i = 0; i < 3; ++i)
+        total += (int)strlen(set_buttons[i]) + 4 + (i ? 2 : 0);
+    int x = c0 + (SET_W - total) / 2;
+    for (int i = 0; i < 3; ++i) {
+        char b[32];
+        snprintf(b, sizeof b, "[ %s ]", set_buttons[i]);
+        set_button_col[i] = x;
+        put_text(r0 + SET_H - 2, x, b, MENU_ATTR);
+        console_set_cell(r0 + SET_H - 2, x + 2, (uint8_t)set_buttons[i][0], 0x71);  // its key, in blue
+        x += (int)strlen(b) + 2;
+    }
 }
 
-/// Returns true if the port settings changed (it needs opening again).
+/// Types a baud rate on the note line of the box.
+/// @return the rate, or 0 if none (cancelled, or out of range: *bad set)
+/// @param bad set if one was typed but is out of range
+static unsigned type_baud(bool *bad) {
+    char text[12] = "";
+    int n = 0, row = SET_ROW + S_COUNT + 5;
+    *bad = false;
+    for (;;) {
+        char line[40];
+        snprintf(line, sizeof line, "Baud rate: %s_", text);
+        fill_cells(row, SET_COL + 1, SET_W - 2, MENU_ATTR);
+        put_text(row, SET_COL + 3, line, MENU_ATTR);
+        int c = wait_key();
+        if (c == '\r' || c == '\n')
+            break;
+        if (c == KEY_ESC)
+            return 0;
+        if ((c == '\b' || c == 0x7f) && n > 0)
+            text[--n] = 0;
+        else if (c >= '0' && c <= '9' && n < 8)
+            text[n++] = c, text[n] = 0;
+    }
+    unsigned b = strtoul(text, NULL, 10);
+    if (b >= 50 && b <= 4000000)
+        return b;
+    *bad = n > 0;
+    return 0;
+}
+
+/// The settings box (F1, Ctrl-A S, or the menus), over the terminal. Keys:
+/// Up/Down choose, Left/Right/Space change, Enter types a baud rate (on that
+/// row), S saves as the default, Esc uses them, Q cancels. The mouse: a
+/// click on a setting chooses it, on its < or > changes it, on a button
+/// presses it. Returns true if the port settings changed (it needs opening
+/// again).
 /// @return the port settings changed
 static bool settings_page(void) {
     term_cfg_t before = cfg;
-    saved_screen_t *saved = page_begin();
+    console_write("\x1b[?25l", 6);  // the cursor's blink kept off the box
+    // The cells under the box, put back afterwards.
+    uint8_t *under = malloc(2 * SET_W * SET_H);
+    if (under)
+        for (int r = 0; r < SET_H; ++r)
+            for (int c = 0; c < SET_W; ++c)
+                console_get_cell(SET_ROW + r, SET_COL + c, &under[2 * (r * SET_W + c)],
+                                 &under[2 * (r * SET_W + c) + 1]);
     int sel = 0;
     const char *note = NULL;
     char note_buf[64];
+    bool redraw = true;
     for (;;) {
-        draw_settings(sel, note);
+        if (redraw)
+            draw_settings(sel, note);
+        redraw = true;
         note = NULL;
-        int k = wait_key();
+        mouse_event_t e;
+        int k = menu_key(&e);
+        if (k == KEY_MOUSE) {
+            redraw = false;
+            if (e.type != MOUSE_DOWN && e.type != MOUSE_WHEEL)
+                continue;  // the pointer moving: nothing to draw
+            int row = e.y / 16, col = e.x / 8, i = row - SET_ROW - 2;
+            if (e.type == MOUSE_WHEEL) {
+                if (i >= 0 && i < S_COUNT) {
+                    sel = i;
+                    change_setting(i, e.wheel > 0 ? 1 : -1);
+                    redraw = true;
+                }
+                continue;
+            }
+            if (e.button == MOUSE_RIGHT) {
+                k = KEY_ESC;  // as Esc
+            } else if (i >= 0 && i < S_COUNT && col >= SET_COL && col < SET_COL + SET_W) {
+                sel = i;
+                if (col >= SET_VALUE_COL - 1)  // on the < : back; on the value or > : on
+                    change_setting(i, col < SET_VALUE_COL + 2 ? -1 : 1);
+                redraw = true;
+                continue;
+            } else if (row == SET_ROW + SET_H - 2) {
+                int b = -1;
+                for (int j = 0; j < 3; ++j)
+                    if (col >= set_button_col[j] && col < set_button_col[j] + (int)strlen(set_buttons[j]) + 4)
+                        b = j;
+                if (b < 0)
+                    continue;
+                k = b == 0 ? KEY_ESC : b == 1 ? 'S' : 'Q';
+            } else {
+                continue;
+            }
+        }
         if (k == KEY_UP)
             sel = (sel + S_COUNT - 1) % S_COUNT;
         else if (k == KEY_DOWN || k == '\t')
@@ -543,41 +668,37 @@ static bool settings_page(void) {
         else if (k == KEY_LEFT || k == KEY_RIGHT || k == ' ')
             change_setting(sel, k == KEY_LEFT ? -1 : 1);
         else if ((k == '\r' || k == '\n') && sel == S_BAUD) {
-            char text[12] = "";
-            printf("\x1b[%d;4H\x1b[2KBaud rate: \x1b[?25h", 5 + S_COUNT + 4);
-            fflush(stdout);
-            int n = 0;
-            for (;;) {
-                int c = wait_key();
-                if (c == '\r' || c == '\n' || c == KEY_ESC)
-                    break;
-                if ((c == '\b' || c == 0x7f) && n > 0) {
-                    text[--n] = 0;
-                    printf("\b \b");
-                } else if (c >= '0' && c <= '9' && n < 8) {
-                    text[n++] = c;
-                    putchar(c);
-                }
-                fflush(stdout);
-            }
-            printf("\x1b[?25l");
-            unsigned b = strtoul(text, NULL, 10);
-            if (b >= 50 && b <= 4000000)
+            bool bad;
+            unsigned b = type_baud(&bad);
+            if (b)
                 cfg.baud = b;
-            else if (n)
+            else if (bad)
                 note = "Baud rates go from 50 to 4000000.";
         } else if (k == 's' || k == 'S') {
             bool ok = cfg_save();
             snprintf(note_buf, sizeof note_buf, ok ? "Saved to " CFG_FILE "." : "Can't write " CFG_FILE " (is the drive in?)");
             note = note_buf;
+            if (ok)
+                break;
         } else if (k == 'q' || k == 'Q' || k == CTRL('c')) {
             cfg = before;
             break;
-        } else if (k == KEY_ESC || k == KEY_F1) {
+        } else if (k == KEY_ESC || k == KEY_F1 || k == 'o' || k == 'O' || k == '\r') {
             break;
         }
     }
-    page_end(saved);
+    if (under) {
+        for (int r = 0; r < SET_H; ++r)
+            for (int c = 0; c < SET_W; ++c)
+                console_set_cell(SET_ROW + r, SET_COL + c, under[2 * (r * SET_W + c)],
+                                 under[2 * (r * SET_W + c) + 1]);
+        free(under);
+    } else {
+        status_dirty = true;
+    }
+    console_write("\x1b[?25h", 6);
+    if (note && note == note_buf)
+        set_message(note_buf);  // saved: say so on the status line
     return cfg.baud != before.baud || cfg.data != before.data || cfg.parity != before.parity ||
            cfg.stop != before.stop || cfg.tx != before.tx || cfg.flow != before.flow;
 }
@@ -1317,8 +1438,6 @@ static void menu_draw(const menu_item_t *items, int n, int row, int col, int w, 
     }
 }
 
-/// A key, or a mouse event (KEY_MOUSE, into e), for the menus.
-#define KEY_MOUSE 0x1ff
 
 /// Waits for a key or a mouse event.
 /// @param e set to the mouse event
@@ -1378,6 +1497,7 @@ static int run_menu(const menu_item_t *items, int n, int row, int col, int bar, 
     int sel = -1, cmd = 0, drawn = MENU_UNDRAWN;
     bool moved = false;  // the pointer has moved since the menu opened
     *next = MENU_STAY;
+    console_write("\x1b[?25l", 6);  // the cursor's blink kept off the menu
     for (;;) {
         if (sel != drawn)
             menu_draw(items, n, row, col, w, sel, drawn);
@@ -1432,6 +1552,7 @@ static int run_menu(const menu_item_t *items, int n, int row, int col, int bar, 
                 console_set_cell(row + r, col + c, under[2 * (r * w + c)], under[2 * (r * w + c) + 1]);
         free(under);
     }
+    console_write("\x1b[?25h", 6);
     return cmd;
 }
 
