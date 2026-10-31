@@ -550,6 +550,28 @@ int main(void) {
     check("status row: after typing one", strstr(row_text(&snaps[1], ROWS - 1), "Ln 1, Col 2   9 bytes") != NULL);
     check_file("CR LF kept", "T12.TXT", "xab\r\ncd\r\n");
 
+    // Quitting with changes: a box in the middle asks. Esc goes back; a
+    // click on Save saves and quits. Then Right, Enter: Don't save.
+    put_file("T13.TXT", three);
+    keys("A");
+    wait_ms(20);  // drawn before Ctrl-Q, as when typing by hand
+    keys("\x11");
+    snap(0);
+    keys("\x1b");
+    wait_ms(100);
+    keys("B\x11");
+    mouse(MOUSE_DOWN, MOUSE_LEFT, MOUSE_LEFT, 15, 25, false);  // Save (the editor is gone before the button comes up)
+    run("/T13.TXT");
+    check("quit box: drawn in the middle", strstr(row_text(&snaps[0], 13), "Save the changes to T13.TXT?") != NULL);
+    check("quit box: its buttons", strstr(row_text(&snaps[0], 15), "[ Save ]  [ Don't save ]  [ Cancel ]") != NULL);
+    check("quit box: not on the status row", !strstr(row_text(&snaps[0], ROWS - 1), "Save changes"));
+    check_file("quit box: Esc, then Save clicked", "T13.TXT", "ABhello world\nsecond line\nthird\n");
+    put_file("T14.TXT", three);
+    keys("A\x11\x1b[C\r");
+    run("/T14.TXT");
+    check_file("quit box: Right, Enter (Don't save)", "T14.TXT", three);
+    shot(&snaps[0], "shot_quit.raw");
+
     // The keys from before still work: Ctrl-K twice, Ctrl-U.
     put_file("T9.TXT", three);
     keys("\x0b\x0b\x1b[B\x15\x13\x11");

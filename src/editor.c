@@ -976,6 +976,77 @@ static void move_vertical(int lines) {
     cur = pos_at_col(ls, goal_col);
 }
 
+/// The quit box's answers.
+enum { ASK_SAVE, ASK_DISCARD, ASK_CANCEL };
+
+/// Asks in a box in the middle of the screen whether to save the changes
+/// before quitting: Save, Don't save or Cancel, by a click on a button, its
+/// first letter (Y and N too), or Left / Right / Tab and Enter. Esc cancels.
+/// @return ASK_SAVE, ASK_DISCARD or ASK_CANCEL
+static int ask_save(void) {
+    static const char *const buttons[] = {"Save", "Don't save", "Cancel"};
+    enum { W = 46, H = 7 };
+    int row = (ROWS - H) / 2, col = (COLS - W) / 2, focus = 0, bx[3];
+    char name[W - 6];
+    const char *base = strrchr(path, '/');
+    snprintf(name, sizeof name, "%s", path[0] ? (base ? base + 1 : path) : "the new file");
+    printf("\x1b[?25l");
+    for (;;) {
+        // The box: a frame with " Quit " in its top line, the question, the buttons.
+        printf("\x1b[0;30;47m\x1b[%d;%dH\x1b(0lq\x1b(B Quit \x1b(0", row + 1, col + 1);
+        for (int x = 8; x < W - 1; ++x)
+            putchar('q');
+        printf("k");
+        for (int r = 1; r < H - 1; ++r) {
+            printf("\x1b[%d;%dHx\x1b(B%*s\x1b(0x", row + 1 + r, col + 1, W - 2, "");
+        }
+        printf("\x1b[%d;%dHm", row + H, col + 1);
+        for (int x = 2; x < W; ++x)
+            putchar('q');
+        printf("j\x1b(B");
+        char q[W];
+        snprintf(q, sizeof q, "Save the changes to %.*s?", W - 26, name);
+        printf("\x1b[%d;%dH%s", row + 3, col + 1 + (W - (int)strlen(q)) / 2, q);
+        int total = 0;
+        for (int i = 0; i < 3; ++i)
+            total += (int)strlen(buttons[i]) + 4 + (i ? 2 : 0);
+        int x = col + (W - total) / 2;
+        for (int i = 0; i < 3; ++i) {
+            bx[i] = x;
+            printf("\x1b[%d;%dH%s[ %s ]\x1b[0;30;47m", row + 5, x + 1, i == focus ? "\x1b[97;44m" : "",
+                   buttons[i]);
+            x += (int)strlen(buttons[i]) + 6;
+        }
+        printf("\x1b[0m");
+        fflush(stdout);
+        int k = read_key(), pick = -1;
+        if (k == KEY_MOUSE) {
+            const mouse_event_t *e = &mouse_ev;
+            if (e->type == MOUSE_DOWN && e->button == MOUSE_LEFT && e->y / 16 == row + 4)
+                for (int i = 0; i < 3; ++i)
+                    if (e->x / 8 >= bx[i] && e->x / 8 < bx[i] + (int)strlen(buttons[i]) + 4)
+                        pick = i;
+        } else if (k == KEY_ESC || k == CTRL('c') || k == 'c' || k == 'C') {
+            pick = ASK_CANCEL;
+        } else if (k == 'y' || k == 'Y' || k == 's' || k == 'S') {
+            pick = ASK_SAVE;
+        } else if (k == 'n' || k == 'N' || k == 'd' || k == 'D') {
+            pick = ASK_DISCARD;
+        } else if (k == '\r') {
+            pick = focus;
+        } else if (k == KEY_RIGHT || k == '\t') {
+            focus = (focus + 1) % 3;
+        } else if (k == KEY_LEFT) {
+            focus = (focus + 2) % 3;
+        }
+        if (pick >= 0) {
+            for (int r = row; r < row + H; ++r)
+                shown[r].ok = false;
+            return pick;
+        }
+    }
+}
+
 /// Returns false when the editor should close.
 /// @param k the key
 /// @return keep editing
@@ -1041,18 +1112,15 @@ static bool handle_key(int k) {
     case CTRL('q'):
         if (modified) {
             for (;;) {
-                draw_bars(" Save changes? (y)es, (n)o, Esc to keep editing");
-                fflush(stdout);
-                int a = read_key();
-                if (a == 'y' || a == 'Y') {
+                int a = ask_save();
+                if (a == ASK_SAVE) {
                     if (save())
                         return false;
                     break;
                 }
-                if (a == 'n' || a == 'N')
+                if (a == ASK_DISCARD)
                     return false;
-                if (a == KEY_ESC || a == CTRL('c'))
-                    break;
+                break;
             }
             break;
         }

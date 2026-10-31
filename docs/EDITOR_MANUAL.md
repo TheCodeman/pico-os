@@ -25,7 +25,7 @@ main keys.
 | Enter | New line, indented like the line above |
 | Tab | Insert a tab (shown 8 columns wide) |
 | Ctrl-S | Save |
-| Ctrl-Q | Quit; with unsaved changes it asks: `y` save, `n` discard, Esc go back |
+| Ctrl-Q | Quit; with unsaved changes a box asks: Save, Don't save or Cancel |
 | Ctrl-F | Find |
 | F3 | Find next |
 | Ctrl-G | Go to a line number |
@@ -44,8 +44,11 @@ the next place it appears, and F3 finds the one after.
 ![find](editor_find.png)
 
 **Quitting with changes:** the title row says `[modified]` once the text
-has changed, and Ctrl-Q asks whether to save: `y` saves and quits, `n`
-quits without saving, Esc goes back to editing.
+has changed, and Ctrl-Q asks in a box in the middle of the screen whether
+to save: **Save** saves and quits, **Don't save** quits without saving,
+**Cancel** goes back to editing. Click a button, press its first letter
+(`y` and `n` work too), or move with Left / Right / Tab and press Enter;
+Esc is Cancel.
 
 ![save](editor_save.png)
 

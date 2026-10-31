@@ -9,7 +9,7 @@ T=$(mktemp -d)
 cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-format-truncation -fsanitize=address,undefined \
     -Istubs -I../../src uitest.c -o "$T/uitest"
 (cd "$T" && ./uitest)
-for s in menu drag select bar; do
+for s in menu drag select bar quit; do
     python3 - "$T/shot_$s.raw" "$OUT/edit_$s.png" <<'P'
 import sys, zlib, struct
 d = open(sys.argv[1], 'rb').read()
