@@ -20,7 +20,8 @@ void serial_console_init(void);
 
 /// The shell's output on the debug UART too (the shell's sercon command):
 /// off at start-up, as every character sent there costs time on the screen
-/// too. Keys typed there always reach the shell, and the first one turns it on.
+/// too. Keys typed there always reach the shell, and until this is called the
+/// first one turns it on.
 /// @param on on or off
 void serial_console_enable(bool on);
 /// Whether the serial console is on.

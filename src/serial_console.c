@@ -38,6 +38,8 @@ static volatile unsigned rx_dropped;
 /// sending it slowed the screen down. Keys typed there are always read, and
 /// the first one turns it on.
 static volatile bool console_on;
+/// A key typed there may still turn it on: only until sercon says on or off.
+static bool auto_on = true;
 /// Guards the send ring between cores.
 static spin_lock_t *lock;
 /// stdio's callback for characters arriving.
@@ -145,7 +147,8 @@ static int serial_in_chars(char *buf, int len) {
     while (n < len && rx_tail != rx_head)
         buf[n++] = rx_buf[rx_tail++ % RX_SIZE];
     if (n)
-        console_on = true;  // someone is typing there: they see the output again
+        if (auto_on)
+            console_on = true;  // someone is typing there: they see the output
     return n ? n : PICO_ERROR_NO_DATA;
 }
 
@@ -182,6 +185,7 @@ void serial_console_init(void) {
 
 void serial_console_enable(bool on) {
     console_on = on;
+    auto_on = false;  // as asked from now on (sercon off stays off while typing there)
 }
 
 bool serial_console_enabled(void) {

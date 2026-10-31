@@ -527,8 +527,9 @@ static const help_t help_system[] = {
     {"sercon", NULL, "the shell on the serial port",
      "sercon [on | off]\n"
      "  The shell's text also on the debug UART (GP0/GP1, 115200 baud). Off at\n"
-     "  start-up (it slows the screen); a key typed there turns it on, or put\n"
-     "  sercon on  in /AUTORUN. Debug messages go there either way."},
+     "  start-up (it slows the screen); a key typed there turns it on (until\n"
+     "  sercon is used: after  sercon off  it stays off), or put  sercon on  in\n"
+     "  /AUTORUN. Debug messages go there either way."},
     {"ver", "version", "OS and program versions",
      "ver [command]\n"
      "  Shows the OS's version and build, and each program's version (or one\n"
