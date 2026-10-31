@@ -54,7 +54,7 @@ looks much the same.)
 Other keys go to the far end; arrows, Home, End, Delete and function keys
 as VT100 sequences.
 
-The settings box opens over the terminal (Up/Down choose, Left/Right or Space change; with the mouse, click a setting's `<` or `>`, or turn the wheel over it):
+The settings box opens over the terminal (Up/Down or Tab choose, and go on to the buttons, where Left/Right move and Enter presses; Left/Right or Space change a setting; with the mouse, click a setting's `<` or `>`, or turn the wheel over it):
 
 | Setting | Choices |
 |---|---|

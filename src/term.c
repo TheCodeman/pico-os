@@ -574,7 +574,7 @@ static void fill_cells(int row, int col, int w, uint8_t attr) {
 /// Draws the settings box: a frame with its title, a row for each setting
 /// (the one chosen highlighted, with < > to change it), the keys, a note
 /// and the buttons.
-/// @param sel the setting chosen
+/// @param sel the setting chosen, or S_COUNT + a button
 /// @param note a note under them, or NULL
 static void draw_settings(int sel, const char *note) {
     static const char *const labels[] = {"Baud rate", "Data bits", "Parity", "Stop bits",
@@ -600,7 +600,7 @@ static void draw_settings(int sel, const char *note) {
             fill_cells(r0 + 2 + i, SET_VALUE_COL - 1, (int)strlen(value) + 2, SEL_ATTR);
         put_text(r0 + 2 + i, SET_VALUE_COL, value, i == sel ? SEL_ATTR : MENU_ATTR);
     }
-    put_text(r0 + S_COUNT + 3, c0 + 3, "Up/Down choose, Left/Right or a click change,", 0x78);
+    put_text(r0 + S_COUNT + 3, c0 + 3, "Up/Down choose (on to the buttons), Left/Right change,", 0x78);
     put_text(r0 + S_COUNT + 4, c0 + 3, "Enter on the baud rate types one; on a folder, browse", 0x78);
     if (note)
         put_text(r0 + S_COUNT + 5, c0 + 3, note, 0x74);  // red on grey
@@ -612,8 +612,10 @@ static void draw_settings(int sel, const char *note) {
         char b[32];
         snprintf(b, sizeof b, "[ %s ]", set_buttons[i]);
         set_button_col[i] = x;
-        put_text(r0 + SET_H - 2, x, b, MENU_ATTR);
-        console_set_cell(r0 + SET_H - 2, x + 2, (uint8_t)set_buttons[i][0], 0x71);  // its key, in blue
+        bool on = sel == S_COUNT + i;  // the keys have gone down to the buttons
+        put_text(r0 + SET_H - 2, x, b, on ? SEL_ATTR : MENU_ATTR);
+        if (!on)
+            console_set_cell(r0 + SET_H - 2, x + 2, (uint8_t)set_buttons[i][0], 0x71);  // its key, in blue
         x += (int)strlen(b) + 2;
     }
 }
@@ -709,10 +711,16 @@ static bool settings_page(void) {
                 continue;
             }
         }
+        // Up / Down / Tab go through the settings and then the buttons; on the
+        // buttons, Left / Right go between them and Enter presses one.
+        if (sel >= S_COUNT && (k == '\r' || k == '\n' || k == ' '))
+            k = sel == S_COUNT ? 'O' : sel == S_COUNT + 1 ? 'S' : 'Q';
         if (k == KEY_UP)
-            sel = (sel + S_COUNT - 1) % S_COUNT;
+            sel = (sel + S_COUNT + 3 - 1) % (S_COUNT + 3);
         else if (k == KEY_DOWN || k == '\t')
-            sel = (sel + 1) % S_COUNT;
+            sel = (sel + 1) % (S_COUNT + 3);
+        else if (sel >= S_COUNT && (k == KEY_LEFT || k == KEY_RIGHT))
+            sel = S_COUNT + (sel - S_COUNT + (k == KEY_LEFT ? 2 : 1)) % 3;
         else if (k == KEY_LEFT || k == KEY_RIGHT || k == ' ')
             change_setting(sel, k == KEY_LEFT ? -1 : 1);
         else if ((k == '\r' || k == '\n') && (sel == S_UPDIR || sel == S_DOWNDIR))
