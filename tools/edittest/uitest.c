@@ -477,7 +477,7 @@ int main(void) {
     keys("\x13\x11");
     run("/T4.TXT");
     check("menu: drawn below the click", strstr(row_text(&snaps[0], 4), "Cut") && strstr(row_text(&snaps[0], 4), "Ctrl-X"));
-    check("menu: Select all and Quit in it", strstr(row_text(&snaps[0], 9), "Select all") && strstr(row_text(&snaps[0], 16), "Quit"));
+    check("menu: Select all and Exit in it", strstr(row_text(&snaps[0], 9), "Select all") && strstr(row_text(&snaps[0], 16), "Exit"));
     check("menu: the selection kept under it", !strcmp(rev_span(&snaps[0], 2), "0-6"));
     check("menu: gone after Copy", !strstr(row_text(&snaps[1], 4), "Cut"));
     check("menu: Copy leaves the selection", !strcmp(rev_span(&snaps[1], 2), "0-6"));

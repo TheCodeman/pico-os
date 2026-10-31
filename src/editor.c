@@ -557,7 +557,7 @@ static void draw_bars(const char *status) {
     else if (selection(&sa, &sb))
         snprintf(row, sizeof row, " %d selected   ^C Copy ^X Cut ^V Paste", sb - sa);
     else
-        snprintf(row, sizeof row, " ^S Save ^Q Quit ^F Find ^K Cut ^U Paste  F10 Menus");
+        snprintf(row, sizeof row, " ^S Save ^Q Exit ^F Find ^K Cut ^U Paste  F10 Menus");
     n = strlen(row);
     memset(row + n, ' ', COLS - n);
     if (n + 2 + wn <= COLS)
@@ -998,8 +998,8 @@ enum { ASK_W = 46, ASK_H = 7 };
 static void ask_draw(int row, int col, const char *name, int focus, bool frame, int *bx) {
     printf("\x1b[0;30;47m");
     if (frame) {
-        // A frame with " Quit " in its top line, and the question.
-        printf("\x1b[%d;%dH\x1b(0lq\x1b(B Quit \x1b(0", row + 1, col + 1);
+        // A frame with " Exit " in its top line, and the question.
+        printf("\x1b[%d;%dH\x1b(0lq\x1b(B Exit \x1b(0", row + 1, col + 1);
         for (int x = 8; x < ASK_W - 1; ++x)
             putchar('q');
         printf("k");
@@ -1295,12 +1295,12 @@ static const popup_item_t popup_items[] = {
     SEPARATOR,                     {"Find...", "Ctrl-F", CTRL('f')},
     {"Find next", "F3", KEY_F3},   {"Go to line...", "Ctrl-G", CTRL('g')},
     SEPARATOR,                     {"Save", "Ctrl-S", CTRL('s')},
-    {"Quit", "Ctrl-Q", CTRL('q')},
+    {"Exit", "Ctrl-Q", CTRL('q')},
 };
 /// The File menu.
 static const popup_item_t file_items[] = {
     {"Save", "Ctrl-S", CTRL('s')}, {"Redraw screen", "Ctrl-L", CTRL('l')},
-    SEPARATOR,                     {"Quit", "Ctrl-Q", CTRL('q')},
+    SEPARATOR,                     {"Exit", "Ctrl-Q", CTRL('q')},
 };
 /// The Edit menu.
 static const popup_item_t edit_items[] = {

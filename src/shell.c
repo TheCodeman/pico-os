@@ -290,7 +290,7 @@ static const help_t help_screen[] = {
 static const help_t help_programs[] = {
     {"edit", "ed", "text editor",
      "edit [file]\n"
-     "  Ctrl-S save   Ctrl-Q quit   Ctrl-F find   F3 find next\n"
+     "  Ctrl-S save   Ctrl-Q exit   Ctrl-F find   F3 find next\n"
      "  Ctrl-G go to line   Ctrl-K cut line   Ctrl-U paste   Ctrl-L redraw\n"
      "  Mouse: click, drag or double-click to select, wheel scrolls,\n"
      "  right button for a menu.  Ctrl-X cut  Ctrl-C copy  Ctrl-V paste  Ctrl-A all\n"

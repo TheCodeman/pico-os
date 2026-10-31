@@ -25,7 +25,7 @@ main keys.
 | Enter | New line, indented like the line above |
 | Tab | Insert a tab (shown 8 columns wide) |
 | Ctrl-S | Save |
-| Ctrl-Q | Quit; with unsaved changes a box asks: Save, Don't save or Cancel |
+| Ctrl-Q | Exit; with unsaved changes a box asks: Save, Don't save or Cancel |
 | Ctrl-F | Find |
 | F3 | Find next |
 | Ctrl-G | Go to a line number |
@@ -43,9 +43,9 @@ the next place it appears, and F3 finds the one after.
 
 ![find](editor_find.png)
 
-**Quitting with changes:** the title row says `[modified]` once the text
+**Exiting with changes:** the title row says `[modified]` once the text
 has changed, and Ctrl-Q asks in a box in the middle of the screen whether
-to save: **Save** saves and quits, **Don't save** quits without saving,
+to save: **Save** saves and exits, **Don't save** exits without saving,
 **Cancel** goes back to editing. Click a button, press its first letter
 (`y` and `n` work too), or move with Left / Right / Tab and press Enter;
 Esc is Cancel.
@@ -54,7 +54,7 @@ Esc is Cancel.
 
 ## The menu bar
 
-The title row is a menu bar: **File** (Save, Redraw screen, Quit),
+The title row is a menu bar: **File** (Save, Redraw screen, Exit),
 **Edit** (Cut, Copy, Paste, Delete, Select all, Cut line) and **Search**
 (Find, Find next, Go to line), followed by the file's name. Click a title,
 or press F10 (File) or Alt and a title's first letter (Alt-F, Alt-E,
@@ -76,7 +76,7 @@ colours.
 | Drag | Select text; past the top or bottom row (or the left or right edge) the text scrolls on while you hold still |
 | Double-click | Select a word |
 | Wheel | Scroll the view (the cursor stays put; a key brings it back) |
-| Right button | A menu: Cut, Copy, Paste, Delete, Select all, Find, Find next, Go to line, Save, Quit |
+| Right button | A menu: Cut, Copy, Paste, Delete, Select all, Find, Find next, Go to line, Save, Exit |
 
 The selection shows reversed, a selected line end as a reversed space, and
 the status row counts the characters selected. Typing, Enter or Tab
