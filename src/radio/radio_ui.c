@@ -70,7 +70,19 @@
 #define STATUS_Y 448  ///< the status line's top
 #define BTN_W(chars) ((chars) * 8 + 16)  ///< a button that fits that many characters
 #define MUTE_W   BTN_W(5)                 ///< "Sound" / "Mute", the wider of them
-#define VOL_W    (PANEL_W - 64 - 8 - MUTE_W - 8)  ///< the volume slider, the mute button after it
+#define VOL_W    (PANEL_W - 64 - 8 - MUTE_W - 8)  ///< the sliders' width (the mute button, or the dB, after them)
+/// The playing panel's rows (from its top): the live part (buffer, meters
+/// and the volume, bass and treble sliders), then where the stream comes from.
+///@{
+#define LIVE_Y   142
+#define LIVE_H   158
+#define METER_Y  (LIVE_Y + 44)
+#define SLIDER_Y (LIVE_Y + 80)  ///< the volume slider's bar; bass and treble below it
+#define SLIDER_DY 20            ///< from one slider to the next (volume's text comes between)
+#define URL_Y    (LIVE_Y + LIVE_H + 10)
+///@}
+/// A slider's bar from the panel's top: 0 volume, 1 bass, 2 treble.
+#define SLIDER_BAR(n) (SLIDER_Y + ((n) ? 18 + (n) * SLIDER_DY : 0))
 
 /// The built-in station list.
 static const radio_station_t starter[] = {
@@ -115,7 +127,7 @@ static struct {
     ///@}
     char msg[96];  ///< a message for the status line
     uint32_t msg_until;  ///< until when
-    bool dragging_volume;  ///< the volume slider is being dragged
+    int dragging;  ///< the slider being dragged: HIT_VOLUME, HIT_BASS, HIT_TREBLE, or 0
     bool quit;  ///< leaving
 } U;  ///< the browser's state
 
@@ -220,7 +232,7 @@ static void show(int x, int y, int w, int h) {
 // ---- Places to click ---------------------------------------------------------------------------------
 
 /// What a click hits.
-enum { HIT_TAB = 1, HIT_ROW, HIT_STAR, HIT_STOP, HIT_PLAY, HIT_FAV, HIT_VOLUME, HIT_MUTE, HIT_SEARCH, HIT_URL, HIT_QUIT };
+enum { HIT_TAB = 1, HIT_ROW, HIT_STAR, HIT_STOP, HIT_PLAY, HIT_FAV, HIT_VOLUME, HIT_BASS, HIT_TREBLE, HIT_MUTE, HIT_SEARCH, HIT_URL, HIT_QUIT };
 
 /// A place to click.
 typedef struct {
@@ -483,7 +495,22 @@ static void wrapped(int x, int y, const char *s, int cols, int lines, uint8_t fg
     }
 }
 
-/// The parts that change all the time: the buffer, the meters, the volume.
+/// A slider: its bar, filled from `from` to the knob (both 0-1000 along it).
+/// @param y its bar's top
+/// @param from where the fill starts
+/// @param at where the knob is
+static void slider(int y, int from, int at) {
+    int vx = PANEL_X + 64, vw = VOL_W, span = vw - 12;
+    bevel(vx, y, vw, 10, false, C_FIELD);
+    int a = vx + 1 + from * span / 1000, k = vx + at * span / 1000;
+    if (from)  // (the middle: a mark there)
+        fill(a + 5, y - 2, 1, 14, C_LABEL);
+    int lo = a < k + 6 ? a : k + 6, hi = a < k + 6 ? k + 6 : a;
+    fill(lo, y + 1, hi - lo, 8, C_SEL);
+    bevel(k, y - 4, 12, 18, true, C_LABEL);
+}
+
+/// The parts that change all the time: the buffer, the meters, the sliders.
 /// @param st the status
 /// @param quick just the values (else the labels and frames too)
 static void draw_live(const radio_status_t *st, bool quick) {
@@ -491,36 +518,38 @@ static void draw_live(const radio_status_t *st, bool quick) {
     char line[48];
     int bw = PANEL_W - 76, fillw = st->buffer_pct * (bw - 2) / 100, mw = PANEL_W - 40;
     if (!quick) {
-        fill(x + 4, y + 162, PANEL_W - 8, 130, C_FACE);
-        text(x + 8, y + 166, "Buffer", 6, C_LABEL, C_FACE, false);
-        bevel(x + 64, y + 166, bw, 14, false, C_FIELD);
+        fill(x + 4, y + LIVE_Y, PANEL_W - 8, LIVE_H, C_FACE);
+        text(x + 8, y + LIVE_Y + 4, "Buffer", 6, C_LABEL, C_FACE, false);
+        bevel(x + 64, y + LIVE_Y + 4, bw, 14, false, C_FIELD);
         for (int c = 0; c < 2; ++c) {
-            text(x + 8, y + 210 + c * 18, c ? "R" : "L", 1, C_LABEL, C_FACE, false);
-            bevel(x + 24, y + 210 + c * 18, mw, 14, false, C_BG);
+            text(x + 8, y + METER_Y + c * 16 - 2, c ? "R" : "L", 1, C_LABEL, C_FACE, false);
+            bevel(x + 24, y + METER_Y + c * 16, mw, 12, false, C_BG);
         }
-        text(x + 8, y + 254, "Volume", 6, C_LABEL, C_FACE, false);
-        int vx = x + 64, vw = VOL_W;
-        bevel(vx, y + 256, vw, 10, false, C_FIELD);
-        int knob = vx + radio_volume() * (vw - 12) / 100;
-        fill(vx + 1, y + 257, knob - vx, 8, C_SEL);
-        bevel(knob, y + 252, 12, 18, true, C_LABEL);
+        int vy = y + SLIDER_BAR(0);
+        text(x + 8, vy - 2, "Volume", 6, C_LABEL, C_FACE, false);
+        slider(vy, 0, radio_volume() * 10);
         snprintf(line, sizeof line, radio_muted() ? "%3d%%  MUTED" : "%3d%%       ", radio_volume());
-        text(x + 8, y + 272, line, 11, radio_muted() ? C_RED : C_TEXT, C_FACE, false);
-        snprintf(line, sizeof line, "Bass %+d  Tr %+d", radio_bass(), radio_treble());
-        text(x + 8 + 12 * 8, y + 272, line, (PANEL_W - 12 * 8 - 16) / 8, C_LABEL, C_FACE, true);
-        button(vx + vw + 8, y + 250, MUTE_W, 22, radio_muted() ? "Sound" : "Mute", radio_muted());
+        text(x + 8, vy + 14, line, 11, radio_muted() ? C_RED : C_TEXT, C_FACE, false);
+        button(x + 64 + VOL_W + 8, vy - 6, MUTE_W, 22, radio_muted() ? "Sound" : "Mute", radio_muted());
+        for (int n = 1; n <= 2; ++n) {
+            int ty = y + SLIDER_BAR(n), db = n == 1 ? radio_bass() : radio_treble();
+            text(x + 8, ty - 2, n == 1 ? "Bass" : "Treble", 6, C_LABEL, C_FACE, false);
+            slider(ty, 500, (db + RADIO_TONE_MAX) * 500 / RADIO_TONE_MAX);
+            snprintf(line, sizeof line, "%+d dB", db);
+            text(x + 64 + VOL_W + 8, ty - 2, line, MUTE_W / 8, C_TEXT, C_FACE, true);
+        }
     }
     // The buffer's fill and figures, the meters' segments: each pixel once.
-    fill(x + 65, y + 167, fillw, 12, st->buffer_ms < 2000 ? C_ORANGE : C_GREEN);
-    fill(x + 65 + fillw, y + 167, bw - 2 - fillw, 12, C_FIELD);
+    fill(x + 65, y + LIVE_Y + 5, fillw, 12, st->buffer_ms < 2000 ? C_ORANGE : C_GREEN);
+    fill(x + 65 + fillw, y + LIVE_Y + 5, bw - 2 - fillw, 12, C_FIELD);
     snprintf(line, sizeof line, "%d.%d s  CPU %u.%u%%  drops %lu", st->buffer_ms / 1000,
              st->buffer_ms % 1000 / 100, st->load / 10, st->load % 10, (unsigned long)st->underruns);
-    text(x + 8, y + 184, line, cols, C_DIM, C_FACE, true);
+    text(x + 8, y + LIVE_Y + 22, line, cols, C_DIM, C_FACE, true);
     for (int c = 0; c < 2; ++c) {
-        int my = y + 210 + c * 18, len = st->level[c] * (mw - 2) / 64;
+        int my = y + METER_Y + c * 16, len = st->level[c] * (mw - 2) / 64;
         for (int k = 0; k < mw - 2; k += 4) {
             uint8_t col = k >= len ? C_DARK : k < (mw - 2) * 6 / 10 ? C_GREEN : k < (mw - 2) * 85 / 100 ? C_YELLOW : C_RED;
-            fill(x + 25 + k, my + 1, 3, 12, col);
+            fill(x + 25 + k, my + 1, 3, 10, col);
         }
     }
 }
@@ -538,28 +567,30 @@ static void draw_panel(const radio_status_t *st) {
     wrapped(x + 8, y + 30, st->state == RADIO_OFF ? "" : st->station, cols, 2, C_TEXT, C_FACE);
     fill(x + 8, y + 66, PANEL_W - 16, 1, C_DARK);
     const char *song = st->state == RADIO_ERROR || st->state == RADIO_ENDED ? st->error : st->title;
-    wrapped(x + 8, y + 72, song, cols, 4, st->state == RADIO_ERROR ? C_RED : C_CYAN, C_FACE);
+    wrapped(x + 8, y + 72, song, cols, 3, st->state == RADIO_ERROR ? C_RED : C_CYAN, C_FACE);
     char line[40];
     if (st->samplerate)
         snprintf(line, sizeof line, "%s %d kbit/s %d.%d kHz %s", st->codec, st->bitrate, st->samplerate / 1000,
                  st->samplerate % 1000 / 100, st->channels == 1 ? "mono" : "");
     else
         line[0] = 0;
-    text(x + 8, y + 144, line, cols, C_LABEL, C_FACE, true);
+    text(x + 8, y + 122, line, cols, C_LABEL, C_FACE, true);
     draw_live(st, false);
-    hit(x + 64 - 6, y + 248, VOL_W + 12, 26, HIT_VOLUME, 0);
-    hit(x + 64 + VOL_W + 8, y + 250, MUTE_W, 22, HIT_MUTE, 0);
+    hit(x + 64 - 6, y + SLIDER_BAR(0) - 6, VOL_W + 12, 22, HIT_VOLUME, 0);
+    hit(x + 64 - 6, y + SLIDER_BAR(1) - 6, VOL_W + 12, 20, HIT_BASS, 0);
+    hit(x + 64 - 6, y + SLIDER_BAR(2) - 6, VOL_W + 12, 20, HIT_TREBLE, 0);
+    hit(x + 64 + VOL_W + 8, y + SLIDER_BAR(0) - 6, MUTE_W, 22, HIT_MUTE, 0);
     // Where it comes from
-    fill(x + 8, y + 296, PANEL_W - 16, 1, C_DARK);
+    fill(x + 8, y + URL_Y - 6, PANEL_W - 16, 1, C_DARK);
     if (st->state != RADIO_OFF) {
         const char *u = st->url;
         if (!strncmp(u, "http://", 7))
             u += 7;
         else if (!strncmp(u, "https://", 8))
             u += 8;
-        wrapped(x + 8, y + 302, u, cols, 3, C_DIM, C_FACE);
+        wrapped(x + 8, y + URL_Y, u, cols, 2, C_DIM, C_FACE);
     } else {
-        wrapped(x + 8, y + 302, "", cols, 3, C_DIM, C_FACE);
+        wrapped(x + 8, y + URL_Y, "", cols, 2, C_DIM, C_FACE);
     }
     // Buttons
     int by = y + LIST_H - 34;
@@ -593,7 +624,7 @@ static void redraw_live(const radio_status_t *st) {
     if (vol_now != drawn_volume) {  // the slider: through the picture
         drawn_volume = vol_now;
         draw_live(st, false);
-        show(PANEL_X, LIST_Y + 162, PANEL_W, 130);
+        show(PANEL_X, LIST_Y + LIVE_Y, PANEL_W, LIVE_H);
         return;
     }
     dst = dvi_framebuf;
@@ -619,7 +650,7 @@ static void redraw(bool list, bool panel, bool status, const radio_status_t *st)
     if (panel) {
         // Its places go after the list's: drop the old ones first.
         for (int i = 0; i < nhits;)
-            if (hits[i].id == HIT_VOLUME || hits[i].id == HIT_MUTE || hits[i].id == HIT_STOP || hits[i].id == HIT_PLAY ||
+            if (hits[i].id == HIT_VOLUME || hits[i].id == HIT_BASS || hits[i].id == HIT_TREBLE || hits[i].id == HIT_MUTE || hits[i].id == HIT_STOP || hits[i].id == HIT_PLAY ||
                 hits[i].id == HIT_FAV)
                 hits[i] = hits[--nhits];
             else
@@ -825,6 +856,23 @@ static void key(int k, bool *list_dirty) {
     *list_dirty = true;
 }
 
+/// A slider moved to x on the screen: the volume, or the bass or treble (2 dB steps).
+/// @param id HIT_VOLUME, HIT_BASS or HIT_TREBLE
+/// @param x where the pointer is
+static void slide_to(int id, int x) {
+    int at = (x - PANEL_X - 64 - 6) * 1000 / (VOL_W - 12);  // 0-1000 along it
+    at = at < 0 ? 0 : at > 1000 ? 1000 : at;
+    if (id == HIT_VOLUME) {
+        volume_to(at / 10);
+        return;
+    }
+    int db = (at * RADIO_TONE_MAX + 500) / 1000 * 2 - RADIO_TONE_MAX;  // the nearest 2 dB
+    if (id == HIT_BASS)
+        radio_set_tone(db, radio_treble());
+    else
+        radio_set_tone(radio_bass(), db);
+}
+
 /// Handles a mouse event.
 /// @param e the event
 /// @param list_dirty set if the list must be drawn again
@@ -837,16 +885,14 @@ static void click(const mouse_event_t *e, bool *list_dirty) {
         return;
     }
     if (e->type == MOUSE_UP) {
-        if (U.dragging_volume)
+        if (U.dragging)
             save_ini();
-        U.dragging_volume = false;
+        U.dragging = 0;
         return;
     }
     if (e->type == MOUSE_MOVE) {
-        if (U.dragging_volume && (e->buttons & MOUSE_LEFT)) {
-            int vx = PANEL_X + 64, vw = VOL_W;
-            volume_to((e->x - vx - 6) * 100 / (vw - 12));
-        }
+        if (U.dragging && (e->buttons & MOUSE_LEFT))
+            slide_to(U.dragging, e->x);
         return;
     }
     const hit_t *h = hit_at(e->x, e->y);
@@ -867,12 +913,10 @@ static void click(const mouse_event_t *e, bool *list_dirty) {
     case HIT_SEARCH: search(); break;
     case HIT_URL: play_url(); break;
     case HIT_QUIT: U.quit = true; return;
-    case HIT_VOLUME: {
-        U.dragging_volume = true;
-        int vx = PANEL_X + 64, vw = VOL_W;
-        volume_to((e->x - vx - 6) * 100 / (vw - 12));
+    case HIT_VOLUME: case HIT_BASS: case HIT_TREBLE:
+        U.dragging = h->id;
+        slide_to(h->id, e->x);
         return;
-    }
     }
     *list_dirty = true;
 }

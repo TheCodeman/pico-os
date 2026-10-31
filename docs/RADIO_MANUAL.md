@@ -29,14 +29,16 @@ supported (a search lists only MP3 and AAC stations).
   +/- or Left/Right the volume, M mutes and unmutes (the stream goes on;
   MUTED shows under the volume, and the Mute button beside the slider does
   the same), `[` `]` turn the bass down and up and `{` `}` the treble
-  (2 dB a press, -12 to +12; shown beside the volume), Tab the next list,
+  (2 dB a press, -12 to +12; the Bass and Treble sliders under the
+  volume show them), Tab the next list,
   Esc leaves.
 - **Bass and treble:** shelves at 150 Hz and 4 kHz on the 48 kHz sound.
   The bass starts at +6 dB, since the speakers in a TV or monitor give
   little; set it to 0 for flat on good speakers. A boost first lowers the
   whole by half of it, so loud music isn't squashed by the limiter.
 - **Mouse:** click a row, double-click (or right-click) to play, the wheel
-  scrolls, drag the volume, click the tabs and buttons.
+  scrolls, drag the volume, bass and treble sliders (the tone ones are
+  flat in the middle), click the tabs and buttons.
 - **In the background:** leaving with Esc keeps the radio playing at the
   shell prompt and in other programs that don't use the sound (`radio
   stop` stops it; MUSIC, the tracker and the emulators take the sound over).
