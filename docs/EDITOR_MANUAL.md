@@ -60,7 +60,8 @@ The title row is a menu bar: **File** (Save, Redraw screen, Quit),
 or press F10 (File) or Alt and a title's first letter (Alt-F, Alt-E,
 Alt-S). Left / Right go to the next menu (or move the pointer onto its
 title), Up / Down and Enter choose, Esc closes. With the mouse you can also
-press on a title, move onto an item and let go. Each item shows its key.
+press on a title, move onto an item and let go. Each item shows its key. The coloured letter in a title (Alt and it) or an item (press it while
+the menu is open) is its key letter.
 
 ![menu bar](editor_menubar.png)
 

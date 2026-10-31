@@ -26,7 +26,8 @@ Send BREAK, Clear screen) or **Help** (Keys, About) on the menu bar, or press F9
 (or Ctrl-A M), or Alt and a title's first letter (Alt-F, Alt-T, Alt-S, Alt-H). Left / Right go to the next menu (or move the pointer onto
 its title), Up / Down and Enter choose, Esc closes; you can also press on a
 title, move onto an item and let go. The right mouse button opens a menu
-with all of these. Each item shows its key. While a menu is open, what
+with all of these. Each item shows its key. The coloured letter in a title (Alt and it) or an item (press it while
+the menu is open) is its key letter. While a menu is open, what
 arrives waits and then shows when it closes.
 
 ![term](term.png)
