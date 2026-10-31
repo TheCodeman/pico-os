@@ -197,6 +197,20 @@ static const char *const menu_titles[] = {"File", "Transfer", "Settings", "Help"
 /// Their count.
 #define NMENUS 4
 
+/// The menu that Alt and a letter opens (Alt-F, Alt-T, Alt-S, Alt-H: the
+/// titles' first letters; Alt arrives as Esc and the letter), or -1.
+/// @param seq the escape sequence read
+/// @param n its length
+/// @return the menu, or -1
+static int alt_menu(const char *seq, int n) {
+    if (n != 2)
+        return -1;
+    for (int m = 0; m < NMENUS; ++m)
+        if ((seq[1] | 0x20) == (menu_titles[m][0] | 0x20))
+            return m;
+    return -1;
+}
+
 /// A menu title's column on the menu bar.
 /// @param m the menu
 /// @return its first letter's column
@@ -346,6 +360,8 @@ static void page_end(saved_screen_t *s) {
 enum { KEY_UP = 0x100, KEY_DOWN, KEY_RIGHT, KEY_LEFT, KEY_ESC, KEY_F1, KEY_F9, KEY_F10, KEY_OTHER };
 /// A mouse event instead of a key (menu_key).
 #define KEY_MOUSE 0x1ff
+/// Alt and a menu's first letter (Esc and the letter): KEY_ALT_MENU + the menu.
+#define KEY_ALT_MENU 0x200
 
 /// Reads an escape sequence after ESC into seq (with the ESC); returns its key.
 /// @param seq the sequence
@@ -712,6 +728,7 @@ static void help_page(void) {
         {"F1  or Ctrl-A S", "settings: speed, format, pins, flow control, ..."},
         {"F10 or Ctrl-A X", "leave the terminal"},
         {"F9  or Ctrl-A M", "the menus (or click the menu bar; right button: a menu)"},
+        {"Alt-F/T/S/H", "the File, Transfer, Settings or Help menu"},
         {"Ctrl-A B", "send a BREAK"},
         {"Ctrl-A C", "clear the screen"},
         {"Ctrl-A E", "local echo on / off"},
@@ -1657,8 +1674,8 @@ static int menu_key(mouse_event_t *e) {
         if (c != 0x1b)
             return c;
         char seq[16];
-        int n;
-        return read_escape(seq, &n);
+        int n, k = read_escape(seq, &n), m = alt_menu(seq, n);
+        return m >= 0 ? KEY_ALT_MENU + m : k;
     }
 }
 
@@ -1739,6 +1756,11 @@ static int run_menu(const menu_item_t *items, int n, int row, int col, int bar, 
         }
         if (bar >= 0 && (k == KEY_LEFT || k == KEY_RIGHT)) {
             *next = (bar + (k == KEY_LEFT ? NMENUS - 1 : 1)) % NMENUS;
+            break;
+        }
+        if (k >= KEY_ALT_MENU) {  // Alt and another title's letter (its own: closes)
+            if (bar >= 0 && k - KEY_ALT_MENU != bar)
+                *next = k - KEY_ALT_MENU;
             break;
         }
         if (k == KEY_UP || k == KEY_DOWN) {
@@ -1855,6 +1877,8 @@ void term_command(int argc, char **argv) {
                         message[0] = 0;
                 } else if (k == KEY_F9) {
                     running = run_command(menu_bar(0));
+                } else if (alt_menu(seq, n) >= 0) {  // Alt-F, Alt-T, Alt-S, Alt-H
+                    running = run_command(menu_bar(alt_menu(seq, n)));
                 } else if (k == KEY_F10) {
                     running = false;
                 } else {

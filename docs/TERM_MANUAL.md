@@ -23,7 +23,7 @@ also goes to the debug serial port when the serial console is on (`sercon`).
 **Menus:** click **File** (Send text file, Log to file, Exit),
 **Transfer** (Upload, Download), **Settings** (Port settings, Local echo,
 Send BREAK, Clear screen) or **Help** (Keys, About) on the menu bar, or press F9
-(or Ctrl-A M). Left / Right go to the next menu (or move the pointer onto
+(or Ctrl-A M), or Alt and a title's first letter (Alt-F, Alt-T, Alt-S, Alt-H). Left / Right go to the next menu (or move the pointer onto
 its title), Up / Down and Enter choose, Esc closes; you can also press on a
 title, move onto an item and let go. The right mouse button opens a menu
 with all of these. Each item shows its key. While a menu is open, what
@@ -40,6 +40,7 @@ looks much the same.)
 | F1, or Ctrl-A S | Settings box |
 | F10, or Ctrl-A X | Leave the terminal |
 | F9, or Ctrl-A M | The menus |
+| Alt-F, Alt-T, Alt-S, Alt-H | The File, Transfer, Settings or Help menu (other Alt keys go to the far end) |
 | Ctrl-A B | Send a BREAK (250 ms) |
 | Ctrl-A C | Clear the screen |
 | Ctrl-A E | Local echo on / off |

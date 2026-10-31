@@ -307,7 +307,7 @@ static const help_t help_programs[] = {
      "term [baud] [format]       e.g. term, term 9600, term 9600 7E1\n"
      "  A terminal on tty1 (UART1, BASIC's COM1; GP4 TX / GP5 RX unless changed).\n"
      "  F1 settings (speed, format, pins, flow control, echo, newlines)\n"
-     "  F9 or a click on the menu bar: menus; right button: a menu\n"
+     "  F9, Alt-F/T/S/H or a click on the menu bar: menus; right button: a menu\n"
      "  F10 exit   Ctrl-A U upload, Ctrl-A D download (XMODEM, YMODEM, ZMODEM;\n"
      "  sz at the far end starts a ZMODEM download by itself).\n"
      "  Ctrl-A H shows the other keys: break, clear, log, send file.\n"
