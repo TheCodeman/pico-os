@@ -1611,6 +1611,7 @@ static void cmd_reset(int argc, char **argv) {
         mounted = false;
     }
     stdio_flush();
+    serial_console_drain();
     sleep_ms(200);  // let the debug UART and the WiFi goodbye go out
     if (bootsel)
         reset_usb_boot(0, 0);

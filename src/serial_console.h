@@ -16,6 +16,10 @@ extern stdio_driver_t serial_stdio_driver;
 /// Takes over UART0 from the SDK's stdio_uart driver. Call after stdio_init_all().
 void serial_console_init(void);
 
+/// Waits until everything queued for the debug UART has been sent (stdio's
+/// flush doesn't wait): before a restart, so the last messages get out.
+void serial_console_drain(void);
+
 /// Characters dropped because the receive buffer was full.
 /// @return the characters dropped
 unsigned serial_console_overruns(void);

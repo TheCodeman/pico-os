@@ -21,8 +21,8 @@
 /// The debug UART (GP0/GP1).
 #define UART     uart0
 #define RX_SIZE  4096  ///< powers of two
-/// Bytes waiting to be sent.
-#define TX_SIZE  2048
+/// Bytes waiting to be sent (room for a whole 80 x 30 screen drawn at once).
+#define TX_SIZE  4096
 
 /// The receive and send rings.
 ///@{
@@ -103,8 +103,17 @@ bool serial_console_write_some(const char *buf, int len) {
     return room;
 }
 
-/// stdio driver: waits until everything queued has been sent.
+/// stdio driver's flush, which the SDK calls after every printf: starts
+/// sending what is queued but doesn't wait for it. Waiting there held every
+/// program's output to the UART's speed (a full screen of text took 0.2 s
+/// at 115200 baud, even on HDMI); the queue sends it on by interrupt.
 static void serial_out_flush(void) {
+    uint32_t save = spin_lock_blocking(lock);
+    tx_fill();
+    spin_unlock(lock, save);
+}
+
+void serial_console_drain(void) {
     while (tx_head != tx_tail) {
         uint32_t save = spin_lock_blocking(lock);
         tx_fill();
