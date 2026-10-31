@@ -22,7 +22,7 @@ also goes to the debug serial port when the serial console is on (`sercon`).
 
 **Menus:** click **File** (Send text file, Log to file, Exit),
 **Transfer** (Upload, Download), **Settings** (Port settings, Local echo,
-Send BREAK, Clear screen) or **Help** (Keys) on the menu bar, or press F9
+Send BREAK, Clear screen) or **Help** (Keys, About) on the menu bar, or press F9
 (or Ctrl-A M). Left / Right go to the next menu (or move the pointer onto
 its title), Up / Down and Enter choose, Esc closes; you can also press on a
 title, move onto an item and let go. The right mouse button opens a menu
@@ -75,20 +75,24 @@ reopens the port.
 
 ### File transfer: XMODEM, YMODEM, ZMODEM
 
-Ctrl-A U sends files and Ctrl-A D receives them; a key picks the protocol.
+Ctrl-A U (or Transfer > Upload) sends files and Ctrl-A D (Transfer >
+Download) receives them. A box opens: choose the protocol with Up/Down or
+a click (it remembers the last one; ZMODEM at first), type the files to
+send (or, for an XMODEM download, the name to save as), then Start (Enter)
+or Cancel (Esc, or the right button).
 A window shows the file, bytes and percentage, speed, retries and files
 done; Esc or Ctrl-C cancels (the other end is told, with CAN characters).
 
 ![transfer](term_xfer.png)
 
-Above: Ctrl-A D, then Z: the ZMODEM window waiting for the far end to
+Above: Ctrl-A D with ZMODEM: the window waiting for the far end to
 start sending (`sz file` there). Once a file starts, the window shows its
 name, bytes, speed and retries.
 
 | Protocol | Sending | Receiving |
 |---|---|---|
 | XMODEM | one file, 128-byte blocks, CRC-16 or checksum (the receiver chooses) | one file; you type the name to save it as. Its size is rounded up to 128 bytes, padded with Ctrl-Z, as XMODEM has no sizes |
-| XMODEM-1K (K) | one file, 1024-byte blocks | (the same as XMODEM) |
+| XMODEM-1K | one file, 1024-byte blocks | (the same as XMODEM) |
 | YMODEM | several files with names and sizes | the sender's names; exact sizes |
 | ZMODEM | several files, streaming | the sender's names; carries on with a partial file when the sender asks (`sz -r`) |
 

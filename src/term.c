@@ -42,7 +42,8 @@
 #define TEXT_TOP   1                    ///< the far end's first row (row 0 is the menu bar)
 #define TEXT_ROWS  (CONSOLE_ROWS - 2)   ///< its rows (the last row is the status line)
 #define TEXT_BOTTOM (TEXT_TOP + TEXT_ROWS - 1)  ///< its last row
-#define BAR_ATTR   0x70  ///< the menu bar and status line: black on light grey, as in the editor
+#define BAR_ATTR   0x1f  ///< the menu bar and status line: bright white on blue
+#define BAR_SEL_ATTR 0x70  ///< a menu's title on the bar while it is open: black on light grey
 #define MENU_ATTR  0x70  ///< a menu
 #define SEL_ATTR   0x1f  ///< its item under the pointer: bright white on blue
 /// The control-key code of a letter.
@@ -225,7 +226,7 @@ static int menu_at(int col) {
 static void put_bar(int row, const char *text, uint8_t attr, int hl_from, int hl_to) {
     int len = strlen(text);
     for (int col = 0; col < CONSOLE_COLS; ++col) {
-        uint8_t ch = col < len ? (uint8_t)text[col] : ' ', a = col >= hl_from && col < hl_to ? SEL_ATTR : attr;
+        uint8_t ch = col < len ? (uint8_t)text[col] : ' ', a = col >= hl_from && col < hl_to ? BAR_SEL_ATTR : attr;
         uint8_t was_ch, was_a;
         console_get_cell(row, col, &was_ch, &was_a);
         if (was_ch != ch || was_a != a)
@@ -1139,44 +1140,24 @@ static int add_paths(const char *word, char **paths, int n) {
     return n;
 }
 
-/// Asks for the protocol.
-/// @param sending for an upload
-/// @return the protocol, or -1
-static int choose_protocol(bool sending) {
-    set_message(sending ? "Upload with  X XMODEM  K XMODEM-1K  Y YMODEM  Z ZMODEM  (Esc: back)"
-                        : "Download with  X XMODEM  Y YMODEM  Z ZMODEM  (Esc: back)");
-    int k = wait_key();
-    message[0] = 0;
-    status_dirty = true;
-    switch (k | 0x20) {
-    case 'x': return XFER_XMODEM;
-    case 'k': return sending ? XFER_XMODEM_1K : -1;
-    case 'y': return XFER_YMODEM;
-    case 'z': return XFER_ZMODEM;
-    }
-    return -1;
-}
+static bool transfer_dialog(bool sending, int *proto, char *text, int size);
 
 /// Ctrl-A U (sending) or D, or a ZMODEM download the far end started (auto).
 /// @param sending an upload
 static void transfer(bool sending) {
     bool autostart = !sending && zmodem_seen;
     zmodem_seen = false;
-    int proto = autostart ? XFER_ZMODEM : choose_protocol(sending);
-    if (proto < 0)
+    int proto = XFER_ZMODEM;
+    char line[120] = "";
+    if (!autostart && !transfer_dialog(sending, &proto, line, sizeof line)) {
+        status_dirty = true;
         return;
+    }
     xf.proto = proto;
     xf.sending = sending;
     xf.last_name = NULL;
     xfer_result_t res;
     if (sending) {
-        char line[120] = "";
-        if (!prompt(proto == XFER_XMODEM || proto == XFER_XMODEM_1K ? "File to send: "
-                                                                    : "Files to send (* and ? work): ",
-                    line, sizeof line) || !line[0]) {
-            status_dirty = true;
-            return;
-        }
         char *paths[MAX_SEND];
         int n = 0;
         for (char *w = strtok(line, " "); w; w = strtok(NULL, " "))
@@ -1190,14 +1171,8 @@ static void transfer(bool sending) {
         for (int i = 0; i < n; ++i)
             free(paths[i]);
     } else {
-        char name[64] = "";
-        if (proto == XFER_XMODEM &&
-            (!prompt("Save as: ", name, sizeof name) || !name[0])) {
-            status_dirty = true;
-            return;
-        }
         box_open();
-        xfer_receive(&xfer_io, proto, name, &res);
+        xfer_receive(&xfer_io, proto, line, &res);
     }
     box_close();
     // Drop what the other end may still send (e.g. CANs or the rest of a
@@ -1209,6 +1184,233 @@ static void transfer(bool sending) {
     snprintf(m, sizeof m, "%s %s: %s", xfer_proto_name(proto), sending ? "upload" : "download",
              res.message);
     set_message(m);
+}
+
+// ---- Boxes: transfers, About ---------------------------------------------------------
+
+/// Saves the cells of a rectangle (NULL if out of memory).
+/// @param row its top row
+/// @param col its left column
+/// @param h its rows
+/// @param w its columns
+/// @return the copy (free with cells_restore)
+static uint8_t *cells_save(int row, int col, int h, int w) {
+    uint8_t *u = malloc(2 * w * h);
+    if (u)
+        for (int r = 0; r < h; ++r)
+            for (int c = 0; c < w; ++c)
+                console_get_cell(row + r, col + c, &u[2 * (r * w + c)], &u[2 * (r * w + c) + 1]);
+    return u;
+}
+
+/// Puts saved cells back and frees the copy.
+/// @param u the copy, or NULL
+/// @param row the rectangle's top row
+/// @param col its left column
+/// @param h its rows
+/// @param w its columns
+static void cells_restore(uint8_t *u, int row, int col, int h, int w) {
+    if (!u) {
+        status_dirty = true;
+        return;
+    }
+    for (int r = 0; r < h; ++r)
+        for (int c = 0; c < w; ++c)
+            console_set_cell(row + r, col + c, u[2 * (r * w + c)], u[2 * (r * w + c) + 1]);
+    free(u);
+}
+
+/// Draws an empty box with its title in the top line.
+/// @param row its top row
+/// @param col its left column
+/// @param h its rows
+/// @param w its columns
+/// @param title its title
+static void draw_frame(int row, int col, int h, int w, const char *title) {
+    for (int r = 0; r < h; ++r) {
+        bool edge = r == 0 || r == h - 1;
+        console_set_cell(row + r, col, r == 0 ? 0xda : r == h - 1 ? 0xc0 : 0xb3, MENU_ATTR);
+        for (int c = 1; c < w - 1; ++c)
+            console_set_cell(row + r, col + c, edge ? 0xc4 : ' ', MENU_ATTR);
+        console_set_cell(row + r, col + w - 1, r == 0 ? 0xbf : r == h - 1 ? 0xd9 : 0xb3, MENU_ATTR);
+    }
+    char t[64];
+    snprintf(t, sizeof t, " %s ", title);
+    put_text(row, col + 2, t, MENU_ATTR);
+}
+
+/// Draws a row of buttons centred in a box, the focused one highlighted.
+/// @param row the row
+/// @param col the box's left column
+/// @param w its width
+/// @param names the buttons
+/// @param n their count
+/// @param focus the one highlighted (-1: none)
+/// @param bx set to each one's column
+static void draw_buttons(int row, int col, int w, const char *const *names, int n, int focus, int *bx) {
+    int total = 0;
+    for (int i = 0; i < n; ++i)
+        total += (int)strlen(names[i]) + 4 + (i ? 2 : 0);
+    int x = col + (w - total) / 2;
+    for (int i = 0; i < n; ++i) {
+        char b[32];
+        snprintf(b, sizeof b, "[ %s ]", names[i]);
+        bx[i] = x;
+        put_text(row, x, b, i == focus ? SEL_ATTR : MENU_ATTR);
+        x += (int)strlen(b) + 2;
+    }
+}
+
+/// The button under a click, or -1.
+/// @param e the click
+/// @param row the buttons' row
+/// @param names the buttons
+/// @param n their count
+/// @param bx their columns
+/// @return the button, or -1
+static int button_at(const mouse_event_t *e, int row, const char *const *names, int n, const int *bx) {
+    if (e->y / 16 != row)
+        return -1;
+    for (int i = 0; i < n; ++i)
+        if (e->x / 8 >= bx[i] && e->x / 8 < bx[i] + (int)strlen(names[i]) + 4)
+            return i;
+    return -1;
+}
+
+/// The upload or download box: the protocol (a list: Up/Down or a click)
+/// and, to send, the files (* and ? work), or for an XMODEM download the
+/// name to save as (typed; the other protocols bring the names). Start
+/// (Enter) or Cancel (Esc, the right button). False if cancelled.
+/// @param sending an upload (else a download)
+/// @param proto set to the protocol
+/// @param text the files or name, typed into
+/// @param size room in text
+/// @return start
+static bool transfer_dialog(bool sending, int *proto, char *text, int size) {
+    static const xfer_proto_t up[] = {XFER_XMODEM, XFER_XMODEM_1K, XFER_YMODEM, XFER_ZMODEM};
+    static const xfer_proto_t down[] = {XFER_XMODEM, XFER_YMODEM, XFER_ZMODEM};
+    static int last_up = 3, last_down = 2;  // ZMODEM at first, then the last one used
+    static const char *const buttons[] = {"Start", "Cancel"};
+    const xfer_proto_t *list = sending ? up : down;
+    int n = sending ? 4 : 3, sel = sending ? last_up : last_down, bx[2];
+    enum { W = 60 };
+    int h = n + 10, row = (CONSOLE_ROWS - h) / 2, col = (CONSOLE_COLS - W) / 2;
+    int field_row = row + 3 + n + 1, len = strlen(text);
+    uint8_t *under = cells_save(row, col, h, W);
+    console_write("\x1b[?25l", 6);
+    bool start = false, done = false, redraw = true;
+    while (!done) {
+        bool named = sending || list[sel] == XFER_XMODEM;  // a name to type
+        if (redraw) {
+            draw_frame(row, col, h, W, sending ? "Upload: send files" : "Download: receive files");
+            put_text(row + 2, col + 3, "Protocol:", MENU_ATTR);
+            for (int i = 0; i < n; ++i) {
+                char item[40];
+                snprintf(item, sizeof item, " (%c) %-12s", i == sel ? 0x07 : ' ', xfer_proto_name(list[i]));
+                put_text(row + 3 + i, col + 5, item, i == sel ? SEL_ATTR : MENU_ATTR);
+            }
+            put_text(field_row, col + 3, sending ? "Files:" : "Save as:", named ? MENU_ATTR : 0x78);
+            if (named) {
+                char shown[W];
+                int room = W - 18, from = len > room - 1 ? len - (room - 1) : 0;
+                snprintf(shown, sizeof shown, "%s_", text + from);
+                fill_cells(field_row, col + 13, room, 0x0f);  // white on black, as a field
+                put_text(field_row, col + 13, shown, 0x0f);
+            } else {
+                put_text(field_row, col + 13, "(the sender gives the names)", 0x78);
+            }
+            put_text(field_row + 1, col + 13,
+                     sending ? "several, and * and ? work: *.BAS" : named ? "the file to write" : "", 0x78);
+            if (!sending && list[sel] == XFER_ZMODEM)
+                put_text(field_row + 2, col + 3, "(sz at the far end also starts one by itself)", 0x78);
+            draw_buttons(row + h - 2, col, W, buttons, 2, 0, bx);
+        }
+        redraw = true;
+        mouse_event_t e;
+        int k = menu_key(&e);
+        if (k == KEY_MOUSE) {
+            redraw = false;
+            if (e.type != MOUSE_DOWN)
+                continue;
+            int i = e.y / 16 - row - 3, b = button_at(&e, row + h - 2, buttons, 2, bx);
+            if (e.button == MOUSE_RIGHT || b == 1) {
+                done = true;
+            } else if (b == 0) {
+                k = '\r';
+            } else if (i >= 0 && i < n && e.x / 8 > col && e.x / 8 < col + W - 1) {
+                sel = i;
+                redraw = true;
+                continue;
+            } else {
+                continue;
+            }
+        }
+        if (done)
+            break;
+        if (k == KEY_ESC || k == CTRL('c')) {
+            done = true;
+        } else if (k == '\r' || k == '\n') {
+            if (named && !text[0]) {
+                put_text(field_row + 2, col + 3, sending ? "Type the files to send first.          "
+                                                         : "Type the name to save as first.        ", 0x74);
+                redraw = false;
+            } else {
+                start = done = true;
+            }
+        } else if (k == KEY_UP) {
+            sel = (sel + n - 1) % n;
+        } else if (k == KEY_DOWN || k == '\t') {
+            sel = (sel + 1) % n;
+        } else if ((k == '\b' || k == 0x7f) && len > 0) {
+            text[--len] = 0;
+        } else if (k >= 0x20 && k < 0x7f && len < size - 1 && named) {
+            text[len++] = k;
+            text[len] = 0;
+        }
+    }
+    cells_restore(under, row, col, h, W);
+    console_write("\x1b[?25h", 6);
+    if (sending)
+        last_up = sel;
+    else
+        last_down = sel;
+    *proto = list[sel];
+    if (!sending && *proto != XFER_XMODEM)
+        text[0] = 0;
+    return start;
+}
+
+/// Help > About: the program, its version and the OS's.
+static void about_box(void) {
+    static const char *const ok[] = {"OK"};
+    enum { W = 54, H = 13 };
+    int row = (CONSOLE_ROWS - H) / 2, col = (CONSOLE_COLS - W) / 2, bx[1];
+    uint8_t *under = cells_save(row, col, H, W);
+    console_write("\x1b[?25l", 6);
+    draw_frame(row, col, H, W, "About");
+    char line[W];
+    snprintf(line, sizeof line, "Serial terminal %s", VER_TERM);
+    put_text(row + 2, col + (W - (int)strlen(line)) / 2, line, 0x71);  // blue on grey
+    snprintf(line, sizeof line, "%s %s, build %s", OS_NAME, OS_VERSION, version_build());
+    put_text(row + 3, col + (W - (int)strlen(line)) / 2, line, MENU_ATTR);
+    static const char *const text[] = {
+        "A VT100 / ANSI terminal on tty1 (UART1, BASIC's",
+        "COM1), with XMODEM, YMODEM and ZMODEM transfers",
+        "and logging. Settings in " CFG_FILE ".",
+        "",
+        "Copyright (c) 2026 Ken Segler. MIT licence.",
+    };
+    for (int i = 0; i < (int)(sizeof text / sizeof *text); ++i)
+        put_text(row + 5 + i, col + 3, text[i], MENU_ATTR);
+    draw_buttons(row + H - 2, col, W, ok, 1, 0, bx);
+    for (;;) {
+        mouse_event_t e;
+        int k = menu_key(&e);
+        if (k != KEY_MOUSE || (e.type == MOUSE_DOWN))
+            break;  // any key or click closes it
+    }
+    cells_restore(under, row, col, H, W);
+    console_write("\x1b[?25h", 6);
 }
 
 // ---- Main loop ----------------------------------------------------------------------
@@ -1278,6 +1480,7 @@ static void send_key(int c) {
 }
 
 static int menu_bar(int m);
+static void about_box(void);
 
 /// Runs a command (Ctrl-A's letter, upper case). False to leave the terminal.
 /// @param k the letter
@@ -1305,6 +1508,7 @@ static bool run_command(int k) {
     case 'U': transfer(true); break;
     case 'D': transfer(false); break;
     case 'H': help_page(); break;
+    case 'A': about_box(); break;
     case 'M': return run_command(menu_bar(0));
     case CTRL('a'): send("\x01", 1); break;
     }
@@ -1350,7 +1554,7 @@ static const menu_item_t settings_items[] = {
 };
 /// The Help menu.
 static const menu_item_t help_items[] = {
-    {"Keys...", "Ctrl-A H", 'H'},
+    {"Keys...", "Ctrl-A H", 'H'}, {"About...", "", 'A'},
 };
 /// The right button's menu.
 static const menu_item_t popup_items[] = {
